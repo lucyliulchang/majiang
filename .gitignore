@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+backend/.venv/
+backend/.env
+backend/logs/
+
+# 数据库（含 WAL 边车文件与备份）—— 备份走 sqlite3 .backup
+backend/*.db
+backend/*.db-wal
+backend/*.db-shm
+backend/*.db.bak-*
+backend/tests/*.db
+
+# 前端
+frontend/node_modules/
+frontend/dist/
+
+# 工具与联调产物
+.playwright-cli/
+shots/
+

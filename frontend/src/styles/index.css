@@ -1,0 +1,179 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --felt-950: #071a12;
+    --felt-900: #0a2419;
+    --felt-800: #0f3d2e;
+    --gold: #c9a063;
+    --cream: #f7f3e8;
+    --ink: #1f2a24;
+  }
+
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 700px at 12% -10%, rgba(26, 92, 70, 0.55), transparent 60%),
+      radial-gradient(900px 600px at 92% 8%, rgba(201, 160, 99, 0.14), transparent 62%),
+      linear-gradient(165deg, #071a12 0%, #0a2419 45%, #082016 100%);
+    color: var(--cream);
+    font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: rgba(201, 160, 99, 0.35);
+    color: #fffdf7;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(201, 160, 99, 0.22);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(201, 160, 99, 0.4);
+  }
+
+  button {
+    font-family: inherit;
+  }
+
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+    color: inherit;
+  }
+
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}
+
+@layer components {
+  .glass {
+    background: linear-gradient(155deg, rgba(16, 51, 39, 0.82), rgba(9, 32, 23, 0.74));
+    border: 1px solid rgba(201, 160, 99, 0.18);
+    backdrop-filter: blur(14px);
+  }
+
+  .glass-soft {
+    background: rgba(247, 243, 232, 0.05);
+    border: 1px solid rgba(247, 243, 232, 0.1);
+    backdrop-filter: blur(10px);
+  }
+
+  .card-cream {
+    background: linear-gradient(160deg, #fffdf7, #f3ecdb);
+    color: var(--ink);
+    border: 1px solid rgba(201, 160, 99, 0.35);
+  }
+
+  .text-gold-gradient {
+    background: linear-gradient(100deg, #f0e4c8 0%, #c9a063 45%, #f0e4c8 90%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .btn-gold {
+    background: linear-gradient(140deg, #e2c891, #c9a063 55%, #a97f3f);
+    color: #2a1e0c;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    box-shadow: 0 10px 24px -12px rgba(201, 160, 99, 0.9);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+  }
+  .btn-gold:hover:not(:disabled) {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+    box-shadow: 0 16px 32px -14px rgba(201, 160, 99, 0.95);
+  }
+  .btn-gold:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  .btn-gold:disabled {
+    filter: grayscale(0.5) brightness(0.8);
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .btn-ghost {
+    border: 1px solid rgba(247, 243, 232, 0.18);
+    color: rgba(247, 243, 232, 0.86);
+    background: rgba(247, 243, 232, 0.04);
+    transition: all 0.18s ease;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: rgba(247, 243, 232, 0.1);
+    border-color: rgba(201, 160, 99, 0.45);
+    color: #fffdf7;
+  }
+  .btn-ghost:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .field {
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid rgba(247, 243, 232, 0.16);
+    background: rgba(7, 26, 18, 0.55);
+    padding: 0.62rem 0.85rem;
+    font-size: 15px;
+    color: #fffdf7;
+    outline: none;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  }
+  .field::placeholder {
+    color: rgba(168, 191, 180, 0.55);
+  }
+  .field:focus {
+    border-color: rgba(201, 160, 99, 0.7);
+    box-shadow: 0 0 0 3px rgba(201, 160, 99, 0.14);
+    background: rgba(7, 26, 18, 0.78);
+  }
+  .field:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .felt-panel {
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(34, 115, 87, 0.4), transparent 62%),
+      linear-gradient(170deg, #10352a 0%, #0b2a1e 60%, #082117 100%);
+    border: 1px solid rgba(201, 160, 99, 0.22);
+  }
+
+  .divider-gold {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(201, 160, 99, 0.45), transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
