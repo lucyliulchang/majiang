@@ -251,6 +251,32 @@ async def test_target_leaving_clears_binding(s5_env):
         actor._clear_timers()
 
 
+async def test_binding_follows_login_after_seat_swap(s5_env):
+    """抽座换座后仍跟随同一 loginID（按 loginID 绑定，座位只是派生值）。"""
+    actor, sockets = build_actor(s5_env)
+    guest = SPECTATORS[0]
+    ws = add_spectator(actor, guest)
+    try:
+        await start_game(actor, sockets)
+        target_login = s5_env["members"][2]
+        await actor.handle(guest, {"type": "spectate.target", "data": {"seat": 2}})
+        assert actor.spectators[guest].target_login_id == target_login
+
+        # 模拟抽座：2/3 号座位的玩家互换（座位对象整体交换，engine 状态在真实抽座时随座位重建）
+        actor.slots[2], actor.slots[3] = actor.slots[3], actor.slots[2]
+        new_seat = actor.seat_of_login(target_login)
+        assert new_seat == 3
+        await actor.push_all()
+
+        data = ws.snapshot()
+        assert data["spectate"]["target_seat"] == 3
+        assert actor.spectators[guest].target_login_id == target_login
+        assert data["seats"][3]["spectator_count"] == 1
+        assert data["seats"][2]["spectator_count"] == 0
+    finally:
+        actor._clear_timers()
+
+
 async def test_spectator_cannot_act_but_can_chat(s5_env):
     actor, sockets = build_actor(s5_env)
     guest = SPECTATORS[0]

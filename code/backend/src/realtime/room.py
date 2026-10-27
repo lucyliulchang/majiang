@@ -129,8 +129,11 @@ class RoomActor:
         return {slot.seat: slot.login_id for slot in self.slots if slot}
 
     def seat_of_login(self, login_id: str) -> int | None:
-        slot = self.slot_of_login(login_id)
-        return slot.seat if slot is not None else None
+        """座位以下标为准（抽座时只换座位对象，不依赖 slot.seat 的旧值）。"""
+        for seat, slot in enumerate(self.slots):
+            if slot is not None and slot.login_id == login_id:
+                return seat
+        return None
 
     def player_count(self) -> int:
         return sum(1 for slot in self.slots if slot)
