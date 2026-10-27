@@ -273,42 +273,6 @@ def installPresets():
     return result
 
 
-def install_presets(session):
-    """SQLAlchemy / SQLite 兼容入口（S2 保留，S5 切测试库后删除）。
-
-    仍走旧口径：按模板名去重、只写 RuleTemplate；供 main/app.py、tests/test_ws_flow.py
-    与 scripts/bootstrap_family.py 沿用，避免本步改动业务启动与测试执行方式。
-    """
-    from sqlalchemy import select
-
-    from db.models import RuleTemplate
-
-    created = 0
-    existing = {
-        row.name
-        for row in session.scalars(
-            select(RuleTemplate).where(RuleTemplate.is_preset.is_(True))
-        ).all()
-    }
-    for _templateCode, name, description, config, _sortOrder in _presetTemplates():
-        if name in existing:
-            continue
-        session.add(
-            RuleTemplate(
-                owner_id=None,
-                name=name,
-                description=description,
-                config=config,
-                is_preset=True,
-                is_active=True,
-            )
-        )
-        created += 1
-    if created:
-        session.commit()
-    return created
-
-
 def main(argv=None):
     import argparse
 

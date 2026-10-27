@@ -1,73 +1,81 @@
 """FastAPI 应用装配。"""
 
-import secrets
+import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
 
+from common import mysqlCommon
+from common.bizCommon import BizError
 from common.loggingCommon import get_logger, setup_logging
-from common.securityCommon import hash_password
+from common.mysqlHandle import DBUnavailableError
 from config.basicSettings import PUBLIC_IMAGE_URL, VERSION
 from config.localSettings import FRONTEND_DIST, settings
-from db.base import SessionLocal, init_db
-from db.models import Game, User
 from main import ws as ws_api
 from main.api.router import api_router
-from tools.seedPresets import install_presets
+from processor import accountService
+from tools.seedPresets import installPresets
 
 logger = get_logger("mahjong.main")
 
 
-def close_stale_games() -> None:
-    """把库里遗留的"进行中"场次标记为中断。
+def close_stale_games() -> int:
+    """把库里遗留的「进行中」场次标记为 ABORTED（进程重启后无人能续局）。
 
-    房态只在内存，进程重启后这些场次永远不会有人继续打；不处理的话战绩页会长期
-    挂着一串"进行中"的僵尸场次。已结算的每局结果都在 game_rounds 里，积分不受影响。
+    房态只在内存，重启后这些场次永远不会有人继续打；不处理的话战绩页会长期
+    挂着一串「进行中」的僵尸场次。已结算的每局结果都在 mj_game_round 里，积分不受影响。
+    一条 UPDATE 完成，返回受影响行数。
     """
-    with SessionLocal() as session:
-        stale = session.scalars(select(Game).where(Game.status == "playing")).all()
-        if not stale:
-            return
-        now = datetime.now(timezone.utc)
-        for game in stale:
-            game.status = "aborted"
-            game.ended_at = now
-        session.commit()
-        logger.info("已把 %d 场遗留的进行中对局标记为中断", len(stale))
+    affected = mysqlCommon.update_mj_game_abort_playing()
+    if affected > 0:
+        logger.info("已把 %d 场遗留的进行中对局标记为 ABORTED", affected)
+    return affected
 
 
 def bootstrap() -> None:
-    """建表、写预置规则、清理遗留对局、确保有一个管理员账号。"""
-    init_db()
-    close_stale_games()
-    with SessionLocal() as session:
-        install_presets(session)
-        admin = session.scalar(select(User).where(User.role == "admin"))
-        if admin is not None:
-            return
-        password = settings.admin_init_password or secrets.token_urlsafe(9)
-        user = User(
-            username=settings.admin_init_username.strip().lower() or "admin",
-            display_name="管理员",
-            password_hash=hash_password(password),
-            role="admin",
-            color="#C9A063",
+    """写预置规则（幂等）+ 清理遗留对局。
+
+    建表由 `tools/initTables.py` 负责（02 §6.3），启动期不再做 ORM 自动建表：
+    账号由 contentHub 账号服务管理，本库只镜像 USER_BASIC。
+    数据库不可用时不阻断启动（请求层统一 503 DB_UNAVAILABLE），只记错误日志。
+    """
+    try:
+        counts = installPresets()
+        logger.info("预置数据就绪：%s", counts)
+        close_stale_games()
+    except (DBUnavailableError, RuntimeError) as error:
+        logger.error("启动期数据库不可用，跳过预置数据与遗留场次清理：%s", error)
+
+
+def check_account_service() -> None:
+    """启动探活：账号服务可达性只打印结果，**不阻塞启动**（01 §5.5、docs/部署.md §4）。"""
+    try:
+        ok, detail = accountService.checkService()
+    except Exception as error:  # noqa: BLE001 探活本身不能拖死启动
+        ok, detail = False, str(error)
+
+    if ok:
+        logger.info(
+            "账号服务可达 %s（%s）", settings.account_service_url, detail
         )
-        session.add(user)
-        session.commit()
-        if not settings.admin_init_password:
-            logger.warning(
-                "已创建管理员账号 %s，随机初始密码：%s（请登录后立刻修改）",
-                user.username,
-                password,
-            )
-        else:
-            logger.info("已创建管理员账号 %s", user.username)
+    else:
+        logger.warning(
+            "账号服务不可达 %s（%s）：登录/注册/找回口令将返回 503，服务继续启动",
+            settings.account_service_url,
+            detail,
+        )
+    logger.info(
+        "账号开关：注册=%s 找回口令=%s 默认角色=%s",
+        settings.account_register_enabled,
+        settings.account_password_reset_enabled,
+        settings.account_default_role,
+    )
+
+
+_background_tasks: set[asyncio.Task] = set()
 
 
 @asynccontextmanager
@@ -75,12 +83,40 @@ async def lifespan(_: FastAPI):
     settings.ensure_dirs()
     setup_logging()
     bootstrap()
+
+    # 探活放后台：账号服务不可达/超时都不拖慢启动，只留一条结论日志
+    task = asyncio.create_task(asyncio.to_thread(check_account_service))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
     logger.info("家庭麻将后端已启动，版本 %s", VERSION)
     yield
     logger.info("家庭麻将后端已停止")
 
 
 app = FastAPI(title="家庭麻将", version=VERSION, lifespan=lifespan)
+
+
+@app.exception_handler(BizError)
+async def biz_error_handler(_: Request, exc: BizError) -> JSONResponse:
+    """业务异常统一输出 04 §1 的错误体：{"detail": 中文提示, "code": ERROR_CODE}。
+
+    AccountServiceError / FamilyServiceError 都是 BizError 的子类，一个 handler 覆盖。
+    """
+    return JSONResponse(
+        status_code=exc.httpStatus,
+        content={"detail": exc.message, "code": exc.code},
+    )
+
+
+@app.exception_handler(DBUnavailableError)
+async def db_unavailable_handler(_: Request, exc: DBUnavailableError) -> JSONResponse:
+    """数据层不可用：不把驱动异常原样抛给前端（01 §4.1）。"""
+    logger.error("数据库不可用：%s", exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "数据服务暂时不可用，请稍后再试", "code": "DB_UNAVAILABLE"},
+    )
 
 app.add_middleware(
     CORSMiddleware,
