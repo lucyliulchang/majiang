@@ -1,165 +1,116 @@
-"""房间：创建、按邀请码查询、关闭、历史消息。"""
+"""房间路由（04 §6，6 个端点）。
 
-import random
-import string
+分层（01 §2）：解析参数 → 家庭上下文 → 调 roomService → 套响应模型。
+房态实时值（在座人数 / 围观人数）来自内存 `room_manager`，不查库。
+"""
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, Query
 
-from main.deps import db_session, get_current_user
-from db.models import Room, RuleTemplate, User
-from realtime import persist
+from main.deps import (
+    CurrentUser,
+    FamilyContext,
+    current_active_family,
+    current_user,
+    familyContextOf,
+)
+from processor import roomService
 from realtime.manager import room_manager
 from schemas.room import ChatMessageOut, RoomCreateRequest, RoomJoinCheck, RoomOut
-from schemas.rule import RuleConfig
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
 
-_CODE_ALPHABET = string.digits + "ABCDEFGHJKLMNPQRSTUVWXYZ"  # 去掉易混的 O/I
+
+def _liveCounts(roomCode: str) -> tuple[int, int]:
+    """(在座人数, 围观人数)：房态只在内存，无 actor 时都是 0。"""
+    actor = room_manager.get(roomCode)
+    if actor is None:
+        return 0, 0
+    return actor.player_count(), actor.spectator_count()
 
 
-def _new_code(session: Session) -> str:
-    for _ in range(50):
-        code = "".join(random.SystemRandom().choice(_CODE_ALPHABET) for _ in range(6))
-        if session.scalar(select(Room).where(Room.code == code)) is None:
-            return code
-    raise HTTPException(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="邀请码生成失败，请重试"
-    )
-
-
-def _room_out(session: Session, room: Room) -> RoomOut:
-    host = session.get(User, room.host_id)
-    template = (
-        session.get(RuleTemplate, room.rule_template_id) if room.rule_template_id else None
-    )
-    actor = room_manager.get(room.code)
-    player_count = sum(1 for slot in actor.slots if slot) if actor else 0
-    return RoomOut(
-        id=room.id,
-        code=room.code,
-        name=room.name,
-        host_id=room.host_id,
-        host_name=host.display_name if host else "未知",
-        rule_template_id=room.rule_template_id,
-        rule_name=template.name if template else "自定义规则",
-        status=room.status,
-        created_at=room.created_at.isoformat(),
-        player_count=player_count,
-    )
+def _familyOf(
+    user: CurrentUser, familyCode: str, fallback: FamilyContext
+) -> FamilyContext:
+    code = (familyCode or "").strip()
+    if not code or code == fallback.family_code:
+        return fallback
+    return familyContextOf(user.login_id, code, requireEnabled=True)
 
 
 @router.post("", response_model=RoomOut)
 def create_room(
     payload: RoomCreateRequest,
-    user: User = Depends(get_current_user),
-    session: Session = Depends(db_session),
+    user: CurrentUser = Depends(current_user),
+    context: FamilyContext = Depends(current_active_family),
 ) -> RoomOut:
-    template = session.get(RuleTemplate, payload.rule_template_id)
-    if template is None or not template.is_active:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="规则模板不存在")
-    if not template.is_preset and template.owner_id != user.id and not user.is_admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="这套规则不是你的")
-    config = RuleConfig.model_validate(template.config or {})
-    room = Room(
-        code=_new_code(session),
-        name=payload.name.strip(),
-        host_id=user.id,
-        rule_template_id=template.id,
-        # 开房时把规则快照下来，之后改模板不影响这局
-        rule_snapshot=config.model_dump(),
-        status="open",
+    """开桌（04 §6 #25）：模板不存在/族未就绪时 `mj_room` 不落任何记录。"""
+    family = _familyOf(user, payload.family_code, context)
+    return RoomOut(
+        **roomService.createRoom(
+            user.login_id,
+            family.family_id,
+            family.family_code,
+            payload.room_name,
+            payload.template_id,
+        )
     )
-    session.add(room)
-    session.commit()
-    return _room_out(session, room)
 
 
 @router.get("", response_model=list[RoomOut])
 def my_rooms(
-    user: User = Depends(get_current_user), session: Session = Depends(db_session)
+    before_id: int = 0,
+    context: FamilyContext = Depends(current_active_family),
 ) -> list[RoomOut]:
-    rows = session.scalars(
-        select(Room)
-        .where(Room.host_id == user.id, Room.status != "closed")
-        .order_by(Room.id.desc())
-        .limit(20)
-    ).all()
-    return [_room_out(session, row) for row in rows]
+    """家庭房间列表：只列 OPEN，倒序，默认 20（04 §6 #26）。"""
+    rows = roomService.listRooms(
+        context.login_id, context.family_id, context.family_code, beforeID=before_id
+    )
+    result: list[RoomOut] = []
+    for row in rows:
+        players, spectators = _liveCounts(row["room_code"])
+        result.append(RoomOut(**{**row, "player_count": players, "spectator_count": spectators}))
+    return result
 
 
-@router.get("/code/{code}", response_model=RoomJoinCheck)
+@router.get("/code/{room_code}", response_model=RoomJoinCheck)
 def join_check(
-    code: str,
-    _: User = Depends(get_current_user),
-    session: Session = Depends(db_session),
+    room_code: str,
+    user: CurrentUser = Depends(current_user),
 ) -> RoomJoinCheck:
-    room = session.scalar(select(Room).where(Room.code == code.strip().upper()))
-    if room is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="没有这个房间，检查一下邀请码")
-    if room.status == "closed":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="这个房间已经关闭了")
-    host = session.get(User, room.host_id)
-    template = (
-        session.get(RuleTemplate, room.rule_template_id) if room.rule_template_id else None
-    )
-    actor = room_manager.get(room.code)
-    count = sum(1 for slot in actor.slots if slot) if actor else 0
-    return RoomJoinCheck(
-        code=room.code,
-        name=room.name,
-        host_name=host.display_name if host else "未知",
-        rule_name=template.name if template else "自定义规则",
-        status=room.status,
-        player_count=count,
-    )
+    """按邀请码入房校验（04 §6 #28）：非成员 403，已关房 400 ROOM_CLOSED。"""
+    players, _ = _liveCounts(room_code.strip().upper())
+    return RoomJoinCheck(**roomService.getRoomByCode(user.login_id, room_code, players))
+
+
+@router.get("/{room_id}", response_model=RoomOut)
+def get_room(
+    room_id: int,
+    user: CurrentUser = Depends(current_user),
+) -> RoomOut:
+    """房间详情（04 §6 #27）：以房间自身 familyID 校验成员关系。"""
+    row = roomService.getRoom(user.login_id, room_id)
+    players, spectators = _liveCounts(row["room_code"])
+    return RoomOut(**{**row, "player_count": players, "spectator_count": spectators})
 
 
 @router.post("/{room_id}/close", response_model=RoomOut)
 def close_room(
     room_id: int,
-    user: User = Depends(get_current_user),
-    session: Session = Depends(db_session),
+    user: CurrentUser = Depends(current_user),
 ) -> RoomOut:
-    room = session.get(Room, room_id)
-    if room is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="房间不存在")
-    if room.host_id != user.id and not user.is_admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="只有房主可以关闭房间")
-    room.status = "closed"
-    from db.models import utcnow
-
-    room.closed_at = utcnow()
-    session.commit()
-    room_manager.remove(room.code)
-    return _room_out(session, room)
+    """关房（04 §6 #29）：房主/家庭管理员；同时销毁内存中的房间演员。"""
+    row = roomService.closeRoom(user.login_id, room_id)
+    room_manager.remove(row["room_code"])
+    players, spectators = _liveCounts(row["room_code"])
+    return RoomOut(**{**row, "player_count": players, "spectator_count": spectators})
 
 
 @router.get("/{room_id}/messages", response_model=list[ChatMessageOut])
 def room_messages(
     room_id: int,
-    limit: int = 50,
-    _: User = Depends(get_current_user),
-    session: Session = Depends(db_session),
+    limit: int = Query(default=50, ge=1, le=200),
+    user: CurrentUser = Depends(current_user),
 ) -> list[ChatMessageOut]:
-    room = session.get(Room, room_id)
-    if room is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="房间不存在")
-    rows = persist.load_messages(room_id, max(1, min(limit, 200)))
-    names = {
-        user.id: user.display_name
-        for user in session.scalars(select(User)).all()
-    }
-    return [
-        ChatMessageOut(
-            id=row["id"],
-            room_id=row["room_id"],
-            user_id=row["user_id"],
-            user_name=names.get(row["user_id"], "系统") if row["user_id"] else "系统",
-            kind=row["kind"],
-            content=row["content"],
-            created_at=row["created_at"],
-        )
-        for row in rows
-    ]
+    """最近聊天（04 §6 #30）：必带 LIMIT（默认 50，最大 200），按时间正序。"""
+    rows = roomService.listMessages(user.login_id, room_id, limit)
+    return [ChatMessageOut(**row) for row in rows]

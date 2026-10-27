@@ -37,6 +37,7 @@ __all__ = [
     "jsonDumps",
     "jsonLoads",
     "nowDb",
+    "stableColorOf",
     "ymdhmsToIso",
 ]
 
@@ -117,6 +118,31 @@ def diffTime(beginYMDHMS: str, endYMDHMS: str) -> int:
 def jsonDumps(value: Any) -> str:
     """写库用的紧凑 JSON：保留中文，不转义，不带多余空格。"""
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+# 玩家标识色板（04 §7 players[].color）。库里不存颜色，按 loginID 稳定散列：
+# 同一用户在任何接口、任何进程里都得到同一个颜色，重启不变。
+_PLAYER_COLOR_LIST = (
+    "#C9A063",
+    "#6B9BD1",
+    "#D1836B",
+    "#7FA78A",
+    "#B088C4",
+    "#D1B36B",
+    "#6BB7B0",
+    "#A88A6B",
+)
+
+
+def stableColorOf(key: Any) -> str:
+    """按标识取稳定颜色（同一 key 恒返回同一色，key 为空时给默认色）。"""
+    text = str(key or "").strip()
+    if not text:
+        return _PLAYER_COLOR_LIST[0]
+    checksum = 0
+    for char in text:
+        checksum = (checksum * 31 + ord(char)) & 0xFFFFFFFF
+    return _PLAYER_COLOR_LIST[checksum % len(_PLAYER_COLOR_LIST)]
 
 
 def jsonLoads(text: Any, default: Any = None) -> Any:

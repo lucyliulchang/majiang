@@ -261,40 +261,63 @@ class RuleConfig(BaseModel):
         }
 
 
-class RuleTemplateBase(BaseModel):
-    name: str = Field(min_length=1, max_length=64)
-    description: str = ""
-    config: RuleConfig
+class RuleFamilyOut(BaseModel):
+    """04 §5 的 rule_family；`ready` 是引擎自检值，不是数据库列。"""
+
+    rule_family_code: str
+    rule_family_name: str
+    engine_code: str
+    tile_set_code: str
+    capability: dict = Field(default_factory=dict)
+    status: str = "ENABLED"
+    sort_order: int = 0
+    ready: bool = False
 
 
-class RuleTemplateCreate(RuleTemplateBase):
-    pass
+class RuleTemplateCreateRequest(BaseModel):
+    """04 §5 #19。config 用 dict 接收：校验失败要回 RULE_CONFIG_INVALID，而不是 FastAPI 422。"""
+
+    family_code: str = ""
+    rule_family_code: str = Field(min_length=1, max_length=32)
+    template_name: str = Field(min_length=1, max_length=64)
+    description: str = Field(default="", max_length=400)
+    config: dict = Field(default_factory=dict)
 
 
-class RuleTemplateUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=64)
-    description: str | None = None
-    config: RuleConfig | None = None
-    is_active: bool | None = None
+class RuleTemplateUpdateRequest(BaseModel):
+    template_name: str | None = Field(default=None, min_length=1, max_length=64)
+    description: str | None = Field(default=None, max_length=400)
+    config: dict | None = None
+    active_flag: bool | None = None
+
+
+class RuleTemplateDuplicateRequest(BaseModel):
+    family_code: str = ""
+    template_name: str | None = Field(default=None, max_length=64)
 
 
 class RuleTemplateOut(BaseModel):
     id: int
-    owner_id: int | None
-    name: str
-    description: str
-    config: RuleConfig
-    is_preset: bool
-    is_active: bool
-    created_at: str
-    updated_at: str
+    template_code: str
+    family_code: str | None = None
+    rule_family_code: str
+    template_name: str
+    description: str = ""
+    config: dict = Field(default_factory=dict)
+    is_preset: bool = False
+    is_active: bool = True
+    owner_login_id: str | None = None
+    created_at: str = ""
+    updated_at: str = ""
 
 
 class RuleValidateRequest(BaseModel):
-    config: RuleConfig
+    rule_family_code: str = "generic"
+    config: dict = Field(default_factory=dict)
 
 
 class RuleValidateResponse(BaseModel):
     ok: bool
+    code: str = "OK"
     message: str = ""
     summary: str = ""

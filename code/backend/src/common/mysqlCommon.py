@@ -1142,6 +1142,46 @@ def statUserBasic(statBy = "roleName", beginYMD = "",endYMD = ""):
 
 #mj query begin（02 §8 手写区：业务层只调这里的函数，不写裸 SQL）
 
+def _requireDB():
+    """业务查询前的连接自检：未建池时直接抛 DB_UNAVAILABLE，而不是静默返回空结果。
+
+    静默返回 [] / {} 会让「库挂了」看起来像「没有数据」，前端会误判成空列表；
+    01 §4.1 要求数据层不可用统一 503 DB_UNAVAILABLE。
+    """
+    if mysqlDB is None:
+        raise DBUnavailableError("MYSQL_SKIP_CONNECT=1，未建立数据库连接")
+
+
+#房间读取视图：房 + 房主昵称 + 模板名（1 条 SQL，禁止 SELECT *）
+_ROOM_VIEW_SELECT = (
+    "SELECT r.recID, r.roomCode, r.familyID, r.roomName, r.hostLoginID, r.templateID, "
+    "r.ruleFamilyCode, r.ruleSnapshot, r.roomStatus, r.createdYMDHMS, r.closedYMDHMS, "
+    "COALESCE(u.nickName, '') AS hostName, COALESCE(t.templateName, '') AS templateName "
+    "FROM %s r "
+    "LEFT JOIN %s u ON u.loginID = r.hostLoginID "
+    "LEFT JOIN %s t ON t.recID = r.templateID "
+) % (MJ_ROOM_TABLE, USER_BASIC_TABLE, MJ_RULE_TEMPLATE_TABLE)
+
+
+def _query_mj_room_view(whereSql, values):
+    """房间视图单条查询：whereSql 只含占位符，表名与列名都是常量。"""
+    result = {}
+    _requireDB()
+    sqlStr = _ROOM_VIEW_SELECT + "WHERE " + whereSql + " AND (r.delFlag = '0' OR r.delFlag IS NULL) LIMIT 1"
+    try:
+        rtn = mysqlDB.executeRead(sqlStr, tuple(values))
+        if rtn > 0:
+            rows = dataFormatConvert(mysqlDB.fetchAll())
+            if rows:
+                result = rows[0]
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("_query_mj_room_view:%s", e)
+    return result
+
+
 def query_mj_user_pref_by_login(loginID):
     """按 loginID 取偏好（单条，无记录返回 {}）"""
     result = {}
@@ -1157,17 +1197,16 @@ def query_mj_user_pref_by_login(loginID):
 
 
 def query_mj_room_by_code(roomCode):
-    """按 6 位邀请码取房（单条，无记录返回 {}）；只认未删除行"""
-    result = {}
-    dataList = queryTableGeneral(
-        MJ_ROOM_TABLE,
-        condList=[["roomCode", "=", roomCode]],
-        order="create",
-        limitNum=1,
-    )
-    if dataList:
-        result = dataList[0]
-    return result
+    """按 6 位邀请码取房（单条，无记录返回 {}）：带房主昵称与模板名（1 条 SQL）"""
+    return _query_mj_room_view("r.roomCode = %s", (roomCode,))
+
+
+def query_mj_room_by_id(roomID):
+    """按 recID 取房（单条，无记录返回 {}）：带房主昵称与模板名（1 条 SQL）"""
+    roomID = toIntSafe(roomID)
+    if roomID <= 0:
+        return {}
+    return _query_mj_room_view("r.recID = %s", (roomID,))
 
 
 def query_mj_family_list_by_login(loginID):
@@ -1194,18 +1233,32 @@ def query_mj_family_list_by_login(loginID):
 
 
 def query_mj_room_list(familyID, limit = _DEF_QUERY_LIMIT_NUM, beforeID = 0):
-    """家庭房间列表：只列 OPEN，按 recID 倒序分页"""
-    return queryTableGeneral(
-        MJ_ROOM_TABLE,
-        condList=[
-            ["familyID", "=", toIntSafe(familyID)],
-            ["roomStatus", "=", "OPEN"],
-        ],
-        columns=getShortColumns("short", MJ_ROOM_TABLE),
-        order="new",
-        limitNum=clampLimit(limit),
-        beforeID=beforeID,
+    """家庭房间列表：只列 OPEN，recID 倒序游标分页（1 条 SQL，带房主昵称与模板名）"""
+    result = []
+    _requireDB()
+    valuesList = [toIntSafe(familyID)]
+    sqlStr = (
+        _ROOM_VIEW_SELECT
+        + "WHERE r.familyID = %s AND r.roomStatus = 'OPEN' "
+        "AND (r.delFlag = '0' OR r.delFlag IS NULL)"
     )
+    beforeID = toIntSafe(beforeID)
+    if beforeID > 0:
+        sqlStr += " AND r.recID < %s"
+    sqlStr += " ORDER BY r.recID DESC LIMIT %s"
+    valuesList.append(clampLimit(limit))
+    if beforeID > 0:
+        valuesList.insert(1, beforeID)
+    try:
+        rtn = mysqlDB.executeRead(sqlStr, tuple(valuesList))
+        if rtn > 0:
+            result = list(dataFormatConvert(mysqlDB.fetchAll()))
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("query_mj_room_list:%s", e)
+    return result
 
 
 def query_mj_rule_template_list(familyID, ruleFamilyCode = ""):
@@ -1270,13 +1323,20 @@ def query_mj_tile_skin_asset_list(skinID):
 
 
 def query_mj_room_message_list(roomID, limit = _DEF_CHAT_QUERY_LIMIT_NUM):
-    """最近聊天：recID 倒序取 N 条（调用方需要按时间正序时自行 reverse）"""
+    """最近聊天：recID 倒序取 N 条（必带 LIMIT；调用方按时间正序时自行 reverse）
+
+    带出 user_name（USER_BASIC.nickName，无档案时回落 loginID），避免前端二次查人。
+    """
     result = []
+    _requireDB()
     sqlStr = (
-        "SELECT recID, roomID, familyID, loginID, messageKind, content, createdYMDHMS "
-        "FROM %s WHERE roomID = %%s AND (delFlag = '0' OR delFlag IS NULL) "
-        "ORDER BY recID DESC LIMIT %%s"
-    ) % MJ_ROOM_MESSAGE_TABLE
+        "SELECT m.recID, m.roomID, m.familyID, m.loginID, m.messageKind, m.content, "
+        "m.createdYMDHMS, "
+        "COALESCE(NULLIF(u.nickName, ''), m.loginID, '') AS userName "
+        "FROM %s m LEFT JOIN %s u ON u.loginID = m.loginID "
+        "WHERE m.roomID = %%s AND (m.delFlag = '0' OR m.delFlag IS NULL) "
+        "ORDER BY m.recID DESC LIMIT %%s"
+    ) % (MJ_ROOM_MESSAGE_TABLE, USER_BASIC_TABLE)
     try:
         rtn = mysqlDB.executeRead(
             sqlStr, (toIntSafe(roomID), clampLimit(limit, _DEF_CHAT_QUERY_LIMIT_NUM))
@@ -1389,6 +1449,699 @@ def delete_mj_soft(tableName, recID, modifyID = ""):
             _LOG.error("delete_mj_soft:%s", e)
         result = -1
     return result
+
+
+#family domain begin（S4：家庭 / 成员 / 偏好 / 审计）
+#隔离红线（01 §6.3-1）：家庭域查询一律在 SQL 里带 familyID，不允许「全量取回再内存过滤」。
+#函数命名沿用 02 §8 口径：query_mj_family_* / update_mj_family_* / query_mj_audit_*。
+
+_FAMILY_SHORT_COLUMNS = (
+    "recID,familyCode,familyName,ownerLoginID,defaultRuleFamilyCode,defaultSkinCode,"
+    "familyStatus,sortOrder"
+)
+
+def query_mj_family_by_code(familyCode):
+    """按家庭编码取家庭主档（单条，无记录返回 {}）"""
+    result = {}
+    dataList = queryTableGeneral(
+        MJ_FAMILY_TABLE,
+        condList=[["familyCode", "=", familyCode]],
+        columns=_FAMILY_SHORT_COLUMNS,
+        order="create",
+        limitNum=1,
+    )
+    if dataList:
+        result = dataList[0]
+    return result
+
+
+def query_mj_family_by_id(familyID):
+    """按 familyID 取家庭主档（单条，无记录返回 {}）"""
+    result = {}
+    familyID = toIntSafe(familyID)
+    if familyID <= 0:
+        return result
+    dataList = queryTableGeneral(
+        MJ_FAMILY_TABLE,
+        condList=[["recID", "=", familyID]],
+        columns=_FAMILY_SHORT_COLUMNS,
+        order="create",
+        limitNum=1,
+    )
+    if dataList:
+        result = dataList[0]
+    return result
+
+
+def query_mj_family_member(familyID, loginID):
+    """取某家庭的单个成员关系（familyID 必须参与条件，防跨家庭读到别人的成员行）
+
+    同时带出 USER_BASIC 的昵称：成员画像与权限判定共用一次查询。
+    """
+    result = {}
+    familyID = toIntSafe(familyID)
+    if familyID <= 0 or not loginID:
+        return result
+    sqlStr = (
+        "SELECT m.recID, m.familyMemberKey, m.familyID, m.loginID, m.memberRole, "
+        "m.memberStatus, m.joinedYMDHMS, u.nickName "
+        "FROM %s m LEFT JOIN %s u ON u.loginID = m.loginID "
+        "WHERE m.familyID = %%s AND m.loginID = %%s "
+        "AND (m.delFlag = '0' OR m.delFlag IS NULL) LIMIT 1"
+    ) % (MJ_FAMILY_MEMBER_TABLE, USER_BASIC_TABLE)
+    try:
+        rtn = mysqlDB.executeRead(sqlStr, (familyID, loginID))
+        if rtn > 0:
+            result = dataFormatConvert(mysqlDB.fetchAll())[0]
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("query_mj_family_member:%s", e)
+    return result
+
+
+def query_mj_family_member_list(familyID, includeLeft = False):
+    """家庭成员列表：join USER_BASIC 取昵称（一次查询，不做 N+1）
+
+    includeLeft=False 时排除已退出（LEFT）的成员；DISABLED 仍返回（界面要能停用/恢复）。
+    """
+    result = []
+    familyID = toIntSafe(familyID)
+    if familyID <= 0:
+        return result
+    sqlStr = (
+        "SELECT m.recID, m.familyID, m.loginID, m.memberRole, m.memberStatus, m.joinedYMDHMS, "
+        "u.nickName FROM %s m LEFT JOIN %s u ON u.loginID = m.loginID "
+        "WHERE m.familyID = %%s AND (m.delFlag = '0' OR m.delFlag IS NULL) "
+    ) % (MJ_FAMILY_MEMBER_TABLE, USER_BASIC_TABLE)
+    valuesList = [familyID]
+    if not includeLeft:
+        sqlStr += " AND m.memberStatus <> 'LEFT' "
+    sqlStr += " ORDER BY m.recID ASC LIMIT %s"
+    valuesList.append(clampLimit(_DEF_QUERY_LIMIT_MAX, _DEF_QUERY_LIMIT_MAX))
+    try:
+        rtn = mysqlDB.executeRead(sqlStr, tuple(valuesList))
+        if rtn > 0:
+            result = list(dataFormatConvert(mysqlDB.fetchAll()))
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("query_mj_family_member_list:%s", e)
+    return result
+
+
+def update_mj_family_by_id(familyID, dataSet):
+    """按 familyID 更新家庭主档（允许用 None 清空默认规则族/默认皮肤）
+
+    生成版 update_mj_family 会跳过空值，无法表达「清空」，故这里用通用更新。
+    """
+    familyID = toIntSafe(familyID)
+    if familyID <= 0 or not dataSet:
+        return 0
+    try:
+        return updateTableGeneral(MJ_FAMILY_TABLE, "recID = %s", [familyID], dataSet)
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("update_mj_family_by_id:%s", e)
+        return -1
+
+
+def update_mj_family_member_by_id(familyID, recID, dataSet):
+    """更新成员关系：条件同时带 familyID 与 recID，杜绝跨家庭误改"""
+    familyID = toIntSafe(familyID)
+    recID = toIntSafe(recID)
+    if familyID <= 0 or recID <= 0 or not dataSet:
+        return 0
+    try:
+        return updateTableGeneral(
+            MJ_FAMILY_MEMBER_TABLE,
+            "recID = %s AND familyID = %s",
+            [recID, familyID],
+            dataSet,
+        )
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("update_mj_family_member_by_id:%s", e)
+        return -1
+
+
+def update_mj_family_member_clear_owner(familyID, keepLoginID, operatorLoginID = ""):
+    """把该家庭内除 keepLoginID 之外的 OWNER 降为 ADMIN（保证 owner 唯一）"""
+    familyID = toIntSafe(familyID)
+    if familyID <= 0:
+        return 0
+    sqlStr = (
+        "UPDATE %s SET memberRole = 'ADMIN', modifyID = %%s, modifyYMDHMS = %%s "
+        "WHERE familyID = %%s AND memberRole = 'OWNER' AND loginID <> %%s "
+        "AND (delFlag = '0' OR delFlag IS NULL)"
+    ) % MJ_FAMILY_MEMBER_TABLE
+    try:
+        return mysqlDB.executeWrite(
+            sqlStr, (operatorLoginID, misc.getTime(), familyID, keepLoginID)
+        )
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("update_mj_family_member_clear_owner:%s", e)
+        return -1
+
+
+def query_mj_rule_family_by_code(ruleFamilyCode):
+    """按编码取规则族（单条，无记录返回 {}）"""
+    result = {}
+    dataList = queryTableGeneral(
+        MJ_RULE_FAMILY_TABLE,
+        condList=[["ruleFamilyCode", "=", ruleFamilyCode]],
+        order="create",
+        limitNum=1,
+    )
+    if dataList:
+        result = dataList[0]
+    return result
+
+
+def query_mj_tile_skin_by_code(skinCode):
+    """按编码取皮肤（单条，无记录返回 {}）"""
+    result = {}
+    dataList = queryTableGeneral(
+        MJ_TILE_SKIN_TABLE,
+        condList=[["skinCode", "=", skinCode]],
+        order="create",
+        limitNum=1,
+    )
+    if dataList:
+        result = dataList[0]
+    return result
+
+
+def update_mj_user_pref_by_login(loginID, dataSet):
+    """按 loginID 更新偏好（允许 None 清空 skinCode / lastFamilyID）"""
+    if not loginID or not dataSet:
+        return 0
+    try:
+        return updateTableGeneral(MJ_USER_PREF_TABLE, "loginID = %s", [loginID], dataSet)
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("update_mj_user_pref_by_login:%s", e)
+        return -1
+
+
+def write_mj_audit_log(
+    familyID, operatorLoginID, actionCode, targetType = "", targetID = "",
+    detail = None, clientIP = "",
+):
+    """写一条审计（与业务写入同事务调用，01 §7.4）；detail 为 dict 时归一化成 JSON 文本"""
+    now = misc.getTime()
+    dataSet = {
+        "familyID": toIntSafe(familyID),
+        "operatorLoginID": operatorLoginID,
+        "actionCode": actionCode,
+        "targetType": targetType,
+        "targetID": targetID,
+        "detailJson": normalizeJsonValue4DB(detail),
+        "clientIP": clientIP,
+        "createdYMDHMS": now,
+        "regID": operatorLoginID,
+        "regYMDHMS": now,
+        "delFlag": "0",
+    }
+    return insert_mj_audit_log(MJ_AUDIT_LOG_TABLE, dataSet)
+
+
+def query_mj_audit_log_list(familyID, limit = _DEF_GAME_QUERY_LIMIT_NUM, beforeID = 0):
+    """审计列表：按家庭过滤，recID 倒序游标分页（默认 30，最大 100）"""
+    return queryTableGeneral(
+        MJ_AUDIT_LOG_TABLE,
+        condList=[["familyID", "=", toIntSafe(familyID)]],
+        order="new",
+        limitNum=clampLimit(limit, _DEF_GAME_QUERY_LIMIT_NUM),
+        beforeID=beforeID,
+    )
+
+
+#family domain end
+
+
+#rule/room domain begin（S5：规则族 / 模板 / 房间。业务层只调这些函数）
+
+
+def query_mj_rule_family_list(ruleFamilyCode = ""):
+    """规则族清单：只列 ENABLED，按 sortOrder 升序；capabilityJson 出参已转对象"""
+    result = []
+    _requireDB()
+    sqlStr = (
+        "SELECT recID, ruleFamilyCode, ruleFamilyName, engineCode, tileSetCode, "
+        "capabilityJson, ruleFamilyStatus, sortOrder, memo FROM %s "
+        "WHERE ruleFamilyStatus = 'ENABLED' AND (delFlag = '0' OR delFlag IS NULL)"
+    ) % MJ_RULE_FAMILY_TABLE
+    valuesList = []
+    if ruleFamilyCode:
+        sqlStr += " AND ruleFamilyCode = %s"
+        valuesList.append(ruleFamilyCode)
+    sqlStr += " ORDER BY sortOrder ASC, recID ASC LIMIT %s"
+    valuesList.append(clampLimit(_DEF_QUERY_LIMIT_MAX, _DEF_QUERY_LIMIT_MAX))
+    try:
+        rtn = mysqlDB.executeRead(sqlStr, tuple(valuesList))
+        if rtn > 0:
+            result = list(dataFormatConvert(mysqlDB.fetchAll()))
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("query_mj_rule_family_list:%s", e)
+    return result
+
+
+def query_mj_rule_template_by_id(templateID):
+    """按 recID 取模板（单条，无记录返回 {}；不区分是否启用，鉴权在 service）"""
+    result = {}
+    templateID = toIntSafe(templateID)
+    if templateID <= 0:
+        return result
+    _requireDB()
+    dataList = queryTableGeneral(
+        MJ_RULE_TEMPLATE_TABLE,
+        condList=[["recID", "=", templateID]],
+        order="create",
+        limitNum=1,
+    )
+    if dataList:
+        result = dataList[0]
+    return result
+
+
+def query_mj_rule_template_by_code(templateCode):
+    """按 templateCode 取模板（单条，无记录返回 {}）"""
+    result = {}
+    templateCode = (templateCode or "").strip()
+    if not templateCode:
+        return result
+    _requireDB()
+    dataList = queryTableGeneral(
+        MJ_RULE_TEMPLATE_TABLE,
+        condList=[["templateCode", "=", templateCode]],
+        order="create",
+        limitNum=1,
+    )
+    if dataList:
+        result = dataList[0]
+    return result
+
+
+def query_mj_rule_template_next_sort(familyID, ruleFamilyCode = ""):
+    """新建模板的排序号：同家庭同族最大值 +10（缺省 10）"""
+    _requireDB()
+    sqlStr = "SELECT COALESCE(MAX(sortOrder), 0) AS maxSort FROM %s WHERE familyID = %%s" % MJ_RULE_TEMPLATE_TABLE
+    valuesList = [toIntSafe(familyID)]
+    if ruleFamilyCode:
+        sqlStr += " AND ruleFamilyCode = %s"
+        valuesList.append(ruleFamilyCode)
+    nextSort = 10
+    try:
+        rtn = mysqlDB.executeRead(sqlStr, tuple(valuesList))
+        if rtn > 0:
+            row = mysqlDB.fetchOne() or {}
+            nextSort = toIntSafe(row.get("maxSort"), 0) + 10
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("query_mj_rule_template_next_sort:%s", e)
+    return nextSort
+
+
+def update_mj_rule_template_fields(recID, dataSet, operatorLoginID = ""):
+    """按字段更新模板（支持把 description 清空——生成版 update_ 会丢弃空串）。
+
+    只允许模板自身列，防止调用方顺手改 familyID/templateCode 造成越权。
+    """
+    result = 0
+    _requireDB()
+    allowed = {
+        "templateName",
+        "description",
+        "configJson",
+        "activeFlag",
+        "sortOrder",
+    }
+    saveSet = {key: value for key, value in (dataSet or {}).items() if key in allowed}
+    if not saveSet:
+        return 0
+    saveSet["modifyID"] = operatorLoginID
+    saveSet["modifyYMDHMS"] = misc.getTime()
+    try:
+        result = updateTableGeneral(
+            MJ_RULE_TEMPLATE_TABLE, "recID = %s", [toIntSafe(recID)], saveSet
+        )
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("update_mj_rule_template_fields:%s", e)
+        result = -1
+    return result
+
+
+def update_mj_room_close(roomID, operatorLoginID = ""):
+    """关房：只对 OPEN 生效（重复关闭幂等），返回受影响行数，失败 -1"""
+    result = 0
+    _requireDB()
+    now = misc.getTime()
+    sqlStr = (
+        "UPDATE %s SET roomStatus = 'CLOSED', closedYMDHMS = %%s, modifyID = %%s, "
+        "modifyYMDHMS = %%s WHERE recID = %%s AND roomStatus = 'OPEN'"
+    ) % MJ_ROOM_TABLE
+    try:
+        result = mysqlDB.executeWrite(
+            sqlStr, (now, operatorLoginID, now, toIntSafe(roomID))
+        )
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("update_mj_room_close:%s", e)
+        result = -1
+    return result
+
+
+def update_mj_room_template(roomID, templateID, ruleFamilyCode, ruleSnapshot, operatorLoginID = ""):
+    """改绑模板与规则快照（开桌只写一次，历史场次不受影响），失败 -1"""
+    result = 0
+    _requireDB()
+    sqlStr = (
+        "UPDATE %s SET templateID = %%s, ruleFamilyCode = %%s, ruleSnapshot = %%s, "
+        "modifyID = %%s, modifyYMDHMS = %%s WHERE recID = %%s"
+    ) % MJ_ROOM_TABLE
+    try:
+        result = mysqlDB.executeWrite(
+            sqlStr,
+            (
+                toIntSafe(templateID),
+                ruleFamilyCode,
+                normalizeJsonValue4DB(ruleSnapshot),
+                operatorLoginID,
+                misc.getTime(),
+                toIntSafe(roomID),
+            ),
+        )
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("update_mj_room_template:%s", e)
+        result = -1
+    return result
+
+
+#history domain begin（S5：战绩。SQL 次数恒定——列表 2 条、详情 3 条、统计 2 条）
+
+
+def query_mj_game_by_id(gameID):
+    """按 recID 取场次（单条，无记录返回 {}）"""
+    result = {}
+    gameID = toIntSafe(gameID)
+    if gameID <= 0:
+        return result
+    _requireDB()
+    dataList = queryTableGeneral(
+        MJ_GAME_TABLE, condList=[["recID", "=", gameID]], order="create", limitNum=1
+    )
+    if dataList:
+        result = dataList[0]
+    return result
+
+
+def query_mj_game_list(familyID, loginID = "", limit = _DEF_GAME_QUERY_LIMIT_NUM, beforeID = 0):
+    """场次列表（1 条 SQL）：场次 + 房间名 + 规则名 + 我的总分。
+
+    参与者明细由 `query_mj_game_player_list_by_games` 批量取回（再 1 条 SQL），
+    调用方按 gameID 归组——**不做逐场次查询**（S5 消除 N+1）。
+    """
+    result = []
+    _requireDB()
+    sqlStr = (
+        "SELECT g.recID, g.familyID, g.roomID, g.ruleFamilyCode, g.ruleSnapshot, "
+        "g.gameStatus, g.startedYMDHMS, g.endedYMDHMS, "
+        "COALESCE(r.roomName, '') AS roomName, COALESCE(t.templateName, '') AS ruleName, "
+        "COALESCE((SELECT p.totalScore FROM %s p WHERE p.gameID = g.recID AND p.loginID = %%s "
+        "AND (p.delFlag = '0' OR p.delFlag IS NULL) LIMIT 1), 0) AS myScore "
+        "FROM %s g "
+        "LEFT JOIN %s r ON r.recID = g.roomID "
+        "LEFT JOIN %s t ON t.recID = r.templateID "
+        "WHERE g.familyID = %%s AND (g.delFlag = '0' OR g.delFlag IS NULL)"
+    ) % (MJ_GAME_PLAYER_TABLE, MJ_GAME_TABLE, MJ_ROOM_TABLE, MJ_RULE_TEMPLATE_TABLE)
+    valuesList = [loginID or "", toIntSafe(familyID)]
+    if loginID:
+        sqlStr += (
+            " AND EXISTS (SELECT 1 FROM %s p2 WHERE p2.gameID = g.recID AND p2.loginID = %%s "
+            "AND (p2.delFlag = '0' OR p2.delFlag IS NULL))"
+        ) % MJ_GAME_PLAYER_TABLE
+        valuesList.append(loginID)
+    beforeID = toIntSafe(beforeID)
+    if beforeID > 0:
+        sqlStr += " AND g.recID < %s"
+        valuesList.append(beforeID)
+    sqlStr += " ORDER BY g.recID DESC LIMIT %s"
+    valuesList.append(clampLimit(limit, _DEF_GAME_QUERY_LIMIT_NUM))
+    try:
+        rtn = mysqlDB.executeRead(sqlStr, tuple(valuesList))
+        if rtn > 0:
+            result = list(dataFormatConvert(mysqlDB.fetchAll()))
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("query_mj_game_list:%s", e)
+    return result
+
+
+def query_mj_game_player_list_by_games(gameIDs):
+    """批量取多场次参与者（1 条 SQL）：IN 列表按整数逐个占位，天然参数化。
+
+    带出昵称（USER_BASIC）与结算时快照（displayName），调用方无需二次查人。
+    """
+    ids = []
+    for value in gameIDs or []:
+        gameID = toIntSafe(value)
+        if gameID > 0 and gameID not in ids:
+            ids.append(gameID)
+    if not ids:
+        return []
+    _requireDB()
+    placeholders = ",".join(["%s"] * len(ids))
+    sqlStr = (
+        "SELECT p.recID, p.gameID, p.seatNo, p.loginID, p.totalScore, "
+        "COALESCE(NULLIF(p.displayName, ''), NULLIF(u.nickName, ''), p.loginID) AS displayName, "
+        "COALESCE(u.nickName, '') AS nickName "
+        "FROM %s p LEFT JOIN %s u ON u.loginID = p.loginID "
+        "WHERE p.gameID IN (%s) AND (p.delFlag = '0' OR p.delFlag IS NULL) "
+        "ORDER BY p.gameID ASC, p.seatNo ASC LIMIT 400"
+    ) % (MJ_GAME_PLAYER_TABLE, USER_BASIC_TABLE, placeholders)
+    result = []
+    try:
+        rtn = mysqlDB.executeRead(sqlStr, tuple(ids))
+        if rtn > 0:
+            result = list(dataFormatConvert(mysqlDB.fetchAll()))
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("query_mj_game_player_list_by_games:%s", e)
+    return result
+
+
+def query_mj_game_detail(gameID):
+    """场次详情（3 条 SQL）：场次+房间+模板 / 参与者 / 逐局。无记录时 game 为 {}"""
+    result = {"game": {}, "players": [], "rounds": []}
+    gameID = toIntSafe(gameID)
+    if gameID <= 0:
+        return result
+    _requireDB()
+    sqlStr = (
+        "SELECT g.recID, g.familyID, g.roomID, g.ruleFamilyCode, g.ruleSnapshot, "
+        "g.gameStatus, g.startedYMDHMS, g.endedYMDHMS, "
+        "COALESCE(r.roomName, '') AS roomName, COALESCE(t.templateName, '') AS ruleName "
+        "FROM %s g LEFT JOIN %s r ON r.recID = g.roomID "
+        "LEFT JOIN %s t ON t.recID = r.templateID "
+        "WHERE g.recID = %%s AND (g.delFlag = '0' OR g.delFlag IS NULL) LIMIT 1"
+    ) % (MJ_GAME_TABLE, MJ_ROOM_TABLE, MJ_RULE_TEMPLATE_TABLE)
+    try:
+        rtn = mysqlDB.executeRead(sqlStr, (gameID,))
+        if rtn > 0:
+            rows = dataFormatConvert(mysqlDB.fetchAll())
+            if rows:
+                result["game"] = rows[0]
+        if not result["game"]:
+            return result
+        result["players"] = query_mj_game_player_list_by_games([gameID])
+        rounds = queryTableGeneral(
+            MJ_GAME_ROUND_TABLE,
+            condList=[["gameID", "=", gameID]],
+            columns=(
+                "recID,gameID,familyID,roundNo,dealerSeat,roundWind,winnerSeat,winType,"
+                "winningTile,patternID,fanItemsJson,fanRaw,fanTotal,scoreDeltaJson,payerJson,"
+                "finishedYMDHMS"
+            ),
+            order="create",
+            limitNum=clampLimit(200, 200),
+        )
+        result["rounds"] = sorted(rounds, key=lambda row: toIntSafe(row.get("roundNo")))
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("query_mj_game_detail:%s", e)
+    return result
+
+
+def query_mj_game_stats(loginID, familyID):
+    """个人统计（2 条 SQL）：参与场次数/总分/最好/最差 + 胡牌局数。"""
+    result = {
+        "gamesPlayed": 0,
+        "totalScore": 0,
+        "bestGame": 0,
+        "worstGame": 0,
+        "roundsWon": 0,
+    }
+    loginID = (loginID or "").strip()
+    if not loginID:
+        return result
+    _requireDB()
+    sqlStr = (
+        "SELECT COUNT(*) AS gamesPlayed, COALESCE(SUM(p.totalScore), 0) AS totalScore, "
+        "COALESCE(MAX(p.totalScore), 0) AS bestGame, COALESCE(MIN(p.totalScore), 0) AS worstGame "
+        "FROM %s p INNER JOIN %s g ON g.recID = p.gameID "
+        "WHERE p.loginID = %%s AND g.familyID = %%s "
+        "AND (p.delFlag = '0' OR p.delFlag IS NULL) AND (g.delFlag = '0' OR g.delFlag IS NULL)"
+    ) % (MJ_GAME_PLAYER_TABLE, MJ_GAME_TABLE)
+    try:
+        rtn = mysqlDB.executeRead(sqlStr, (loginID, toIntSafe(familyID)))
+        if rtn > 0:
+            row = mysqlDB.fetchOne() or {}
+            result["gamesPlayed"] = toIntSafe(row.get("gamesPlayed"))
+            result["totalScore"] = toIntSafe(row.get("totalScore"))
+            result["bestGame"] = toIntSafe(row.get("bestGame"))
+            result["worstGame"] = toIntSafe(row.get("worstGame"))
+
+        sqlWon = (
+            "SELECT COUNT(*) AS roundsWon FROM %s r "
+            "INNER JOIN %s p ON p.gameID = r.gameID AND p.seatNo = r.winnerSeat "
+            "WHERE p.loginID = %%s AND r.familyID = %%s AND r.winnerSeat IS NOT NULL "
+            "AND (p.delFlag = '0' OR p.delFlag IS NULL) AND (r.delFlag = '0' OR r.delFlag IS NULL)"
+        ) % (MJ_GAME_ROUND_TABLE, MJ_GAME_PLAYER_TABLE)
+        rtn = mysqlDB.executeRead(sqlWon, (loginID, toIntSafe(familyID)))
+        if rtn > 0:
+            row = mysqlDB.fetchOne() or {}
+            result["roundsWon"] = toIntSafe(row.get("roundsWon"))
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("query_mj_game_stats:%s", e)
+    return result
+
+
+def query_mj_game_player_list(gameID):
+    """某场次的参与者（座位升序，最多 4 行）"""
+    return queryTableGeneral(
+        MJ_GAME_PLAYER_TABLE,
+        condList=[["gameID", "=", toIntSafe(gameID)]],
+        order="create",
+        limitNum=4,
+    )
+
+
+def insert_mj_game_round_settlement(dataSet):
+    """写入一局结算（手写：荒庄要落 SQL NULL，生成版 insert_ 会把 None 变成 0）"""
+    _requireDB()
+    now = misc.getTime()
+
+    def _nullableInt(value):
+        return None if value is None or value == "" else toIntSafe(value)
+
+    saveSet = {
+        "gameID": toIntSafe(dataSet.get("gameID")),
+        "familyID": toIntSafe(dataSet.get("familyID")),
+        "roundNo": toIntSafe(dataSet.get("roundNo"), 1),
+        "dealerSeat": toIntSafe(dataSet.get("dealerSeat")),
+        "roundWind": toIntSafe(dataSet.get("roundWind")),
+        "winnerSeat": _nullableInt(dataSet.get("winnerSeat")),
+        "winType": str(dataSet.get("winType") or "none"),
+        "winningTile": _nullableInt(dataSet.get("winningTile")),
+        "patternID": str(dataSet.get("patternID") or "") or None,
+        "fanItemsJson": normalizeJsonValue4DB(dataSet.get("fanItemsJson")),
+        "fanRaw": toIntSafe(dataSet.get("fanRaw")),
+        "fanTotal": toIntSafe(dataSet.get("fanTotal")),
+        "scoreDeltaJson": normalizeJsonValue4DB(dataSet.get("scoreDeltaJson")),
+        "payerJson": normalizeJsonValue4DB(dataSet.get("payerJson")),
+        "finishedYMDHMS": dataSet.get("finishedYMDHMS") or now,
+        "regID": dataSet.get("regID") or "",
+        "regYMDHMS": now,
+        "delFlag": "0",
+    }
+    return insertTableGeneral(MJ_GAME_ROUND_TABLE, saveSet)
+
+
+def update_mj_game_status(gameID, gameStatus, endedYMDHMS = "", operatorLoginID = ""):
+    """改场次状态（结束/中断）。返回受影响行数，失败 -1"""
+    result = 0
+    _requireDB()
+    now = misc.getTime()
+    sqlStr = (
+        "UPDATE %s SET gameStatus = %%s, endedYMDHMS = %%s, modifyID = %%s, "
+        "modifyYMDHMS = %%s WHERE recID = %%s"
+    ) % MJ_GAME_TABLE
+    try:
+        result = mysqlDB.executeWrite(
+            sqlStr,
+            (gameStatus, endedYMDHMS or now, operatorLoginID, now, toIntSafe(gameID)),
+        )
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("update_mj_game_status:%s", e)
+        result = -1
+    return result
+
+
+def update_mj_game_abort_playing(operatorLoginID = "system"):
+    """进程启动时把所有 PLAYING 场次标记为 ABORTED（房态在内存，重启后无人能续局）。
+
+    返回受影响行数；失败 -1。幂等：没有进行中的场次时返回 0。
+    """
+    result = 0
+    _requireDB()
+    now = misc.getTime()
+    sqlStr = (
+        "UPDATE %s SET gameStatus = 'ABORTED', endedYMDHMS = %%s, modifyID = %%s, "
+        "modifyYMDHMS = %%s WHERE gameStatus = 'PLAYING' "
+        "AND (delFlag = '0' OR delFlag IS NULL)"
+    ) % MJ_GAME_TABLE
+    try:
+        result = mysqlDB.executeWrite(sqlStr, (now, operatorLoginID, now))
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("update_mj_game_abort_playing:%s", e)
+        result = -1
+    return result
+
+
+#history domain end
+
+
+#rule/room domain end
 
 
 #mj query end

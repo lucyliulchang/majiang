@@ -1,185 +1,160 @@
-"""规则模板的增删改查、复制派生与校验。"""
+"""规则族与模板路由（04 §5，8 个端点）。
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import ValidationError
-from sqlalchemy import or_, select
-from sqlalchemy.orm import Session
+分层（01 §2）：本文件只做「解析参数 → 家庭上下文 → 调 ruleService → 套响应模型」。
+权限、族能力校验、事务与错误码都在 `processor/ruleService.py`。
+"""
 
-from main.deps import db_session, get_current_user
-from db.models import RuleTemplate, User
+from fastapi import APIRouter, Depends
+
+from main.deps import (
+    CurrentUser,
+    FamilyContext,
+    current_active_family,
+    current_family,
+    current_user,
+    familyContextOf,
+)
+from processor import ruleService
 from schemas.rule import (
-    RuleConfig,
-    RuleTemplateCreate,
+    RuleFamilyOut,
+    RuleTemplateCreateRequest,
+    RuleTemplateDuplicateRequest,
     RuleTemplateOut,
-    RuleTemplateUpdate,
+    RuleTemplateUpdateRequest,
     RuleValidateRequest,
     RuleValidateResponse,
 )
 
 router = APIRouter(prefix="/rules", tags=["rules"])
+family_router = APIRouter(prefix="/rule-families", tags=["rules"])
 
 
-def summary_text(config: RuleConfig) -> str:
-    parts = [
-        f"底分 {config.base_score}",
-        "2 的 N 次方" if config.fan_mode == "exponential" else "线性累加",
-    ]
-    if config.fan_cap is not None:
-        parts.append(f"封顶 {config.fan_cap} 番")
-    parts.append("可以吃" if config.allow_chow else "不能吃")
-    if config.turn_timeout.enabled:
-        parts.append(f"限时 {config.turn_timeout.seconds} 秒")
-    else:
-        parts.append("不限时")
-    if config.kong_score.enabled:
-        parts.append(
-            f"杠分 明{config.kong_score.exposed}/暗{config.kong_score.hidden}/补{config.kong_score.added}"
-        )
-    else:
-        parts.append("杠不计分")
-    parts.append("听牌提示开" if config.ting_hint.enabled else "无听牌提示")
-    return " · ".join(parts)
+def _familyOf(
+    user: CurrentUser, familyCode: str, fallback: FamilyContext
+) -> FamilyContext:
+    """请求体里的 family_code 优先；缺省用当前家庭（04 §1 的解析顺序）。"""
+    code = (familyCode or "").strip()
+    if not code or code == fallback.family_code:
+        return fallback
+    return familyContextOf(user.login_id, code, requireEnabled=True)
 
 
-def to_out(row: RuleTemplate) -> RuleTemplateOut:
-    return RuleTemplateOut(
-        id=row.id,
-        owner_id=row.owner_id,
-        name=row.name,
-        description=row.description or "",
-        config=RuleConfig.model_validate(row.config or {}),
-        is_preset=row.is_preset,
-        is_active=row.is_active,
-        created_at=row.created_at.isoformat(),
-        updated_at=row.updated_at.isoformat(),
-    )
-
-
-def load_visible(session: Session, user: User, template_id: int) -> RuleTemplate:
-    row = session.get(RuleTemplate, template_id)
-    if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="规则模板不存在")
-    if not row.is_preset and row.owner_id != user.id and not user.is_admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="这套规则不是你的")
-    return row
-
-
-def load_editable(session: Session, user: User, template_id: int) -> RuleTemplate:
-    row = load_visible(session, user, template_id)
-    if row.is_preset:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="预置模板不能直接改，请先复制一份",
-        )
-    if row.owner_id != user.id and not user.is_admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="这套规则不是你的")
-    return row
+@family_router.get("", response_model=list[RuleFamilyOut])
+def list_rule_families(user: CurrentUser = Depends(current_user)) -> list[RuleFamilyOut]:
+    """规则族清单（登录即可读）；`ready=false` 的族可列模板但不可开桌。"""
+    return [RuleFamilyOut(**row) for row in ruleService.listRuleFamilies(user.login_id)]
 
 
 @router.get("", response_model=list[RuleTemplateOut])
 def list_rules(
-    user: User = Depends(get_current_user), session: Session = Depends(db_session)
+    rule_family_code: str = "",
+    context: FamilyContext = Depends(current_active_family),
 ) -> list[RuleTemplateOut]:
-    rows = session.scalars(
-        select(RuleTemplate)
-        .where(
-            RuleTemplate.is_active.is_(True),
-            or_(RuleTemplate.is_preset.is_(True), RuleTemplate.owner_id == user.id),
-        )
-        .order_by(RuleTemplate.is_preset.desc(), RuleTemplate.id)
-    ).all()
-    return [to_out(row) for row in rows]
+    """模板列表：本家庭自有 + 全局预置，只列启用项（04 §5 #18）。"""
+    rows = ruleService.listTemplates(
+        context.login_id,
+        context.family_id,
+        context.family_code,
+        ruleFamilyCode=rule_family_code,
+    )
+    return [RuleTemplateOut(**row) for row in rows]
 
 
 @router.post("", response_model=RuleTemplateOut)
 def create_rule(
-    payload: RuleTemplateCreate,
-    user: User = Depends(get_current_user),
-    session: Session = Depends(db_session),
+    payload: RuleTemplateCreateRequest,
+    user: CurrentUser = Depends(current_user),
+    context: FamilyContext = Depends(current_active_family),
 ) -> RuleTemplateOut:
-    row = RuleTemplate(
-        owner_id=user.id,
-        name=payload.name.strip(),
-        description=payload.description.strip(),
-        config=payload.config.model_dump(),
-        is_preset=False,
+    """新建家庭模板（04 §5 #19）。"""
+    family = _familyOf(user, payload.family_code, context)
+    return RuleTemplateOut(
+        **ruleService.createTemplate(
+            user.login_id,
+            family.family_id,
+            family.family_code,
+            payload.rule_family_code,
+            payload.template_name,
+            payload.description,
+            payload.config,
+        )
     )
-    session.add(row)
-    session.commit()
-    return to_out(row)
 
 
 @router.post("/validate", response_model=RuleValidateResponse)
-def validate_rule(payload: RuleValidateRequest) -> RuleValidateResponse:
+def validate_rule(
+    payload: RuleValidateRequest,
+    _: CurrentUser = Depends(current_user),
+) -> RuleValidateResponse:
+    """校验规则参数，不落库（04 §5 #24）。
+
+    校验失败按协议返回 `ok=false + code`（不是 4xx）：这是「试算」接口，
+    前端要在表单里就地展示原因，而不是弹全局错误。
+    """
+    try:
+        config = ruleService.validateConfig(payload.rule_family_code, payload.config)
+    except ruleService.RuleServiceError as error:
+        return RuleValidateResponse(ok=False, code=error.code, message=error.message)
     return RuleValidateResponse(
-        ok=True, message="规则合法", summary=summary_text(payload.config)
+        ok=True,
+        code="OK",
+        message="规则合法",
+        summary=ruleService.summaryText(config),
     )
 
 
 @router.get("/{template_id}", response_model=RuleTemplateOut)
 def get_rule(
     template_id: int,
-    user: User = Depends(get_current_user),
-    session: Session = Depends(db_session),
+    user: CurrentUser = Depends(current_user),
 ) -> RuleTemplateOut:
-    return to_out(load_visible(session, user, template_id))
+    """模板详情：家庭成员或全局预置（04 §5 #20）。"""
+    return RuleTemplateOut(**ruleService.getTemplate(user.login_id, template_id))
 
 
 @router.put("/{template_id}", response_model=RuleTemplateOut)
 def update_rule(
     template_id: int,
-    payload: RuleTemplateUpdate,
-    user: User = Depends(get_current_user),
-    session: Session = Depends(db_session),
+    payload: RuleTemplateUpdateRequest,
+    user: CurrentUser = Depends(current_user),
 ) -> RuleTemplateOut:
-    row = load_editable(session, user, template_id)
-    if payload.name is not None:
-        row.name = payload.name.strip()
-    if payload.description is not None:
-        row.description = payload.description.strip()
-    if payload.config is not None:
-        row.config = payload.config.model_dump()
-    if payload.is_active is not None:
-        row.is_active = payload.is_active
-    session.commit()
-    return to_out(row)
+    """改模板：创建者/家庭管理员；预置模板 400（04 §5 #21）。"""
+    return RuleTemplateOut(
+        **ruleService.updateTemplate(
+            user.login_id,
+            template_id,
+            templateName=payload.template_name,
+            description=payload.description,
+            rawConfig=payload.config,
+            activeFlag=payload.active_flag,
+        )
+    )
 
 
 @router.post("/{template_id}/duplicate", response_model=RuleTemplateOut)
 def duplicate_rule(
     template_id: int,
-    user: User = Depends(get_current_user),
-    session: Session = Depends(db_session),
+    payload: RuleTemplateDuplicateRequest,
+    user: CurrentUser = Depends(current_user),
+    context: FamilyContext = Depends(current_active_family),
 ) -> RuleTemplateOut:
-    source = load_visible(session, user, template_id)
-    row = RuleTemplate(
-        owner_id=user.id,
-        name=f"{source.name} 副本"[:64],
-        description=source.description or "",
-        config=dict(source.config or {}),
-        is_preset=False,
+    """复制模板到本家庭（04 §5 #22）：预置模板只能复制后编辑。"""
+    family = _familyOf(user, payload.family_code, context)
+    return RuleTemplateOut(
+        **ruleService.duplicateTemplate(
+            user.login_id,
+            template_id,
+            family.family_id,
+            family.family_code,
+            payload.template_name,
+        )
     )
-    session.add(row)
-    session.commit()
-    return to_out(row)
 
 
 @router.delete("/{template_id}", response_model=RuleTemplateOut)
 def deactivate_rule(
     template_id: int,
-    user: User = Depends(get_current_user),
-    session: Session = Depends(db_session),
+    user: CurrentUser = Depends(current_user),
 ) -> RuleTemplateOut:
-    row = load_editable(session, user, template_id)
-    row.is_active = False
-    session.commit()
-    return to_out(row)
-
-
-def validate_or_error(raw: dict) -> RuleConfig:
-    try:
-        return RuleConfig.model_validate(raw)
-    except ValidationError as error:
-        first = error.errors()[0]
-        message = first.get("msg", "规则不合法").replace("Value error, ", "")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message) from error
+    """停用模板（04 §5 #23）：`active_flag=0`，已开桌的快照不受影响。"""
+    return RuleTemplateOut(**ruleService.deactivateTemplate(user.login_id, template_id))
