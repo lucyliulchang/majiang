@@ -18,6 +18,7 @@ from common import miscCommon as misc
 from common import mysqlCommon
 from common.bizCommon import BizError
 from common.loggingCommon import get_logger
+from config.localSettings import settings
 from processor import familyService, ruleService
 from schemas.rule import RuleConfig
 
@@ -31,10 +32,9 @@ ROOM_CODE_MIN = 100000
 ROOM_CODE_RANGE = 900000
 ROOM_CODE_RETRY = 10
 
-# 观战（04 §9.1）：每座 10 人、全房 40 人；真正的占位在 S6 的观战实现里，
-# 这里只给协议字段一个可用的默认值，避免前端因缺字段崩溃。
-SPECTATE_LIMIT_PER_SEAT = 10
-SPECTATE_LIMIT_ROOM = 40
+# 观战（S5b / 04 §9.1）：每座 10 人、全房 40 人、断线保留 60 秒（config/basicSettings）
+SPECTATE_LIMIT_PER_SEAT = settings.spectate_limit_per_seat
+SPECTATE_LIMIT_ROOM = settings.spectate_room_max
 
 MAX_ROOM_LIMIT = 20
 MAX_MESSAGE_LIMIT = 200
@@ -96,9 +96,18 @@ def roomOut(row: dict, playerCount: int = 0, spectatorCount: int = 0, familyCode
     }
 
 
-def joinCheckOut(row: dict, playerCount: int = 0) -> dict:
-    """04 §6 的 room_join_check 结构。"""
+def joinCheckOut(row: dict, playerCount: int = 0, viewerCounts: list[int] | None = None) -> dict:
+    """04 §6 的 room_join_check 结构。
+
+    `viewer_counts` 来自内存房态（`RoomActor.spectator_counts`）；`available=false`
+    表示 4 座已满且 40 个观战位全满，前端据此禁用「进入观战」。
+    """
     status = _text(row, "roomStatus") or ROOM_OPEN
+    players = int(playerCount or 0)
+    rawCounts = list(viewerCounts or [])
+    counts = [int(rawCounts[index]) if index < len(rawCounts) else 0 for index in range(4)]
+    occupied = sum(counts)
+    available = status == ROOM_OPEN and not (players >= 4 and occupied >= SPECTATE_LIMIT_ROOM)
     return {
         "room_code": _text(row, "roomCode"),
         "room_name": _text(row, "roomName"),
@@ -106,12 +115,12 @@ def joinCheckOut(row: dict, playerCount: int = 0) -> dict:
         "rule_name": _text(row, "templateName") or "自定义规则",
         "rule_family_code": _text(row, "ruleFamilyCode"),
         "status": status,
-        "player_count": int(playerCount or 0),
-        "can_join": status == ROOM_OPEN and int(playerCount or 0) < 4,
+        "player_count": players,
+        "can_join": status == ROOM_OPEN and players < 4,
         "spectate": {
             "limit_per_seat": SPECTATE_LIMIT_PER_SEAT,
-            "viewer_counts": [0, 0, 0, 0],
-            "available": status == ROOM_OPEN,
+            "viewer_counts": counts,
+            "available": available,
         },
     }
 
@@ -166,7 +175,12 @@ def getRoom(loginID: str, roomID: int, playerCount: int = 0, spectatorCount: int
     )
 
 
-def getRoomByCode(loginID: str, roomCode: str, playerCount: int = 0) -> dict:
+def getRoomByCode(
+    loginID: str,
+    roomCode: str,
+    playerCount: int = 0,
+    viewerCounts: list[int] | None = None,
+) -> dict:
     """按邀请码入房校验（04 §6 #28）：格式 → 存在 → 成员 → 状态。"""
     code = (roomCode or "").strip()
     if len(code) != 6 or not code.isdigit() or code[0] == "0":
@@ -177,7 +191,7 @@ def getRoomByCode(loginID: str, roomCode: str, playerCount: int = 0) -> dict:
     _assertMember(loginID, int(row.get("familyID") or 0))
     if _text(row, "roomStatus") == ROOM_CLOSED:
         raise _err("ROOM_CLOSED", "房间已经关闭了")
-    return joinCheckOut(row, playerCount=playerCount)
+    return joinCheckOut(row, playerCount=playerCount, viewerCounts=viewerCounts)
 
 
 def listMessages(loginID: str, roomID: int, limit: int = 50) -> list[dict]:

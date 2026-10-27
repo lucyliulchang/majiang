@@ -39,6 +39,19 @@ class PlayerSlot:
 
 
 @dataclass
+class SpectateBinding:
+    """观战绑定（一人一目标）。
+
+    以 `target_login_id` 为准：抽座换座后按目标当前座位重算 `target_seat`，不会跟错人。
+    `reserve_until` 在连接全断后生效，到期由 `_spectate_reserve` 释放名额。
+    """
+
+    target_login_id: str
+    target_seat: int | None = None
+    reserve_until: float = 0.0
+
+
+@dataclass
 class ChatBucket:
     stamps: list[float] = field(default_factory=list)
 
@@ -94,6 +107,10 @@ class RoomActor:
         self._claim_task: asyncio.Task | None = None
         self._chat_buckets: dict[str, ChatBucket] = defaultdict(ChatBucket)
 
+        # 观战：loginID → 目标绑定；按 loginID 计数，多标签页只占 1 个名额
+        self.spectators: dict[str, SpectateBinding] = {}
+        self._spectate_tasks: dict[str, asyncio.Task] = {}
+
     # ---------------------------------------------------------------- 座位与连接
     def slot_of_login(self, login_id: str) -> PlayerSlot | None:
         for slot in self.slots:
@@ -111,6 +128,10 @@ class RoomActor:
         """座位 → loginID（落库与抽座共用）。"""
         return {slot.seat: slot.login_id for slot in self.slots if slot}
 
+    def seat_of_login(self, login_id: str) -> int | None:
+        slot = self.slot_of_login(login_id)
+        return slot.seat if slot is not None else None
+
     def player_count(self) -> int:
         return sum(1 for slot in self.slots if slot)
 
@@ -118,6 +139,46 @@ class RoomActor:
         """在线但没座位的连接数（每个 loginID 只算一人）。"""
         seated = {slot.login_id for slot in self.slots if slot}
         return sum(1 for login_id in self.conns if login_id not in seated)
+
+    # ---------------------------------------------------------------- 观战（S5b）
+    def spectator_counts(self) -> list[int]:
+        """按座位派生的围观计数 `[4]`；顺带刷新绑定里的 target_seat（抽座后自动跟随）。"""
+        counts = [0, 0, 0, 0]
+        for binding in self.spectators.values():
+            seat = self.seat_of_login(binding.target_login_id)
+            binding.target_seat = seat
+            if seat is not None:
+                counts[seat] += 1
+        return counts
+
+    def viewer_count_of(self, target_login_id: str) -> int:
+        return sum(
+            1 for binding in self.spectators.values() if binding.target_login_id == target_login_id
+        )
+
+    def spectate_count(self) -> int:
+        """已占用的观战名额（按 loginID 计，不按连接数）。"""
+        return sum(self.spectator_counts())
+
+    def spectate_full(self) -> bool:
+        """4 座满且 4×10 名额全满 → 握手必须拒绝（ROOM_SPECTATE_FULL/4005）。"""
+        if self.player_count() < 4:
+            return False
+        return self.spectate_count() >= settings.spectate_room_max
+
+    def spectate_of(self, login_id: str) -> dict | None:
+        """该连接的观战视角（在座或未选目标返回 None）。"""
+        binding = self.spectators.get(login_id)
+        if binding is None:
+            return None
+        seat = self.seat_of_login(binding.target_login_id)
+        binding.target_seat = seat
+        return {
+            "target_seat": seat,
+            "target_login_id": binding.target_login_id,
+            "viewer_count": self.viewer_count_of(binding.target_login_id),
+            "limit_per_seat": settings.spectate_limit_per_seat,
+        }
 
     def assign(self, login_id: str, display_name: str, color: str) -> PlayerSlot | None:
         existing = self.slot_of_login(login_id)
@@ -142,6 +203,14 @@ class RoomActor:
         conns = self.conns.setdefault(login_id, [])
         if ws not in conns:
             conns.append(ws)
+        # 重连即取消观战保留计时，恢复原目标（不重复占名额）
+        binding = self.spectators.get(login_id)
+        if binding is not None:
+            self._cancel_spectate_timer(login_id)
+            binding.reserve_until = 0.0
+            binding.target_seat = self.seat_of_login(binding.target_login_id)
+            if binding.target_seat is None:
+                self.spectators.pop(login_id, None)
 
     def _drop_conn(self, login_id: str, ws: object) -> None:
         conns = self.conns.get(login_id)
@@ -153,7 +222,11 @@ class RoomActor:
             self.conns.pop(login_id, None)
 
     def detach(self, login_id: str, ws: object | None = None) -> None:
-        """断开一个连接。仅当该用户已无任何连接时才标记座位离线并开始保留计时。"""
+        """断开一个连接。仅当该用户已无任何连接时才标记座位离线并开始保留计时。
+
+        观战绑定同样保留 `SPECTATE_RESERVE_SECONDS`：期间重连恢复原目标且不重复占位，
+        到期由定时任务释放名额并广播（多标签页只算 1 个 loginID）。
+        """
         if ws is None:
             self.conns.pop(login_id, None)
         else:
@@ -164,6 +237,34 @@ class RoomActor:
         if slot is not None:
             slot.connected = False
             slot.reserved_until = time.time() + settings.seat_reserve_seconds
+            return
+        binding = self.spectators.get(login_id)
+        if binding is not None:
+            seconds = settings.spectate_reserve_seconds
+            binding.reserve_until = time.time() + seconds
+            self._cancel_spectate_timer(login_id)
+            self._spectate_tasks[login_id] = asyncio.create_task(
+                self._spectate_reserve(login_id, seconds)
+            )
+
+    def _cancel_spectate_timer(self, login_id: str) -> None:
+        task = self._spectate_tasks.pop(login_id, None)
+        # 定时任务自己在释放名额时会走到这里，不能 cancel 当前任务
+        if task is not None and not task.done() and task is not asyncio.current_task():
+            task.cancel()
+
+    async def _spectate_reserve(self, login_id: str, seconds: int) -> None:
+        await asyncio.sleep(max(0, seconds))
+        async with self.lock:
+            self._spectate_tasks.pop(login_id, None)
+            if login_id in self.conns:
+                return
+            binding = self.spectators.get(login_id)
+            if binding is None:
+                return
+            binding.target_seat = self.seat_of_login(binding.target_login_id)
+            await self._release_spectate(login_id, broadcast=True)
+            logger.info("观战名额保留到期释放 room=%s login=%s", self.code, login_id)
 
     # ---------------------------------------------------------------- 落库（线程池）
     async def _persist(self, func, *args):
@@ -185,6 +286,149 @@ class RoomActor:
             make_message(
                 "error", {"code": "DB_WRITE_FAILED", "message": "这局数据没存上，请稍后重试"}
             ),
+        )
+
+    # ---------------------------------------------------------------- 观战（S5b）
+    async def _broadcast_spectate(self, target_login_id: str) -> None:
+        """广播围观名额变化：全房可见计数，但不暴露观战者身份。"""
+        seat = self.seat_of_login(target_login_id)
+        payload = {
+            "target_login_id": target_login_id,
+            "target_seat": seat,
+            "viewer_count": self.viewer_count_of(target_login_id) if seat is not None else 0,
+            "seat_viewer_counts": self.spectator_counts(),
+        }
+        await self.broadcast(make_message("event.spectate_changed", payload))
+
+    async def _release_spectate(self, login_id: str, broadcast: bool = True) -> bool:
+        binding = self.spectators.pop(login_id, None)
+        self._cancel_spectate_timer(login_id)
+        if binding is None:
+            return False
+        if broadcast:
+            await self._broadcast_spectate(binding.target_login_id)
+        return True
+
+    async def set_spectate_target(self, login_id: str, seat) -> None:
+        """选择/切换/取消观战目标（04 §9.3）。
+
+        名额转移在同一把锁内完成（调用方已持锁）：先释放旧目标，再占用新目标。
+        目标满员时保持原绑定不动，只回 SPECTATE_TARGET_FULL。
+        """
+        if self.slot_of_login(login_id) is not None:
+            await self.send_error(login_id, "SPECTATE_NOT_ALLOWED", "你在座，不能观战")
+            return
+
+        if seat is None:
+            released = await self._release_spectate(login_id, broadcast=True)
+            if released:
+                await self._push_snapshot(login_id)
+            else:
+                await self.send_error(login_id, "SPECTATE_TARGET_INVALID", "你还没有选择观战对象")
+            return
+
+        try:
+            target_seat = int(seat)
+        except (TypeError, ValueError):
+            target_seat = -1
+        if target_seat < 0 or target_seat > 3:
+            await self.send_error(login_id, "SPECTATE_TARGET_INVALID", "这个座位不存在")
+            return
+        target = self.slots[target_seat]
+        if target is None:
+            await self.send_error(login_id, "SPECTATE_TARGET_INVALID", "这个位置还没人，换一个吧")
+            return
+
+        existing = self.spectators.get(login_id)
+        if existing is not None and existing.target_login_id == target.login_id:
+            # 同一目标重复提交：幂等，只补发一次快照
+            await self._push_snapshot(login_id)
+            return
+
+        used = sum(
+            1
+            for viewer, binding in self.spectators.items()
+            if viewer != login_id and binding.target_login_id == target.login_id
+        )
+        if used >= settings.spectate_limit_per_seat:
+            await self.send_error(
+                login_id,
+                "SPECTATE_TARGET_FULL",
+                f"该玩家已有 {settings.spectate_limit_per_seat} 人围观，请选择其他玩家",
+            )
+            return
+
+        old_target = existing.target_login_id if existing is not None else ""
+        self.spectators[login_id] = SpectateBinding(
+            target_login_id=target.login_id, target_seat=target_seat
+        )
+        self._cancel_spectate_timer(login_id)
+        if old_target:
+            await self._broadcast_spectate(old_target)
+        await self._broadcast_spectate(target.login_id)
+        await self._push_snapshot(login_id)
+        logger.info(
+            "观战切换 room=%s login=%s target=%s(%s)", self.code, login_id, target.login_id, target_seat
+        )
+
+    async def drop_spectate(self, login_id: str) -> None:
+        """该用户重新入座时释放观战绑定（同一 loginID 不能既在座又占围观名额）。"""
+        if await self._release_spectate(login_id, broadcast=True):
+            await self._push_snapshot(login_id)
+
+    async def clear_seat(self, seat: int) -> None:
+        """座位被回收/玩家离座：清空该目标的观战者并广播 target_seat=null。"""
+        slot = self.slots[seat]
+        if slot is None:
+            return
+        target_login_id = slot.login_id
+        self.slots[seat] = None
+        affected = [
+            viewer
+            for viewer, binding in self.spectators.items()
+            if binding.target_login_id == target_login_id
+        ]
+        for viewer in affected:
+            self.spectators.pop(viewer, None)
+            self._cancel_spectate_timer(viewer)
+        await self.broadcast(
+            make_message(
+                "event.spectate_changed",
+                {
+                    "target_login_id": target_login_id,
+                    "target_seat": None,
+                    "viewer_count": 0,
+                    "seat_viewer_counts": self.spectator_counts(),
+                },
+            )
+        )
+        for viewer in affected:
+            await self._push_snapshot(viewer)
+        await self.push_all()
+
+    def forget_spectators(self) -> None:
+        """同步丢绑定（演员销毁时调用，此时连接已无需通知）。"""
+        for login_id in list(self.spectators):
+            self._cancel_spectate_timer(login_id)
+        self.spectators.clear()
+
+    async def close_spectate(self) -> None:
+        """房间关闭：释放全部观战绑定（内存态，无库操作）。"""
+        for login_id in list(self.spectators):
+            self._cancel_spectate_timer(login_id)
+        if not self.spectators:
+            return
+        self.spectators.clear()
+        await self.broadcast(
+            make_message(
+                "event.spectate_changed",
+                {
+                    "target_login_id": "",
+                    "target_seat": None,
+                    "viewer_count": 0,
+                    "seat_viewer_counts": [0, 0, 0, 0],
+                },
+            )
         )
 
     # ---------------------------------------------------------------- 发送
@@ -212,9 +456,14 @@ class RoomActor:
 
     async def push_all(self) -> None:
         for login_id in list(self.conns.keys()):
-            slot = self.slot_of_login(login_id)
-            viewer = slot.seat if slot else None
-            await self.send(login_id, make_message("state.snapshot", build_snapshot(self, viewer)))
+            await self._push_snapshot(login_id)
+
+    async def _push_snapshot(self, login_id: str) -> None:
+        slot = self.slot_of_login(login_id)
+        viewer = slot.seat if slot is not None else None
+        await self.send(
+            login_id, make_message("state.snapshot", build_snapshot(self, viewer, login_id))
+        )
 
     async def system_chat(self, content: str) -> None:
         record = await self._persist(
@@ -235,6 +484,8 @@ class RoomActor:
         async with self.lock:
             if msg_type == "state.resync":
                 await self.push_all()
+            elif msg_type == "spectate.target":
+                await self.set_spectate_target(login_id, data.get("seat"))
             elif msg_type == "seat.ready":
                 await self._toggle_ready(login_id)
             elif msg_type == "game.start":
@@ -260,6 +511,9 @@ class RoomActor:
         await self.push_all()
 
     async def _start_game(self, login_id: str) -> None:
+        if self.slot_of_login(login_id) is None:
+            await self.send_error(login_id, "NO_SEAT", "你在观战，不能开局")
+            return
         if login_id != self.host_login_id:
             await self.send_error(login_id, "NOT_HOST", "只有房主可以开桌")
             return
@@ -309,6 +563,9 @@ class RoomActor:
         await self._after(self.engine.start_round())
 
     async def _next_round(self, login_id: str) -> None:
+        if self.slot_of_login(login_id) is None:
+            await self.send_error(login_id, "NO_SEAT", "你在观战，不能开局")
+            return
         if self.engine is None:
             await self.send_error(login_id, "NOT_STARTED", "牌局还没开始")
             return

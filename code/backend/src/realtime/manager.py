@@ -53,6 +53,7 @@ class RoomManager:
         actor = self._actors.pop(code, None)
         if actor is not None:
             actor._clear_timers()
+            actor.forget_spectators()
             logger.info("房间演员销毁 code=%s", code)
 
     def codes(self) -> list[str]:

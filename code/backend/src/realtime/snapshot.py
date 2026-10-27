@@ -1,12 +1,13 @@
-"""逐座位生成快照：只把自己的手牌明文下发，其他人只给张数与副露。
+"""逐连接生成快照：手牌只对本人或观战目标明文，其他人只给张数与副露。
 
-从协议层杜绝"抓包看别人牌"。
+从协议层杜绝「抓包看别人牌」：观战者同一时刻只跟随 1 名在座玩家（S5b），
+未选目标时只收公共状态（hand=[]、drawn=null、legal.actions=[]）。
 """
 
 from game.tiles import tiles_from_counts
 
 
-def _seat_view(actor, seat: int, viewer_seat: int | None) -> dict | None:
+def _seat_view(actor, seat: int, look_seat: int | None, spectator_counts: list[int]) -> dict | None:
     slot = actor.slots[seat]
     if slot is None:
         return None
@@ -19,7 +20,7 @@ def _seat_view(actor, seat: int, viewer_seat: int | None) -> dict | None:
         state = engine.seats.get(seat)
         if state is not None:
             hand_count = sum(state.counts)
-            reveal = viewer_seat == seat
+            reveal = look_seat == seat
             melds = [meld.to_dict(reveal=reveal or meld.kind != "kong_hidden") for meld in state.melds]
             round_score = state.round_score
             total_score = state.total_score
@@ -35,12 +36,20 @@ def _seat_view(actor, seat: int, viewer_seat: int | None) -> dict | None:
         "melds": melds,
         "round_score": round_score,
         "total_score": total_score,
+        # 该座位当前围观人数（0–10），全房可见、不含观战者身份
+        "spectator_count": spectator_counts[seat],
     }
 
 
-def build_snapshot(actor, viewer_seat: int | None) -> dict:
+def build_snapshot(actor, viewer_seat: int | None, viewer_login_id: str = "") -> dict:
+    """`viewer_seat=None` 表示观战连接：手牌取 `spectate.target_seat` 的明文。"""
     engine = actor.engine
     rule = actor.rule
+    spectator_counts = actor.spectator_counts()
+    spectate = None if viewer_seat is not None else actor.spectate_of(viewer_login_id)
+    spectate_seat = spectate["target_seat"] if spectate else None
+    look_seat = viewer_seat if viewer_seat is not None else spectate_seat
+
     payload = {
         "room": {
             # 04 §9.5 字段
@@ -52,12 +61,15 @@ def build_snapshot(actor, viewer_seat: int | None) -> dict:
             "rule_name": actor.rule_name,
             "rule_family_code": actor.rule_family_code,
             "rule_brief": rule.brief(),
+            "spectator_count": actor.spectator_count(),
+            "spectate_seat_viewer_counts": spectator_counts,
             # 兼容旧前端的别名（S6 前端切到上名字段后删除）
             "code": actor.code,
             "name": actor.name,
         },
         "self_seat": viewer_seat,
-        "seats": [_seat_view(actor, seat, viewer_seat) for seat in range(4)],
+        "spectate": spectate,
+        "seats": [_seat_view(actor, seat, look_seat, spectator_counts) for seat in range(4)],
         "status": actor.status,
         "round_no": engine.round_no if engine else 0,
         "dealer_seat": engine.dealer_seat if engine else None,
@@ -88,16 +100,17 @@ def build_snapshot(actor, viewer_seat: int | None) -> dict:
             "tile": engine.last_discard,
         }
 
-    if viewer_seat is not None:
-        state = engine.seats.get(viewer_seat)
+    # 手牌只给本人或观战目标；观战者 legal 恒为空（不能操作牌局）
+    if look_seat is not None:
+        state = engine.seats.get(look_seat)
         if state is not None:
-            hands = tiles_from_counts(state.counts)
-            payload["hand"] = hands
-            if engine.turn == viewer_seat and engine.last_draw is not None:
+            payload["hand"] = tiles_from_counts(state.counts)
+            if engine.turn == look_seat and engine.last_draw is not None:
                 payload["drawn"] = engine.last_draw
-            payload["legal"] = engine.legal_actions(viewer_seat)
-            if rule.ting_hint.enabled and engine.phase == "discard" and engine.turn == viewer_seat:
-                tenpai = engine.tenpai_map(viewer_seat)
+            if viewer_seat is not None:
+                payload["legal"] = engine.legal_actions(viewer_seat)
+            if rule.ting_hint.enabled and engine.phase == "discard" and engine.turn == look_seat:
+                tenpai = engine.tenpai_map(look_seat)
                 payload["tenpai"] = {str(tile): waits for tile, waits in tenpai.items()}
 
     if engine.phase == "discard" and rule.turn_timeout.enabled:

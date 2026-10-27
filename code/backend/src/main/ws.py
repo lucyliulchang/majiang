@@ -76,10 +76,23 @@ async def websocket_endpoint(websocket: WebSocket, token: str = "", code: str = 
     display_name = user.display_name
     color = misc.stableColorOf(user.login_id)
     async with actor.lock:
+        # 4 座满且 4×10 观战位满 → 4005 断开；满座但仍有名额只回 ROOM_FULL（非致命）
+        if actor.slot_of_login(user.login_id) is None and actor.spectate_full():
+            await _reject(
+                websocket,
+                "ROOM_SPECTATE_FULL",
+                "围观人数已满，暂时进不去",
+                _CLOSE_SPECTATE_FULL,
+            )
+            return
         slot = actor.assign(user.login_id, display_name, color)
+        if slot is not None:
+            await actor.drop_spectate(user.login_id)
         actor.attach(user.login_id, websocket)
     if slot is None:
-        await actor.send_error(user.login_id, "ROOM_FULL", "四个座位都坐满了，你先观战吧")
+        await actor.send_error(
+            user.login_id, "ROOM_FULL", "四个座位都坐满了，先选个家人观战吧"
+        )
 
     chat = await run_in_threadpool(persist.load_messages, actor.room_id, 50)
     await actor.send(
@@ -102,7 +115,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = "", code: str = 
                     "name": actor.name,
                 },
                 "self_seat": slot.seat if slot else None,
-                "spectate": None,
+                "spectate": actor.spectate_of(user.login_id),
                 "chat": chat,
             },
         ),

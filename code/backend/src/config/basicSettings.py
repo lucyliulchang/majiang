@@ -15,6 +15,7 @@
 
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 VERSION = "1.0.0"
@@ -32,13 +33,30 @@ DEFAULT_DATA_DIR = BACKEND_DIR / "data"
 # /data/webserver/majiangapp 出，前端只认这一个前缀。
 PUBLIC_IMAGE_URL = "/majiangapp"
 
-DEFAULT_SECRET_KEY = "dev-only-insecure-key-change-me"
-DEFAULT_ADMIN_USERNAME = "admin"
-# 留空则启动时随机生成口令并打印一次日志
-DEFAULT_ADMIN_PASSWORD = ""
+DEFAULT_SECRET_KEY = "dev-only-insecure-key-change-me-32bytes"
 DEFAULT_TOKEN_TTL_HOURS = 720
 DEFAULT_CORS_ORIGINS = "*"
 DEFAULT_SECURE_COOKIES = False
+
+# 账号服务（contentHub acis）——账号不是本系统资产，只做客户端与档案镜像（01 §5）
+DEFAULT_ACCOUNT_SERVICE_URL = "http://127.0.0.1:8160/acis"
+# 注册默认关闭（生产口径）；开放时账号服务仍会校验短信验证码
+DEFAULT_ACCOUNT_ALLOW_REGISTER = False
+# 自助找回口令默认开启（家庭场景需要）
+DEFAULT_ACCOUNT_ALLOW_PASSWORD_RESET = True
+# 本系统角色：admin / member。未返回或不在管理员白名单时回落到这里
+DEFAULT_ACCOUNT_DEFAULT_ROLE = "member"
+
+# acis 管理员角色白名单（与 contentHub config/basicSettings.py::USER_ADMIN_ROLE_LIST 一致）
+USER_ADMIN_ROLE_LIST = ("administrator", "manager")
+# 本系统角色 -> acis roleName（回写 acis 时用，对应 contentHub ::ROLE_ACCOUNT_ROLE）
+ROLE_ACCOUNT_ROLE = {"admin": "administrator", "member": "customer"}
+
+# 验证码本地限流（进程内计数，不落库、不缓存明文；见 04 §2.3）
+DEFAULT_AUTH_VERIFY_CODE_COOLDOWN_SECONDS = 60
+DEFAULT_AUTH_VERIFY_CODE_MAX_ATTEMPTS = 5
+# 账号服务侧验证码 TTL（仅用于前端文案，本地不判断）
+AUTH_VERIFY_CODE_EXPIRE_SECONDS = 600
 
 # 出牌超时与碰杠胡询问窗口的兜底值，实际以规则模板为准
 DEFAULT_CLAIM_WINDOW_SECONDS = 8
@@ -47,6 +65,23 @@ DEFAULT_SEAT_RESERVE_SECONDS = 180
 # 聊天限流：每人每 N 秒最多 M 条
 DEFAULT_CHAT_RATE_WINDOW = 5
 DEFAULT_CHAT_RATE_LIMIT = 3
+
+# 观战（S5b / 00 §4.3 G13、8 §9 D17）：一人一目标、每名在座玩家最多 10 人围观、
+# 全房 4×10=40 个名额；观战连接全断后绑定保留 60 秒，超时释放名额。
+DEFAULT_SPECTATE_LIMIT_PER_SEAT = 10
+DEFAULT_SPECTATE_ROOM_MAX = 40
+DEFAULT_SPECTATE_RESERVE_SECONDS = 60
+
+
+def intInRange(value, low: int, high: int, defaultValue: int) -> int:
+    """把 .env 里的值收敛到合法区间；非法/缺失一律回退默认，启动不因此失败。"""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return defaultValue
+    if number < low or number > high:
+        return defaultValue
+    return number
 
 # 皮肤图片上传限制（S8 落地时使用，此处只定常量）
 UPLOAD_MAX_BYTES = 2 * 1024 * 1024
@@ -75,14 +110,47 @@ class BasicSettings(BaseSettings):
     log_dir: Path = DEFAULT_LOG_DIR
     data_dir: Path = DEFAULT_DATA_DIR
 
-    admin_init_username: str = DEFAULT_ADMIN_USERNAME
-    admin_init_password: str = DEFAULT_ADMIN_PASSWORD
-
     token_ttl_hours: int = DEFAULT_TOKEN_TTL_HOURS
     cors_origins: str = DEFAULT_CORS_ORIGINS
     secure_cookies: bool = DEFAULT_SECURE_COOKIES
+
+    # 账号服务与两个开关（01 §11）
+    account_service_url: str = DEFAULT_ACCOUNT_SERVICE_URL
+    account_allow_register: bool = DEFAULT_ACCOUNT_ALLOW_REGISTER
+    account_allow_password_reset: bool = DEFAULT_ACCOUNT_ALLOW_PASSWORD_RESET
+    account_default_role: str = DEFAULT_ACCOUNT_DEFAULT_ROLE
+    auth_verify_code_cooldown_seconds: int = DEFAULT_AUTH_VERIFY_CODE_COOLDOWN_SECONDS
+    auth_verify_code_max_attempts: int = DEFAULT_AUTH_VERIFY_CODE_MAX_ATTEMPTS
 
     claim_window_seconds: int = DEFAULT_CLAIM_WINDOW_SECONDS
     seat_reserve_seconds: int = DEFAULT_SEAT_RESERVE_SECONDS
     chat_rate_window: int = DEFAULT_CHAT_RATE_WINDOW
     chat_rate_limit: int = DEFAULT_CHAT_RATE_LIMIT
+
+    # 观战上限（S5b）：每名在座玩家最多 10 人、全房 40 个名额、断线保留 60 秒
+    spectate_limit_per_seat: int = DEFAULT_SPECTATE_LIMIT_PER_SEAT
+    spectate_room_max: int = DEFAULT_SPECTATE_ROOM_MAX
+    spectate_reserve_seconds: int = DEFAULT_SPECTATE_RESERVE_SECONDS
+
+    @field_validator(
+        "spectate_limit_per_seat", "spectate_room_max", "spectate_reserve_seconds", mode="before"
+    )
+    @classmethod
+    def _spectateFallback(cls, value, info):
+        ranges = {
+            "spectate_limit_per_seat": (1, 10, DEFAULT_SPECTATE_LIMIT_PER_SEAT),
+            "spectate_room_max": (1, 100, DEFAULT_SPECTATE_ROOM_MAX),
+            "spectate_reserve_seconds": (0, 3600, DEFAULT_SPECTATE_RESERVE_SECONDS),
+        }
+        low, high, defaultValue = ranges.get(info.field_name, (0, 0, 0))
+        if value is None or value == "":
+            return defaultValue
+        return intInRange(value, low, high, defaultValue)
+
+    @property
+    def account_register_enabled(self) -> bool:
+        return bool(self.account_allow_register)
+
+    @property
+    def account_password_reset_enabled(self) -> bool:
+        return bool(self.account_allow_password_reset)

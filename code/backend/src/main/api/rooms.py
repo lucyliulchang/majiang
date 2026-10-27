@@ -5,6 +5,7 @@
 """
 
 from fastapi import APIRouter, Depends, Query
+from starlette.concurrency import run_in_threadpool
 
 from main.deps import (
     CurrentUser,
@@ -77,9 +78,11 @@ def join_check(
     room_code: str,
     user: CurrentUser = Depends(current_user),
 ) -> RoomJoinCheck:
-    """按邀请码入房校验（04 §6 #28）：非成员 403，已关房 400 ROOM_CLOSED。"""
-    players, _ = _liveCounts(room_code.strip().upper())
-    return RoomJoinCheck(**roomService.getRoomByCode(user.login_id, room_code, players))
+    """按邀请码入房校验（04 §6 #28）：含实时围观数（`spectate.available` 用于禁用进入）。"""
+    actor = room_manager.get(room_code.strip().upper())
+    players = actor.player_count() if actor is not None else 0
+    viewers = actor.spectator_counts() if actor is not None else [0, 0, 0, 0]
+    return RoomJoinCheck(**roomService.getRoomByCode(user.login_id, room_code, players, viewers))
 
 
 @router.get("/{room_id}", response_model=RoomOut)
@@ -94,15 +97,18 @@ def get_room(
 
 
 @router.post("/{room_id}/close", response_model=RoomOut)
-def close_room(
+async def close_room(
     room_id: int,
     user: CurrentUser = Depends(current_user),
 ) -> RoomOut:
-    """关房（04 §6 #29）：房主/家庭管理员；同时销毁内存中的房间演员。"""
-    row = roomService.closeRoom(user.login_id, room_id)
-    room_manager.remove(row["room_code"])
-    players, spectators = _liveCounts(row["room_code"])
-    return RoomOut(**{**row, "player_count": players, "spectator_count": spectators})
+    """关房（04 §6 #29）：房主/家庭管理员；通知观战者并销毁内存中的房间演员。"""
+    row = await run_in_threadpool(roomService.closeRoom, user.login_id, room_id)
+    actor = room_manager.get(row["room_code"])
+    if actor is not None:
+        # 先把"观战目标已失效"广播出去，再销毁演员
+        await actor.close_spectate()
+        room_manager.remove(row["room_code"])
+    return RoomOut(**{**row, "player_count": 0, "spectator_count": 0})
 
 
 @router.get("/{room_id}/messages", response_model=list[ChatMessageOut])
