@@ -1267,7 +1267,7 @@ def query_mj_rule_template_list(familyID, ruleFamilyCode = ""):
     _requireDB()
     sqlStr = (
         "SELECT recID, templateCode, familyID, ruleFamilyCode, templateName, description, "
-        "configJson, presetFlag, ownerLoginID, activeFlag, sortOrder "
+        "configJson, presetFlag, ownerLoginID, activeFlag, sortOrder, regYMDHMS, modifyYMDHMS "
         "FROM %s WHERE familyID IN (0, %%s) AND activeFlag = '1' "
         "AND (delFlag = '0' OR delFlag IS NULL)"
     ) % MJ_RULE_TEMPLATE_TABLE

@@ -120,6 +120,19 @@ _FIELD_ERROR_CODE = {
     "claim_window_seconds": "RULE_CLAIM_WINDOW_INVALID",
 }
 
+# 跨字段校验（model_validator）的 loc 为空，只能按中文文案归到细粒度错误码
+_MESSAGE_KEYWORD_CODE = (
+    ("底分", "RULE_BASE_SCORE_INVALID"),
+    ("封顶", "RULE_FAN_CAP_INVALID"),
+    ("番表", "RULE_FAN_TABLE_INVALID"),
+    ("番种", "RULE_PATTERN_EMPTY"),
+    ("限时", "RULE_TURN_TIMEOUT_INVALID"),
+    ("杠", "RULE_KONG_SCORE_INVALID"),
+    ("荒庄", "RULE_DRAW_PENALTY_INVALID"),
+    ("局数", "RULE_ROUNDS_INVALID"),
+    ("响应窗口", "RULE_CLAIM_WINDOW_INVALID"),
+)
+
 
 def _raiseConfigError(error: ValidationError):
     """把 Pydantic 校验错误映射成 04 §10 的细粒度错误码。"""
@@ -127,9 +140,14 @@ def _raiseConfigError(error: ValidationError):
     first = errors[0] if errors else {}
     loc = first.get("loc") or ()
     field = str(loc[0]) if loc else ""
-    code = _FIELD_ERROR_CODE.get(field, "RULE_CONFIG_INVALID")
     message = str(first.get("msg") or "规则配置不合法").replace("Value error, ", "")
-    raise _configError(code, message)
+    code = _FIELD_ERROR_CODE.get(field, "")
+    if not code:
+        for keyword, keywordCode in _MESSAGE_KEYWORD_CODE:
+            if keyword in message:
+                code = keywordCode
+                break
+    raise _configError(code or "RULE_CONFIG_INVALID", message)
 
 
 def _assertCapability(capability: dict, config: RuleConfig) -> None:
