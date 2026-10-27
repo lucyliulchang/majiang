@@ -10,19 +10,24 @@
 
 | 步骤 | 范围 | 状态 |
 | --- | --- | --- |
-| S0 | 文档评审与口径冻结 | 已评审（2026-10-27，结论见 plan/README.md） |
-| S1 | 目录迁移与后端骨架 | 进行中（目录迁移已完成，骨架待拆） |
-| S2 | MySQL 表定义与生成链路 | 待开始 |
-| S3 | 账号服务接入与 JWT | 待开始 |
-| S4 | 家庭实体与数据隔离 | 待开始 |
-| S5 | 数据层改造（移除 ORM） | 待开始 |
+| S0 | 文档评审与口径冻结 | 已完成（2026-10-27，结论见 plan/README.md） |
+| S1 | 目录迁移与后端骨架 | 已完成（2026-10-27） |
+| S2 | MySQL 表定义与生成链路 | 已完成（2026-10-27） |
+| S3 | 账号服务接入与 JWT | 已完成（2026-10-27） |
+| S4 | 家庭实体与数据隔离 | 已完成（2026-10-27） |
+| S5 | 数据层改造（移除 ORM） | 已完成（2026-10-27，提交 B1–B5，pytest 126 绿） |
+| S5b | 观战跟随与围观上限 | 已完成（2026-10-27，纯内存态，pytest 138 绿） |
 | S6 | 规则族：通用族等价迁移 | 待开始 |
 | S7 | 规则族：广东/四川/柏氏 | 待开始 |
 | S8 | 皮肤系统后端 | 待开始 |
 | S9 | 音效模块（前端 SFX） | 待开始 |
 | S10 | 前端适配、皮肤管理、联调部署 | 待开始 |
 
-**下一步**：S1（目录迁移已完成，剩余 `src/app/` 骨架拆分与路径修正）。文档有变更时先改 `plan/`，再按顺序推进；不要跳步。
+**下一步**：S6（规则族：通用族等价迁移）。
+
+**2026-10-27 追加**：观战改为「一人一目标、每名在座玩家最多 10 人围观」（G13 / D17），新增 S5b（阶段 P4b）。该约束不新增表：S0–S2 已建的 `USER_BASIC` + 14 张 `mj_*` 保持不变，观战关系只存 `RoomActor` 内存。
+
+文档有变更时先改 `plan/`，再按顺序推进；不要跳步。
 
 ## 全局约定（每步都适用）
 
@@ -38,6 +43,7 @@
 | 业务层 | **禁止裸 SQL**，一律走 `common/mysqlCommon.py` |
 | 账号 | 不自建；只用账号服务 + `USER_BASIC` + 本地 JWT |
 | 家庭 | 所有家庭域查询必须带 `familyID`；跨家庭一律 403 |
+| 观战 | 一人一目标；每名在座玩家最多 10 人围观（4×10=40）；只存内存、不落库、不做观战名单 |
 | 邀请码 | 6 位纯数字 `^[1-9][0-9]{5}$` |
 | 时间 | DB 用 `VARCHAR(16)` 本地时间；WS 倒计时用 epoch 秒 |
 | 协议 | 字段与 JSON 用 `snake_case`；DB 列名用 `camelCase` |
@@ -51,6 +57,7 @@
 - S3 · 账号服务接入与 JWT
 - S4 · 家庭实体与数据隔离
 - S5 · 数据层改造（移除 ORM）
+- S5b · 观战跟随与围观上限
 - S6 · 规则族：通用族等价迁移
 - S7 · 规则族：广东/四川/柏氏
 - S8 · 皮肤系统后端
@@ -407,9 +414,68 @@ B5 清理：删除 app/db/*、app/core/deps.py 的 Session、requirements 中 sq
 
 ---
 
+## S5b · 观战跟随与围观上限
+
+> **什么时候做**：S5 通过后。纯实时层与前端改动，不新增表、不改 02。
+
+````text
+【家庭麻将 · S5b · 观战跟随与围观上限】
+
+## 目标
+四座满后进入观战：每个观战者同一时刻只跟随 1 名在座玩家，每名在座玩家最多被 10 名观战者跟随；观战快照只给目标手牌明文，观战者不能操作；观战关系只存 RoomActor 内存，不落库。
+
+## 前置
+S5 通过（实时写库已走 mysqlCommon）；本步无数据库变更。
+
+## 必须先读
+- plan/家庭麻将总体规划文档.md §3、§4.3 G13、§9 D17、§12
+- plan/01-系统架构设计.md §4.2、§9、§11
+- plan/04-协议设计.md §6、§9.1、§9.3–§9.5、§10、§12
+- plan/05-UI设计.md §4.3、§4.5
+- 现有代码：realtime/room.py、main/ws.py、realtime/snapshot.py、stores/game.ts、RoomView.vue、SeatBox.vue、ActionBar.vue
+
+## 任务
+1. 房态：RoomActor 增 spectators: dict[loginID, SpectateBinding]（targetLoginID/targetSeat/reserveUntil）与按当前座位派生的围观计数；绑定以 targetLoginID 为准，抽座后重算 targetSeat，不跟错人。
+2. 消息：main/ws.py 处理 spectate.target（{seat} / {seat:null}）——在 asyncio.Lock 内校验：在座玩家不可观战（SPECTATE_NOT_ALLOWED）、目标座位无人（SPECTATE_TARGET_INVALID）、目标已满 10 人（SPECTATE_TARGET_FULL，保持原绑定）；成功时先释放旧目标名额再占用新目标；同目标重复提交幂等。
+3. 快照：state.snapshot 增 spectate 与 seats[].spectator_count；hand/drawn/tenpai 只对 self_seat 或 spectate.target_seat 填充，其余只给 hand_count；观战者 self_seat=null、legal.actions=[]，drawn 为目标的摸牌。
+4. 事件：event.spectate_changed{target_login_id,target_seat,viewer_count,seat_viewer_counts} 广播全房，不含观战者身份；观战者本人切换后补发 state.snapshot，不增量回放历史。
+5. 握手：4 座满且观战位 4×10 满 → error{ROOM_SPECTATE_FULL} + close(4005)；满座但仍有名额仍返回 ROOM_FULL（非致命）。
+6. 生命周期：观战连接全断后绑定保留 60 秒（SPECTATE_RESERVE_SECONDS），超时释放并广播；目标离座/座位回收/房间关闭立即清空该目标的观战者并广播 target_seat=null；同一 loginID 多标签页只占 1 个名额。
+7. 配置：config/basicSettings.py 读 SPECTATE_LIMIT_PER_SEAT=10 / SPECTATE_ROOM_MAX=40 / SPECTATE_RESERVE_SECONDS=60，非法值回退默认；同步写进 .env.example。
+8. 前端：stores/game.ts 增 spectate 与 spectateSeat(seat|null)；新建 SpectatePanel.vue（4 张座位卡、围观 x/10、满员置灰、未选提示）；RoomView 增顶部横幅与切换入口；SeatBox 显示围观人数；观战者不渲染 HandTiles/ActionBar，改为「切换观战对象 / 取消跟随」；移动端横幅不遮挡牌河。
+9. 大厅：room_join_check.spectate 用于满座提示与 available=false 时禁用进入。
+10. 不做：观战名单、观战历史、观战落库、观战者禁言或额外聊天权限。
+
+## 验收清单
+- [ ] 四座满后第 5 人进入观战：未选目标 hand=[]、spectate=null；选择座位 2 后只有座位 2 的 hand 明文。
+- [ ] 同一观战者连续切换 3 次，旧目标 spectator_count -1、新目标 +1，全房总数守恒。
+- [ ] 目标已有 10 人时第 11 人返回 SPECTATE_TARGET_FULL，且其原绑定不变。
+- [ ] 4×10 满后第 45 个连接握手返回 ROOM_SPECTATE_FULL(4005)。
+- [ ] 同一账号 3 个标签页只占 1 个名额；断线 60 秒内重连恢复原目标且不重复占位。
+- [ ] 目标离座 / 房间关闭：观战者收到 event.spectate_changed{target_seat:null}，回到未选择态，计数归零。
+- [ ] 抽座换座后观战者仍跟随同一 loginID。
+- [ ] 观战者发 seat.ready/game.start/game.action 返回 NO_SEAT；观战快照 legal.actions=[]。
+- [ ] 375px 可完成选目标与切换；横幅不遮挡牌河与聊天按钮。
+- [ ] grep -rn "mj_spectator" code/backend 无命中；02 表数仍为 14 张 mj_*；pytest 全绿（新增观战用例）。
+
+## 硬约束
+- 观战关系不落库、不新增表、不改 02；进程重启房态清空即可。
+- 上限按 loginID 计数，不按连接数；切换与名额释放必须在同一把锁内完成。
+- 观战快照不得出现目标以外任何人的手牌，不得下发牌墙。
+- 不改对局规则、结算与既有 WS 事件形状，只做增量字段。
+- 观战者不能准备/开局/出牌/吃碰杠胡/暂停；聊天保持可用。
+
+## 完成后必须输出
+1. 文件清单（后端 room/ws/snapshot/config、前端 store 与组件）。
+2. 验收结果（并发选目标、第 11 人、4×10 满、切换计数、抽座跟随的证据）。
+3. 遗留问题（观战者音效策略、被围观人数展示位置等）。
+````
+
+---
+
 ## S6 · 规则族：通用族等价迁移
 
-> **什么时候做**：S5 通过后。先保证 generic 与现状逐字节等价，再谈新族。
+> **什么时候做**：S5b 通过后。先保证 generic 与现状逐字节等价，再谈新族。
 
 ````text
 【家庭麻将 · S6 · 规则族：通用族等价迁移】
@@ -418,7 +484,7 @@ B5 清理：删除 app/db/*、app/core/deps.py 的 Session、requirements 中 sq
 把现有单一 RuleConfig 拆成"通用骨架 + families/generic 插件"，行为与现状一致；4 套预置模板与 76 个用例全部平移。
 
 ## 前置
-S5 通过；现状 76 用例在 SQLite 下全绿（作为对照基线）。
+S5b 通过；现状 76 用例在 SQLite 下全绿（作为对照基线）。
 
 ## 必须先读
 - plan/03-规则族设计.md §1–§4（含 §3.4 座位/庄家/局风、§3.5 发牌、§3.6 荒庄）、§9–§11
@@ -683,7 +749,7 @@ C. 牌面
 14. 皮肤切换即时生效，不刷新牌桌。
 
 D. 测试与部署
-15. 手工清单：1440/1024/768/375 各完成登录→选家庭→开桌→出牌→碰→胡→聊天→音效开关/调音量。
+15. 手工清单：1440/1024/768/375 各完成登录→选家庭→开桌→出牌→碰→胡→聊天→音效开关/调音量；满座时完成一次「选择观战对象→切换→取消」。
 16. 后端 pytest 全量（引擎/接口/隔离/皮肤/邀请码）；前端构建无 TS 错误。
 17. 部署：MySQL 建库、initTables --seed、bootstrapFamily、npm build、systemd、Nginx `/majiangapp/tiles/`、WSS。
 18. 回滚演练：代码回退 + 备份恢复 + 皮肤功能开关。
@@ -724,6 +790,7 @@ D. 测试与部署
 | S3 | P3a | 账号与 JWT |
 | S4 | P3b | 家庭与隔离 |
 | S5 | P4 | 数据层无 ORM |
+| S5b | P4b | 观战跟随与围观上限 |
 | S6 | P5a | 通用族等价 |
 | S7 | P5b | 广东/四川/柏氏 |
 | S8 | P6a | 皮肤后端 |
@@ -754,3 +821,4 @@ D. 测试与部署
 | 缩略图生成 | 可选，首期直接使用原图 |
 | 皮肤物理清理脚本 | 待补 |
 | 前端单元测试 | 本轮不引入，靠手工矩阵 |
+| 观战名单 / 观战历史 | 不做：观战关系只存内存，仅展示每座围观人数，不展示谁在看谁 |
