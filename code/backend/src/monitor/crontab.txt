@@ -1,0 +1,11 @@
+# Mahjong monitor crontab (monitor 目录, 非 root)
+# 版本管理文件: 生产环境按实际路径替换后 `crontab -e` 应用
+# M H D m d cmd
+
+MAILTO=ops@example.com
+
+# 每 5 分钟: 探 /api/health + 比对文件变更 + 进程存活, 异常时重启 mahjong
+*/5 * * * * sh /data/majiang/src/monitor/restore_monitor.sh >> /data/majiang/log/schedule/monitor.log 2>&1
+
+# 部署后首次运行会因 tempMonitorFileName.json 不存在而触发一次重启,
+# 请先在部署窗口手工执行一次建基线, 再启用本行 cron

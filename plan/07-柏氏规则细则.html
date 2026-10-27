@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>07 · 柏氏规则细则</title>
+<style>
+:root{--ink:#17211C;--muted:#5C6B63;--line:#DDE5E0;--accent:#0F3D2E;--accent2:#C9A063;--bg:#FFFFFF;--soft:#F7FAF8;}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);
+ font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;}
+.page{max-width:1080px;margin:0 auto;padding:40px 28px 96px}
+h1{font-size:30px;line-height:1.3;margin:0 0 8px;color:var(--accent);letter-spacing:.5px}
+h1::after{content:"";display:block;width:64px;height:4px;background:var(--accent2);margin-top:14px;border-radius:2px}
+h2{font-size:22px;margin:52px 0 14px;padding-left:12px;border-left:5px solid var(--accent2);line-height:1.4}
+h3{font-size:17px;margin:30px 0 10px;color:var(--accent)}
+h4{font-size:15px;margin:22px 0 8px;color:var(--muted)}
+p{margin:12px 0}
+a{color:#146C50;text-decoration:none;border-bottom:1px solid rgba(20,108,80,.28)}
+a:hover{border-bottom-color:#146C50}
+strong{color:#0B2A1F}
+ul,ol{margin:12px 0;padding-left:24px}
+li{margin:6px 0}
+li>ul,li>ol{margin:6px 0}
+code{background:var(--soft);border:1px solid var(--line);border-radius:4px;
+ padding:1px 5px;font-family:"JetBrains Mono",Consolas,"Courier New",monospace;font-size:13.5px;color:#0B3B2C}
+pre{background:#0F3D2E;color:#E8F1EC;border-radius:10px;padding:16px 18px;overflow:auto;margin:16px 0;
+ box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+pre code{background:none;border:0;color:inherit;padding:0;font-size:13px;line-height:1.6}
+blockquote{margin:16px 0;padding:10px 16px;background:#FCFAF3;border-left:4px solid var(--accent2);
+ border-radius:0 8px 8px 0;color:var(--muted)}
+blockquote p{margin:4px 0;font-size:14.5px}
+.table-wrap{overflow-x:auto;margin:16px 0;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:14.5px;background:#fff}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{background:var(--accent);color:#F6EFDC;font-weight:600;white-space:nowrap;border-bottom:0}
+tbody tr:nth-child(even){background:#FAFCFA}
+tbody tr:hover{background:#F2F8F4}
+tbody tr:last-child td{border-bottom:0}
+hr{border:0;border-top:1px solid var(--line);margin:36px 0}
+.toc{margin:28px 0 8px;border:1px solid var(--line);border-radius:10px;background:var(--soft);padding:12px 18px}
+.toc summary{cursor:pointer;font-weight:600;color:var(--accent);outline:none}
+.toc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 18px;margin-top:10px}
+.toc-grid a{font-size:14px;border:0;color:#33544A}
+.toc-grid a:hover{color:#146C50;text-decoration:underline}
+.meta{color:var(--muted);font-size:13px;margin-top:10px}
+@media (max-width:640px){.page{padding:24px 16px 64px}h1{font-size:24px}h2{font-size:19px;margin-top:38px}}
+@media print{body{font-size:12pt}.toc{display:none}pre{background:#F5F5F5;color:#111;box-shadow:none}h2{page-break-after:avoid}table{page-break-inside:avoid}}
+</style>
+</head>
+<body>
+<div class="page">
+<details class="toc" open>
+<summary>目录（15 节）</summary>
+<div class="toc-grid"><a href="#sec-1">1. 定位</a><a href="#sec-2">2. 牌张与基本设定</a><a href="#sec-3">3. 计分</a><a href="#sec-4">4. 庄家与轮庄</a><a href="#sec-5">5. 番表（31 项）</a><a href="#sec-6">6. 番种判定细则</a><a href="#sec-7">6.9 风刻（门风刻 / 圈风刻）</a><a href="#sec-8">7. 包牌</a><a href="#sec-9">8. 杠分</a><a href="#sec-10">9. 荒庄与暂停</a><a href="#sec-11">10. 模板默认 config</a><a href="#sec-12">11. capability</a><a href="#sec-13">12. 冻结状态</a><a href="#sec-14">13. 验收用例</a><a href="#sec-15">14. 联动态</a></div>
+</details>
+<h1>07 · 柏氏规则细则</h1>
+<blockquote><p>状态：v1.7 定稿（番表 31 项；2026-10-27 七次修订：一般高=异花色 1 番、姊妹花=同花色 2 番，三姊妹 = 3 番）</p><p>修订历史：v1.3 风刻/座序轮转/荒庄二分 → v1.4 独赢三形态 + 平胡两面 → v1.5·v1.6 番值调整（已被 v1.7 覆盖）→ v1.7 一般高=异花色 1 番、姊妹花=同花色 2 番、三姊妹 3 番、全文字七对 120 番</p><p>上游：<a href="03-规则族设计.md">03-规则族设计.md</a> §7（族注册与契约）、<a href="02-数据库设计.md">02-数据库设计.md</a>（落库字段）</p><p>本文是 <code>baishi</code> 族<strong>规则语义的唯一权威</strong>；03 §7 只保留摘要与指针，不得复制数值。</p></blockquote>
+<h2 id="sec-1">1. 定位</h2>
+<div class="table-wrap"><table><thead><tr><th>项</th><th>值</th></tr></thead><tbody><tr><td><code>ruleFamilyCode</code></td><td><code>baishi</code></td></tr><tr><td><code>engineCode</code></td><td><code>baishi</code></td></tr><tr><td><code>tileSetCode</code></td><td><code>136</code></td></tr><tr><td>归属</td><td>全局族，任何家庭可选；族名只是规则来源标签，与家庭实体无关</td></tr><tr><td>就绪条件</td><td>本细则已冻结；引擎验收通过前置 <code>RULE_FAMILY_NOT_READY</code>，验收通过后即可开桌</td></tr></tbody></table></div>
+<h2 id="sec-2">2. 牌张与基本设定</h2>
+<div class="table-wrap"><table><thead><tr><th>项</th><th>值</th><th>说明</th></tr></thead><tbody><tr><td>牌张</td><td>136</td><td>万/筒/条各 36 + 东南西北中发白 28；无花牌</td></tr><tr><td>吃</td><td>允许</td><td>模板 <code>allow_chow</code> 可关，默认开</td></tr><tr><td>胡牌方式</td><td>自摸、点炮、抢杠胡</td><td>三者均可；抢杠胡<strong>仅可抢明杠</strong>，补杠与暗杠不可抢（§6.5.4）</td></tr><tr><td>多赢家</td><td>否</td><td>一局只有一个赢家</td></tr><tr><td>起胡</td><td>1 番</td><td>番合计 &lt; 1 不得胡</td></tr><tr><td>封顶</td><td>不封顶</td><td><code>fan_cap = null</code></td></tr><tr><td>缺一门</td><td>否</td><td>不强制</td></tr></tbody></table></div>
+<h2 id="sec-3">3. 计分</h2>
+<h3>3.1 番与底分</h3>
+<pre><code>R = Σ 命中的番种番值            # 累计相加，不乘积
+    同互斥组只取最高；计数型番种按"组"各计一次
+不封顶，R 不做截断
+B = 模板 base_score（默认 1）
+U = B × R                       # 单家基准应付</code></pre>
+<p>示例：对对胡 10 番 + 清一色 30 番 = <strong>40 番</strong>，<code>U = 1 × 40 = 40</code>。</p>
+<h3>3.2 倍数</h3>
+<pre><code>付款方 i 应付 = U × m_self_draw × m_dealer</code></pre>
+<div class="table-wrap"><table><thead><tr><th>倍率</th><th>取值</th><th>生效条件</th></tr></thead><tbody><tr><td><code>m_self_draw</code></td><td>2</td><td>自摸；点炮为 1</td></tr><tr><td><code>m_dealer</code></td><td>2</td><td>胡牌者是庄家（所有付款方都翻），或付款方是庄家（该家翻）</td></tr></tbody></table></div>
+<p>即：<strong>庄家胡 → 三家全部 ×2；闲家胡 → 庄家那份 ×2</strong>；两者与自摸 ×2 <strong>叠加</strong>（B2）。</p>
+<div class="table-wrap"><table><thead><tr><th>局面</th><th>三家各自应付</th></tr></thead><tbody><tr><td>庄家自摸</td><td><code>U × 4</code> / <code>U × 4</code> / <code>U × 4</code></td></tr><tr><td>闲家自摸</td><td>庄家 <code>U × 4</code>，另两家 <code>U × 2</code></td></tr><tr><td>庄家点炮胡</td><td><code>U × 2</code> / <code>U × 2</code> / <code>U × 2</code></td></tr><tr><td>闲家点炮胡</td><td>庄家 <code>U × 2</code>，另两家 <code>U × 1</code></td></tr></tbody></table></div>
+<h3>3.3 付款方</h3>
+<div class="table-wrap"><table><thead><tr><th>情形</th><th>付款方</th></tr></thead><tbody><tr><td>自摸</td><td>三家各付</td></tr><tr><td>点炮（未触发包牌）</td><td><strong>三家各付</strong>，点炮者不额外承担</td></tr><tr><td>点炮且触发包牌</td><td><strong>点炮者一人</strong>承担三家应付之和，另两家付 0</td></tr><tr><td>抢杠胡（明杠被抢）</td><td><strong>不走点炮</strong>：三家各付，不乘自摸倍数，不触发包牌（§12 Q1）；被抢者的杠作废、不计杠分</td></tr><tr><td>荒庄（有杠）</td><td>全 0，不罚分；已结算杠分保留</td></tr><tr><td>重发（无杠）</td><td>不结算，本局作废重发</td></tr></tbody></table></div>
+<h3>3.4 守恒</h3>
+<pre><code>Σ score_delta == 0
+赢家实收 == Σ(三家应付)        # 包牌只改"谁付"，不改赢家收入</code></pre>
+<h3>3.5 算例</h3>
+<div class="table-wrap"><table><thead><tr><th>#</th><th>局面</th><th>番</th><th>各家</th><th>赢家</th></tr></thead><tbody><tr><td>1</td><td>闲家自摸（清一色 30 + 对对胡 20 + 门清 1）</td><td>51</td><td>庄 <code>204</code>，闲 <code>102</code>，闲 <code>102</code></td><td>+408</td></tr><tr><td>2</td><td>庄家自摸（对对胡 20）</td><td>20</td><td>三家各 <code>80</code></td><td>+240</td></tr><tr><td>3</td><td>闲家点炮胡（混一色 20，点炮者非庄）</td><td>20</td><td>庄 <code>40</code>，点炮者 <code>20</code>，另一家 <code>20</code></td><td>+80</td></tr><tr><td>4</td><td>闲家点炮胡且包牌（清一色 30 + 对对胡 20，点炮者非庄）</td><td>50</td><td>点炮者独付 <code>100+50+50=200</code></td><td>+200</td></tr><tr><td>5</td><td>庄家天胡</td><td>100</td><td>三家各 <code>400</code></td><td>+1200</td></tr></tbody></table></div>
+<blockquote><p>算例 5 说明：B2 叠加后一局封顶值很高。若家庭局觉得过重，只需改 <code>base_score</code>（如 0.5）或模板倍数，不改规则。</p></blockquote>
+<h2 id="sec-4">4. 庄家与轮庄</h2>
+<p>座位、抽座与局风的完整口径见 <a href="03-规则族设计.md">03 §3.4</a>，柏氏无例外：</p>
+<div class="table-wrap"><table><thead><tr><th>项</th><th>规则</th></tr></thead><tbody><tr><td>抽座</td><td>每圈开始前抽座一次（北位庄家下庄即一圈结束，最少 4 局）；圈内座位不变；四人各抽风签定方位后掷 2 颗骰，点数最大者坐东位（与东位换座）</td></tr><tr><td>首局庄家</td><td>抽座掷骰最大者（东位）</td></tr><tr><td>轮庄</td><td>第 <code>n</code> 局庄家 = 座位 <code>n-1</code>，<strong>不连庄</strong>、不按胡牌者顺延</td></tr><tr><td>门风</td><td><code>(座位号 - 庄家座位) % 4</code>：<strong>庄家恒东风</strong>，下家南、对家西、上家北，逐局整体转动</td></tr><tr><td>局风</td><td><strong>局序</strong>，与庄家无关：第 1 局东风、第 2 局南风、第 3 局西风、第 4 局北风</td></tr><tr><td>荒庄（有杠）</td><td>迁庄到下家，计 1 局（§9）</td></tr><tr><td>重发（无杠）</td><td>局号、庄家、局风、座位全部不变（§9）</td></tr><tr><td>场与圈</td><td>一场 = 一圈：庄家按 <code>0→1→2→3</code> 轮转，<strong>座位 3（北位）庄家打完下庄即圈结束</strong>，最少 4 局；无杠重发不推进局号</td></tr></tbody></table></div>
+<p>门风用于 <code>men_feng_ke</code>（门风刻）判定，局风用于 <code>quan_feng_ke</code>（圈风刻）判定（§6.9）。门风与局风是两套坐标：庄家永远是东风，但第 2 局起局风不再是东。</p>
+<h2 id="sec-5">5. 番表（31 项）</h2>
+<div class="table-wrap"><table><thead><tr><th>id</th><th>名称</th><th>番</th><th>互斥组</th><th>计数</th><th>判定要点</th></tr></thead><tbody><tr><td><code>ping_hu</code></td><td>平胡</td><td>1</td><td><code>structure</code></td><td>否</td><td>4 顺 + 将；无碰/暗刻/杠，非嵌张，将非幺非 258（§6.3.1）</td></tr><tr><td><code>men_qian</code></td><td>门清</td><td>1</td><td><code>first</code></td><td>否</td><td>无吃/碰/明杠；暗杠仍算门清</td></tr><tr><td><code>que_men</code></td><td>缺门</td><td>1</td><td>—</td><td>否</td><td>缺一门，且<strong>未命中</strong> <code>flush</code>/<code>quan</code> 组（§6.4.7）</td></tr><tr><td><code>jiang_pai</code></td><td>将牌</td><td>1</td><td>—</td><td>否</td><td>将（雀头）为 2/5/8/1/9 或字牌（§6.7）</td></tr><tr><td><code>du_ying</code></td><td>独赢</td><td>1</td><td>—</td><td>否</td><td>胡张为嵌张（卡张）、单吊将或单边（89 赢 7、12 赢 3）（§6.8）</td></tr><tr><td><code>qiang_gang_hu</code></td><td>抢杠胡</td><td>10</td><td>—</td><td>否</td><td>他人<strong>明杠</strong>时以该牌胡；不走点炮、不参与包牌（§6.5.4）</td></tr><tr><td><code>yi_ban_gao</code></td><td>一般高</td><td>1</td><td>—</td><td>是</td><td><strong>不同花色</strong>两副相同数序顺子（123万 + 123条）</td></tr><tr><td><code>zi_mei_hua</code></td><td>姊妹花</td><td>2</td><td>—</td><td>是</td><td><strong>同花色</strong>两副相同数序顺子（123万 + 123万）</td></tr><tr><td><code>san_zi_mei</code></td><td>三姊妹</td><td>3</td><td>—</td><td>否</td><td><strong>同花色三副</strong>相同数序顺子；固定 3 番，替代这 3 对的姊妹花/一般高</td></tr><tr><td><code>lao_shao_fu</code></td><td>老少谱</td><td>1</td><td>—</td><td>是</td><td>同花色 123 + 789 各一副</td></tr><tr><td><code>lian_liu</code></td><td>连6</td><td>1</td><td>—</td><td>是</td><td>同花色连续 6 张（123456 / 234567 / 456789）</td></tr><tr><td><code>hun_long</code></td><td>混龙</td><td>10</td><td><code>long</code></td><td>否</td><td>123 + 456 + 789 三副齐，且<strong>不全部同花色</strong></td></tr><tr><td><code>qing_long</code></td><td>青龙</td><td>20</td><td><code>long</code></td><td>否</td><td>同花色 123456789 三副顺子</td></tr><tr><td><code>dui_dui_hu</code></td><td>对对胡</td><td>20</td><td><code>structure</code></td><td>否</td><td>4 刻（含杠）+ 1 将</td></tr><tr><td><code>san_an_ke</code></td><td>三暗刻</td><td>10</td><td><code>anke</code></td><td>否</td><td>≥3 组暗刻/暗杠</td></tr><tr><td><code>si_an_ke</code></td><td>四暗刻</td><td>20</td><td><code>anke</code></td><td>否</td><td>4 组暗刻/暗杠；与三暗刻取高、不叠加</td></tr><tr><td><code>qi_xiao_dui</code></td><td>七小对</td><td>20</td><td><code>structure</code></td><td>否</td><td>14 张 7 对；4 张相同算两对</td></tr><tr><td><code>shi_san_bu_kao</code></td><td>13不靠</td><td>10</td><td><code>structure</code></td><td>否</td><td>见 §6.3.4</td></tr><tr><td><code>shi_san_yao</code></td><td>十三幺</td><td>100</td><td><code>quan</code></td><td>否</td><td>13 种幺九字牌各一 + 其中一张成对（§6.3.6）</td></tr><tr><td><code>hun_yi_se</code></td><td>混一色</td><td>20</td><td><code>flush</code></td><td>否</td><td>字牌 + 单一花色数牌，两者都必有不缺</td></tr><tr><td><code>qing_yi_se</code></td><td>清一色</td><td>30</td><td><code>flush</code></td><td>否</td><td>全部单一花色数牌，无字牌</td></tr><tr><td><code>quan_yao</code></td><td>全幺</td><td>50</td><td><code>quan</code></td><td>否</td><td>全部 1/9/字牌；可与混一色累加（§6.4.3）</td></tr><tr><td><code>quan_yao_qi_dui</code></td><td>全幺七对</td><td>60</td><td><code>quan</code></td><td>否</td><td>全幺 + 七对结构</td></tr><tr><td><code>quan_zi</code></td><td>全文字</td><td>100</td><td><code>quan</code></td><td>否</td><td>全部字牌，碰碰胡式</td></tr><tr><td><code>quan_zi_qi_dui</code></td><td>全文字七对</td><td>120</td><td><code>quan</code></td><td>否</td><td>全部字牌 + 七对结构</td></tr><tr><td><code>tian_hu</code></td><td>天胡</td><td>100</td><td><code>first</code></td><td>否</td><td>庄家起手 14 张成胡，牌墙未动</td></tr><tr><td><code>di_hu</code></td><td>地胡</td><td>50</td><td><code>first</code></td><td>否</td><td>闲家本局第一次摸牌即自摸胡，此前无人吃/碰/明杠</td></tr><tr><td><code>gang_shang_kai_hua</code></td><td>杠上开花</td><td>10</td><td>—</td><td>否</td><td>杠后补牌自摸胡</td></tr><tr><td><code>hai_di_lao_yue</code></td><td>海底捞月</td><td>100</td><td>—</td><td>否</td><td>见 §6.5.2</td></tr><tr><td><code>men_feng_ke</code></td><td>门风刻</td><td>1</td><td>—</td><td>否</td><td>胡牌者座风的刻子/杠（§6.9）</td></tr><tr><td><code>quan_feng_ke</code></td><td>圈风刻</td><td>1</td><td>—</td><td>否</td><td>本局局风的刻子/杠（§6.9）</td></tr></tbody></table></div>
+<p>互斥组说明：</p>
+<ul><li><code>structure</code>：平胡 / 对对胡 / 七小对 / 13不靠 只取最高。</li><li><code>anke</code>：三暗刻 / 四暗刻 只取最高（四暗刻为上位，不叠加三暗刻）。</li><li><code>long</code>：青龙 / 混龙 取最高，青龙为上位。</li><li><code>flush</code>：混一色 / 清一色 只取最高。</li><li><code>quan</code>：十三幺 / 全文字 / 全文字七对 / 全幺 / 全幺七对 只取最高；命中 <code>quan</code> 组时 <strong><code>structure</code> 组不计</strong>（这些牌型的番值已含碰碰胡/七对形态）。</li><li><code>flush</code> 与 <code>quan</code> <strong>可以同时成立</strong>：全幺 + 混一色 = 70 番。</li><li><code>first</code>：天胡 / 地胡 / 门清 互斥，取最高；<strong>天胡、地胡不再叠加门清</strong>。</li><li><code>缺门</code> 被 <code>flush</code> 与 <code>quan</code> <strong>双向抑制</strong>：命中任一组的牌型一律不计缺门。</li><li><code>三姊妹</code> 命中时，其 3 副顺子不再计 一般高 / 姊妹花；其余顺子照常。</li><li><code>缺门</code>、<code>将牌</code>、<code>独赢</code> 不属任何互斥组，恒可累加；<code>三暗刻/四暗刻</code> 自成一族（<code>anke</code>），只与彼此互斥、不占其它组；缺门、将牌、独赢、暗刻各只计一次。</li><li><code>men_feng_ke</code> / <code>quan_feng_ke</code> 不属任何互斥组，各计一次、可互相叠加；同一局两者可能指向同一张牌（庄家在第 1 局持东刻子），此时计 2 番。</li><li>其余番种均可与任何不同组番种累加；同 id 按"组"各计一次。</li></ul>
+<h2 id="sec-6">6. 番种判定细则</h2>
+<h3>6.1 通用前提</h3>
+<ul><li>面子 = 顺子（仅数牌）| 刻子 | 杠（明/暗/补）；将 = 一对。</li><li>判定前先把副露（吃/碰/杠）摊入完整的 5 组结构，再求番。</li><li>一手牌有多解时，<strong>逐解求番取最高总分</strong>（与通用族一致）。</li><li>只对"胡牌后的完整 14 张（含副露折算）"计番，不对手牌中途计番。</li></ul>
+<h3>6.2 顺子类</h3>
+<div class="table-wrap"><table><thead><tr><th>番种</th><th>判定</th></tr></thead><tbody><tr><td>一般高</td><td>两组顺子数序相同、<strong>花色不同</strong>（如 123万 + 123条），1 番/对</td></tr><tr><td>姊妹花</td><td>两组顺子<strong>花色、数序完全相同</strong>（如 123万 + 123万），2 番/对</td></tr><tr><td>三姊妹</td><td>同花色存在 <strong>三组</strong>数序完全相同的顺子（如 123万×3），3 番</td></tr><tr><td>老少谱</td><td>同花色同时存在 123 与 789</td></tr><tr><td>连6</td><td>同花色存在 6 张连续数牌可用于组成两副相邻顺子，即 123456 / 234567 / 456789</td></tr><tr><td>混龙</td><td>123、456、789 三副齐；三副的花色集合 size ≥ 2</td></tr><tr><td>青龙</td><td>123、456、789 三副齐且全部同花色</td></tr></tbody></table></div>
+<p><strong>计数口径</strong>：一般高 1 番/<strong>对</strong>（异花色）、姊妹花 2 番/<strong>对</strong>（同花色），每对独立计数。例：<code>123万×2 + 123条</code> → 姊妹花 2（万-万同花色）+ 一般高 1×2（两对万-条异花色）= <strong>4 番</strong>。</p>
+<p><strong>三姊妹上位规则</strong>：三姊妹固定 <strong>3 番</strong>（不按姊妹花叠加）。命中时其 3 副顺子不再计姊妹花/一般高，避免同一组顺子重复计。</p>
+<p><strong>龙上位规则</strong>：青龙或混龙命中时，其<strong>组成顺子</strong>不再参与 连6 / 老少谱 / 一般高 / 姊妹花 / 三姊妹 的计数；未参与龙的其余顺子照常计数。</p>
+<p>例：<code>123 456 789 万 + 123 条 + 55 万</code> → 青龙 20 + 一般高 1（123万/123条，异花色）+ 混一色 20 = 41 番（连6、老少谱不计，因顺子已被龙占用）。</p>
+<h3>6.3 结构类与刻子类</h3>
+<ol><li><strong>平胡</strong>（<code>structure</code>，1 番）：4 组顺子 + 1 将，且<ul><li><strong>无碰、无暗刻、无杠</strong>（吃出来的顺子允许）；</li><li>听牌形态为<strong>两面</strong>（胡张<strong>不是嵌张、不是单吊、不是单边</strong>）；</li><li>将牌<strong>不是幺（1/9）、也不是 2/5/8</strong>，即只能是将 3/4/6/7；</li><li>平胡若同时门清，另计门清 1 番（共 2 番）。</li></ul></li></ol>
+<blockquote><p>听牌形态二分：<strong>两面 → 平胡</strong>；<strong>嵌张/单吊/单边 → 独赢</strong>。因此平胡与 <code>du_ying</code> 天然互斥；将牌限定 3/4/6/7 又使平胡与 <code>jiang_pai</code> 互斥。</p></blockquote>
+<ol><li><strong>对对胡</strong>（20 番）：4 组刻子/杠 + 将。</li><li><strong>七小对</strong>（20 番）：14 张组成 7 对；4 张相同计为 2 对。不另设"豪华七对"。</li><li><strong>13不靠</strong>（10 番）：<ul><li>共 14 张 = 将 1 对（2 张）+ 中发白 3 张 + 数牌 9 张；</li><li>中发白<strong>必须齐</strong>，其它字牌（东南西北）不得使用；</li><li>三门数牌各取 1–3 张，同门内所有牌必须落在<strong>同一组</strong>（147 或 258 或 369）内，不得重复同一张牌；不同门可用不同组；</li><li>将牌为一对相同牌，可为任意花色（含中发白），不受分组约束；</li><li>反例：同门出现 <code>1 8</code>（跨组）、<code>1 2</code>（相邻）、<code>1 5</code>（跨组）均不成立；</li><li><strong>判番范围</strong>：13不靠 只与 <code>structure</code> 组互斥，不与任何其他番种互斥——将牌（258将/幺将）、一般高、姊妹花、三姊妹、混龙、独赢、缺门等<strong>照常判定并累加</strong>。13不靠 牌型本身不含顺子，故 一般高/混龙 实际不会命中；若存在特例，按"逐解取最高"处理。</li></ul></li><li><strong>三暗刻 / 四暗刻</strong>（<code>anke</code> 组）：<ul><li>三暗刻 10 番：4 组面子中有 ≥3 组为暗刻或暗杠（碰来的、吃来的、明杠都不算暗刻）；</li><li>四暗刻 20 番：4 组全为暗刻/暗杠，<strong>取高不叠加三暗刻</strong>；</li><li><code>anke</code> 组不占 <code>structure</code>，因此可与对对胡（20 番）累加：对对胡 + 三暗刻 = 30，对对胡 + 四暗刻 = 40。</li></ul></li><li><strong>十三幺</strong>（<code>quan</code>，100 番）：东南西北中发白 + 一万九万 + 一筒九筒 + 一条九条，共 13 种各一张，<strong>其中任意一张再配一张同牌成将</strong>，14 张成胡。<ul><li>与 <code>quan</code> 组其他项（全幺/全文字及其七对形态）取最高，不叠加；</li><li>十三幺必然门清，计门清 1 番；</li><li>将牌必为幺/字，<strong>判"幺将"将牌番 1 番</strong>；</li><li>独赢<strong>不另计</strong>（听牌必然单吊，避免重复）；</li><li>合计 = 100 + 1（将牌）+ 1（门清）= <strong>102 番</strong>。</li></ul></li></ol>
+<h3>6.4 花色类</h3>
+<ol><li><strong>混一色</strong>（<code>flush</code>，20 番）：副露 + 手牌只含一种数牌花色与字牌，且字牌、数牌都至少各 1 张。</li><li><strong>清一色</strong>（<code>flush</code>，30 番）：只含一种数牌花色，无任何字牌。</li><li><strong>全幺</strong>（<code>quan</code>，50 番）：全部由 1、9、字牌组成，且<strong>至少含一张 1 或 9</strong>（纯字牌走全文字 100）。<ul><li>与 <code>structure</code> 组互斥：不再另计对对胡/七小对（七对形态用全幺七对 60）；</li><li><strong>可与混一色累加</strong>：全幺 + 混一色 = 70 番；</li><li>可叠加将牌（1）、独赢（1）、门清（1）、三暗刻（10）/四暗刻（20）、天胡/地胡等非 <code>quan</code>/<code>structure</code> 番种，例如全幺 + 混一色 + 四暗刻 = 90。</li></ul></li><li><strong>全幺七对</strong>（<code>quan</code>，60 番）：全幺手牌 + 七对结构。取代"全幺 + 七小对"的累加。</li><li><strong>全文字</strong>（<code>quan</code>，100 番）：全部字牌，碰碰胡式（4 刻 + 将）；与 <code>structure</code> 组互斥（不另计对对胡）。<ul><li>将牌必为字牌 → 恒计将牌 1 番，<strong>基准 101</strong>；</li><li>可再叠门清（+1）、三暗刻（+10）/四暗刻（+20）、独赢（单吊或嵌张成胡，+1）；</li><li>例：全文字 + 四暗刻 = 120，再门清 + 单吊 = 122。</li></ul></li><li><strong>全文字七对</strong>（<code>quan</code>，120 番）：全部字牌 + 七对结构；七对不判将牌番，可叠门清与独赢（+1 → 121）。</li><li><strong>缺门</strong>（1 番，不占组）：整手牌（含副露）在万/筒/条 中至少缺一门（出现的数牌花色 ≤ 2 种），字牌不参与判定；<strong>命中 <code>flush</code> 或 <code>quan</code> 组时一律不计缺门</strong>。<ul><li>正例：<code>123 万 456 万 789 筒 555 筒 东东</code> → 缺条，缺门 1 番（未成混一色，因含两门数牌）；</li><li>反例：清一色、混一色、全幺、全文字、十三幺 → 0 番（不再追加缺门）。</li></ul></li></ol>
+<blockquote><p>全文字与全幺的区分：纯字牌只记全文字（100），全幺要求手牌含 1/9。包牌判定同样依赖该区分（§7.1）。</p></blockquote>
+<h3>6.5 时效类</h3>
+<ol><li><strong>天胡</strong>（100 番）：庄家起手 14 张即胡，牌墙未动、无人出牌。</li><li><strong>海底捞月</strong>（100 番）：<strong>牌墙最后一张恰好是 1 筒</strong>，且摸到这张牌的人自摸胡。<ul><li>牌墙最后一张不是 1 筒 → 本局不产生海底捞月，任何人摸最后一张自摸都只有普通番；</li><li>该张被杠后补牌（牌尾）取走并胡，同样成立，且与杠上开花叠加；</li><li>若最后一张是 1 筒但摸者未胡 → 不产生。</li></ul></li><li><strong>杠上开花</strong>（10 番）：杠（明/暗/补）后从牌尾补牌自摸胡。</li><li><strong>抢杠胡</strong>（10 番）：他人<strong>明杠</strong>（大明杠）时，以该张牌胡，被抢者的杠作废；<strong>不按点炮结算</strong>（不产生点炮者角色），因此也不可能触发包牌。付款按 §3.3 的抢杠胡一行。<ul><li><strong>只有明杠可被抢</strong>：第 4 张来自他人打出，杠家声明明杠后开放抢杠窗口，其他家以该张胡即抢杠胡；无人抢才成杠。</li><li><strong>补杠不可抢</strong>：碰后摸到第 4 张加杠<strong>直接成立</strong>，不开放窗口；照常计补杠 1 分并从牌尾补牌。</li><li><strong>暗杠不可抢</strong>：暗杠不开放窗口。</li><li>同一张牌上「抢杠胡」优先于「碰/吃」；被抢的杠未成立 → 不计杠分。</li><li>判定顺序：第 4 张打出入询问窗口 → 有家声明<strong>明杠</strong>后开抢杠窗口 → 有人以该张胡即抢杠胡；胡家过或无人可胡则明杠成立并计杠分。<strong>无人声明杠</strong>时，同一张牌被胡按<strong>点炮</strong>处理（不计抢杠番、按包牌规则判定）。</li></ul></li></ol>
+<h3>6.6 门清</h3>
+<p>无吃、无碰、无明杠；<strong>暗杠不影响门清</strong>。天胡、地胡不叠加门清。</p>
+<h3>6.7 将牌</h3>
+<p>将（雀头）为 <strong>2、5、8、1、9 或任意字牌</strong> 时成立，1 番：</p>
+<ul><li>适用：任何 "4 组面子 + 1 将" 的解（含平胡、对对胡、普通胡），<strong>13不靠 也判</strong>（其将牌同样按 258将/幺将 计）；</li><li>七小对不判将牌番（7 对没有"将"，含全文字七对、全幺七对）；</li><li>十三幺不判（§6.3.6，将牌为牌型固有形态）；</li><li>将牌为 3、4、6、7 → 0 番；</li><li>一副牌只有一个将，故只计 1 次。</li></ul>
+<p>例：<code>234 万 + 567 筒 + 888 条 + 123 万 + 55 筒</code> → 将牌 5 筒，+1 番。</p>
+<h3>6.8 独赢</h3>
+<p>胡张形态为以下三种之一时成立，1 番：</p>
+<div class="table-wrap"><table><thead><tr><th>形态</th><th>定义</th><th>例</th></tr></thead><tbody><tr><td>嵌张（卡张）</td><td>中间张成顺，两侧已在手</td><td><code>1_3</code> 赢 2</td></tr><tr><td>单吊将</td><td>只等将牌成对</td><td>4 组面子已定，<code>_5</code> 赢 5 作将</td></tr><tr><td>单边（边张）</td><td>只差一侧端张</td><td><code>89</code> 赢 7、<code>12</code> 赢 3</td></tr></tbody></table></div>
+<ul><li><strong>两面不算独赢</strong>（<code>23</code> 赢 1/4、<code>56</code> 赢 4/7）。</li><li>与<strong>平胡互斥</strong>：平胡要求"两面听 + 将非幺非 258"，故平胡手不会同时命中独赢。</li><li>七小对、十三幺不判独赢；<strong>例外：全文字七对按用户口径允许累加独赢</strong>（§6.4.6）。</li><li>同时满足多种形态（如单边又单吊）仍只计 1 次。</li></ul>
+<h2 id="sec-7">6.9 风刻（门风刻 / 圈风刻）</h2>
+<div class="table-wrap"><table><thead><tr><th>番种</th><th>番</th><th>判定</th></tr></thead><tbody><tr><td><code>men_feng_ke</code> 门风刻</td><td>1</td><td>胡牌者<strong>座风</strong>的刻子或杠</td></tr><tr><td><code>quan_feng_ke</code> 圈风刻</td><td>1</td><td>本局<strong>局风</strong>的刻子或杠</td></tr></tbody></table></div>
+<ul><li>门风由<strong>庄家</strong>决定（庄家 = 东风，逐局转动）；局风由<strong>局序</strong>决定（第 1 局 = 东风）。口径见 <a href="03-规则族设计.md">03 §3.4</a> 与本文 §4。</li><li>刻子包含：碰出的明刻、暗刻、明杠、暗杠、补杠（杠按刻子计，与 §6.1 一致）；4 张同牌只算 1 个刻子，不因杠而重复计。</li><li>两项<strong>不互斥</strong>，可叠加至 +2：庄家（门风东）在第 1 局（局风东）胡牌并持东刻子 → 门风刻 1 + 圈风刻 1 = 2 番。</li><li>风牌<strong>将（对子）不算刻子</strong>；单吊风牌将只计 <code>jiang_pai</code> 1 番（若成立），不计风刻。</li><li>不占 <code>structure</code> / <code>anke</code> / <code>long</code> / <code>flush</code> / <code>quan</code> / <code>first</code> 任何互斥组，可与对对胡、暗刻、混一色、清一色等自由累加。</li><li>例：门风为南的玩家在东风局胡牌，持南南南 + 东东东 → 门风刻 1（南）+ 圈风刻 1（东为局风）= 2 番；若庄家（门风恒东）在东风局持东东东 → 东刻子同时命中两项，仍为 2 番。</li></ul>
+<h2 id="sec-8">7. 包牌</h2>
+<h3>7.1 触发条件（四条全满足）</h3>
+<ol><li>胡牌方式为<strong>点炮</strong>（自摸、抢杠不包）；</li><li>胡牌者已有 <strong>≥3 组明牌</strong>（吃、碰、明杠各算一组；暗杠不算明牌）；</li><li>牌型命中 <code>清一色 | 混一色 | 全文字 | 全幺</code>；</li><li>点炮的那张牌落在该牌型的允许集内：</li></ol>
+<div class="table-wrap"><table><thead><tr><th>牌型</th><th>点炮牌允许集</th></tr></thead><tbody><tr><td>清一色</td><td>主花色的数牌</td></tr><tr><td>混一色</td><td>主花色数牌 或 字牌</td></tr><tr><td>全文字</td><td>字牌</td></tr><tr><td>全幺</td><td>1、9 或 字牌</td></tr></tbody></table></div>
+<p>同时命中多个牌型时取"任一命中即通过"；纯字牌手牌只按全文字判定（见 §6.4.4）。</p>
+<h3>7.2 结算算法</h3>
+<pre><code>若 触发包牌:
+    应付[i] = 按 §3.2 正常计算三家应付
+    total   = Σ 应付[非赢家三家]
+    付款: 点炮者付 -total，另两家付 0
+    赢家收 +total
+否则:
+    点炮三家各付、自摸三家各付（§3.2）</code></pre>
+<p>包牌者<strong>不额外翻倍</strong>，其承担的是三家应付款之和（已含各自倍率）。</p>
+<h3>7.3 伪码</h3>
+<pre><code class="language-python">def settle(winners, config, dealer_seat, win_type, discarder_seat, exposed_melds, patterns, payers):
+    fan_total = evaluate_fan(...)                      # §5 §6
+    unit = config.base_score * fan_total
+    dues = {seat: unit * mult(seat, winner, dealer_seat, win_type) for seat in payers}
+
+    bao = (win_type == "discard"
+           and len(exposed_melds) &gt;= 3
+           and patterns &amp; {"qing_yi_se", "hun_yi_se", "quan_zi", "quan_yao"}
+           and is_allowed_tile(discard_tile, patterns))
+
+    if bao:
+        total = sum(dues.values())
+        delta = {s: 0 for s in seats}
+        delta[discarder_seat] -= total
+        delta[winner] += total
+        allocation = {"reason": "bao_pai",
+                      "bao_pai_seat": discarder_seat,
+                      "covered": [s for s in payers if s != discarder_seat],
+                      "amount": total}
+    else:
+        ...
+    assert sum(delta.values()) == 0</code></pre>
+<h3>7.4 反例（不包）</h3>
+<ul><li>只有 2 组明牌的清一色点炮胡；</li><li>自摸清一色，即使 3 组明牌；</li><li>3 组明牌混一色，但点炮牌是另一门花色；</li><li>3 组明牌对对胡（非四种牌型之一）；</li><li>纯字牌手牌，别人点炮 9 万（不在全文字允许集内）。</li></ul>
+<h2 id="sec-9">8. 杠分</h2>
+<p>三类杠的定义（后文「发生过杠」一律指这三类）：</p>
+<div class="table-wrap"><table><thead><tr><th>杠型</th><th>怎么来的</th><th>备注</th></tr></thead><tbody><tr><td>明杠（大明杠）</td><td>别人打出一张，自己手里已有 3 张同牌，直接杠</td><td>放杠者即打牌的人；<strong>可被抢杠胡</strong>（声明杠后开放窗口，§6.5.4）</td></tr><tr><td>暗杠</td><td>自己手里凑齐 4 张同牌，扣下成杠</td><td>暗杠不影响门清（§6.6）；<strong>不可被抢杠</strong></td></tr><tr><td><strong>补杠（加杠）</strong></td><td>之前<strong>碰</strong>过某张牌（明刻），后来又<strong>摸到第 4 张</strong>，把这张加到原刻子上组成杠</td><td>属明杠类；<strong>不可被抢杠</strong>，直接成立并计分补牌（§6.5.4）</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>杠型</th><th>分值</th><th>付款方</th></tr></thead><tbody><tr><td>明杠</td><td>1</td><td>三家各付</td></tr><tr><td>暗杠</td><td>2</td><td>三家各付</td></tr><tr><td>补杠</td><td>1</td><td>三家各付</td></tr></tbody></table></div>
+<ul><li>杠分<strong>不受</strong>自摸/庄家倍率影响，不计入 <code>U</code>，单独累加到 <code>score_delta</code>；</li><li>杠分不占番（番表无 <code>gang</code> 项，避免与杠分重复计）；</li><li>杠后补牌从<strong>牌尾</strong>取（与海底捞月判定口径一致，§6.5.2）。</li></ul>
+<h2 id="sec-10">9. 荒庄与暂停</h2>
+<ul><li><strong>荒庄</strong>（牌墙取尽仍无人胡）按本局是否发生杠二分，与 <a href="03-规则族设计.md">03 §3.6</a> 一致：<ul><li><strong>有杠</strong>（明杠、暗杠、补杠均算）→ 记荒庄并落库：<code>winnerSeat=null</code>、<code>is_draw=true</code>；不罚分、不结算番分，已即时结算的杠分保留不回滚；局号 +1、庄家迁下家、局风 +1。</li><li><strong>无杠</strong> → 本局作废重发：不落库、不结算，座位/庄家/局风/局号全部不变，广播 <code>event.round_restarted</code>。</li></ul></li><li><strong>海底优先</strong>：最后一张恰为 1 筒且摸者自摸胡时按胡处理（§6.5.2），不判荒庄。</li><li><strong>圈结束</strong>：座位 3（北位）庄家这一局结算完成（含荒庄）即本圈结束，下一圈重新抽座；北位这局若「无杠重发」，则该局未结算，圈未结束，继续重发同一局。</li><li><strong>暂停</strong>：任一在座玩家可发起 <code>room.pause</code> / <code>room.resume</code>；暂停期间冻结一切倒计时、不接受出牌、不因断线踢人；恢复后从暂停点继续（无计时则无影响）。</li></ul>
+<h2 id="sec-11">10. 模板默认 config</h2>
+<pre><code class="language-json">{
+  "base_score": 1,
+  "fan_mode": "linear",
+  "fan_combine": "sum_all",
+  "fan_cap": null,
+  "min_fan_to_win": 1,
+  "fan_table": "见 §5（31 项）",
+  "allow_chow": true,
+  "multi_winner": false,
+  "self_draw_multiplier": 2,
+  "dealer_rule": {"win_multiplier": 2, "pay_multiplier": 2},
+  "discard_pay_mode": "all",
+  "bao_pai": {"enabled": true, "win_type": "discard", "min_exposed_melds": 3,
+              "patterns": ["qing_yi_se", "hun_yi_se", "quan_zi", "quan_yao"],
+              "payer": "discarder_full"},
+  "kong_score": {"enabled": true, "exposed": 1, "hidden": 2, "added": 1, "pay_mode": "all"},
+  "draw_penalty": {"enabled": false, "value": 0},
+  "turn_timeout": {"enabled": false, "seconds": 0},
+  "pause": {"enabled": true},
+  "rounds_per_game": 4,
+  "claim_window_seconds": 8
+}</code></pre>
+<p><code>turn_timeout.enabled=false</code> 时不校验 <code>seconds</code>、不下发 <code>deadline</code>（与 03 §10 三组开关纪律一致）。</p>
+<p><code>rounds_per_game</code> 固定 4（一圈 = 4 个庄次，北位下庄结束，见 §4）；<code>dealer_rule</code> 只保留倍率，<code>continue_on_win</code> / <code>continue_on_draw</code> 已移除，轮庄由 §4 固定推得。</p>
+<h2 id="sec-12">11. capability</h2>
+<pre><code class="language-json">{
+  "tile_set": "136",
+  "allow_chow": true,
+  "honors": true,
+  "wind_fan": true,
+  "patterns": ["standard", "seven_pairs", "thirteen_unrelated", "thirteen_orphans"],
+  "fan_combine": ["sum_all"],
+  "fan_modes": ["linear"],
+  "fan_cap_allowed": false,
+  "fan_cap_max": 0,
+  "switches": ["turn_timeout", "kong_score", "pause"],
+  "settlement": ["self_draw", "discard", "draw", "kong", "rob_kong", "bao_pai"],
+  "multi_winner": false,
+  "bao_pai": {"supported": true, "win_type": "discard", "min_exposed_melds": 3,
+              "patterns": ["qing_yi_se", "hun_yi_se", "quan_zi", "quan_yao"],
+              "payer": "discarder_full"},
+  "dealer_multiplier": {"win": 2, "pay": 2},
+  "self_draw_multiplier": 2,
+  "lack_suit": false,
+  "min_fan_to_win": 1,
+  "max_rounds": 4
+}</code></pre>
+<h2 id="sec-13">12. 冻结状态</h2>
+<p>无待确认项。最后一轮决策：</p>
+<div class="table-wrap"><table><thead><tr><th>编号</th><th>事项</th><th>结论</th></tr></thead><tbody><tr><td>Q1</td><td>抢杠胡付款</td><td><strong>S1：仅明杠可被抢（补杠、暗杠不可抢）</strong>；三家各付、不乘自摸倍数，不产生点炮者角色，不触发包牌</td></tr><tr><td>Q2</td><td>全幺是否叠加缺门</td><td><strong>不叠加</strong>；缺门对 混一色/清一色/全文字/全幺 一律不计</td></tr><tr><td>Q3</td><td>座位与庄家</td><td>每圈抽座一次，圈内座位不变；第 <code>n</code> 局庄家 = 座位 <code>n-1</code>，<strong>不连庄</strong>；北位庄家下庄即圈结束（最少 4 局）</td></tr><tr><td>Q4</td><td>荒庄</td><td><strong>有杠</strong>（明/暗/补）记荒庄、迁庄、计 1 局；<strong>无杠</strong>重发本局，不计局、庄家与局风不变</td></tr><tr><td>Q5</td><td>风刻加番</td><td>门风刻 1 + 圈风刻 1，可叠加至 2 番；不占任何互斥组</td></tr></tbody></table></div>
+<p>实现时需固化的推论：</p>
+<ul><li>番表 <strong>31 项全部确定</strong>（<code>gang</code> 不占番，只计杠分）；门风刻 / 圈风刻 各 1 番、可叠加；</li><li>一般高 1 番（<strong>异花色</strong>）、姊妹花 2 番（<strong>同花色</strong>）、三姊妹 3 番（同花色三副，固定番值）；</li><li>对对胡 20 番；三暗刻 10 番 / 四暗刻 20 番 取高，且可与对对胡累加（对对胡+三暗刻=30、+四暗刻=40）；</li><li>全幺 50 番，可与混一色累加（70），与 <code>structure</code> 组互斥；全幺七对 60 番；</li><li>全文字 100 番（碰碰胡式，不叠对对胡），+ 将牌 1 = 基准 101，可叠暗刻（四暗刻 → 120）与门清/独赢；全文字七对 120 番（七对不判将牌），可叠独赢（121）；</li><li>十三幺 100 + 幺将 1 + 门清 1 = 102；不判独赢；</li><li>13不靠 只与 <code>structure</code> 互斥，将牌（258将/幺将）、一般高、混龙等照常判定累加；</li><li>平胡 = 无碰/无刻/无杠 + <strong>两面听</strong> + 将 3/4/6/7；独赢 = <strong>嵌张 / 单吊 / 单边</strong>（89 赢 7、12 赢 3）；两者互斥；</li><li>门清 1 番可单独构成 1 番起胡；平胡手 = 平胡 1 + 门清 1 = 2 番；</li><li>天胡/地胡不叠加门清；</li><li>缺门对 <code>flush</code>（混一色/清一色）与 <code>quan</code>（全幺/全文字/全幺七对/全文字七对/十三幺）全抑制；</li><li><strong>有碰 + 将 3/4/6/7 + 两面听</strong> 这类手牌仍是 0 番，不能胡（起胡 1 番）；</li><li>补杠 1 分、明杠 1 分、暗杠 2 分，三家各付；</li><li>抢杠胡只能抢<strong>明杠</strong>（补杠、暗杠不可抢），10 番、三家各付、不乘自摸、不触发包牌；被抢的明杠作废且不计杠分；</li><li>连6 含 456789；一圈最少 4 局（北位庄家下庄结束），局风随局序 东南西北。</li><li>庄家轮转：第 <code>n</code> 局庄家 = 座位 <code>n-1</code>，不连庄；荒庄有杠才计局并迁庄，无杠重发不计局。</li><li>发牌：每人 4 张 × 3 轮 = 12 张；庄家跳牌取第 1、第 5 张（14 张），闲家各 13 张，首轮庄家直接出牌。</li></ul>
+<h2 id="sec-14">13. 验收用例</h2>
+<ol><li>对对胡 + 清一色 → <code>fan_total=50</code>，<code>U = base × 50</code>（累计，非乘积）。</li><li>闲家自摸 51 番、底分 1 → 庄家 <code>-204</code>，两闲 <code>-102</code>，<code>Σ=0</code>。</li><li>庄家自摸 20 番 → 三家各 <code>-80</code>。</li><li>闲家点炮胡 20 番（未包）→ 庄 <code>-40</code>、另两家 <code>-20</code>。</li><li>3 明牌清一色点炮胡 50 番 → 点炮者独付 <code>-200</code>，另两家 <code>0</code>，<code>Σ=0</code>。</li><li>自摸同牌型 → 不包，三家各付。</li><li>牌墙最后一张为 1 筒且摸者自摸胡 → 番表含 <code>hai_di_lao_yue</code> 100；换任意其它牌 → 不含。</li><li>天胡牌型 <code>fan_total=100</code>（不含门清）、三家各付 <code>400</code>。</li><li>13不靠正反例各 5 手（同门跨组、相邻、缺中发白均不成立）；将牌为 5 筒时另 +1 番。</li><li>七小对含 4 张相同 → 记 7 对，<code>fan_total=20</code>。</li><li>青龙 123456789 万 + 将 → 不再计连6/老少谱，<code>fan_total=20</code>（另加清一色 30）。</li><li>关闭 <code>kong_score</code> → 杠可进行、分差 0；<code>turn_timeout=false</code> → 快照无 <code>deadline</code>。</li><li><code>ROUND</code> 结算落库后 <code>fanRaw == fanTotal</code>（不封顶）、<code>payerJson</code> 可还原包牌付款方。</li><li>对对胡 + 三暗刻 → 30 番；对对胡 + 四暗刻 → 40 番；四暗刻不再叠加三暗刻。</li><li>缺门只对非 <code>flush</code>/<code>quan</code> 牌型生效：两门数牌手牌 → 缺门 1 番；清一色 30、混一色 20、全幺 50、全文字 100、十三幺 100，均不再追加缺门。</li><li>抢杠胡（明杠被抢）→ 10 番，三家各付且不乘自摸倍数，<code>winType=rob_kong</code> 落库、无包牌记录、杠分不计；无人抢时杠家成杠并计明杠 1 分。</li></ol>
+<p>16b. 补杠不可抢：B 碰过 X 后摸到第 4 张 X 加杠 → 直接成杠、计补杠 1 分、牌尾补牌，不产生 <code>rob_kong</code> 询问，他人不能以该张胡。16c. 暗杠不可抢：D 暗杠后不开放抢杠窗口，不产生 <code>rob_kong</code> 询问。</p>
+<ol><li>将牌番：将 5 筒 / 东 各 +1 番；将 3 万 → 0 番；七小对不判，13不靠判。</li><li>一般高 123万+123条 → 1 番；姊妹花 123万+123万 → 2 番；三姊妹 123万×3 → 3 番（固定番值，不再叠姊妹花/一般高）。</li><li>平胡：<code>123万 456万 789万 234条 + 33万</code>（将 3 万、听两面 1/4 条）→ 平胡 1 + 门清 1 = 2；将换成 55 万 → 平胡不成立（将 5 属 258），改计将牌 1 番。</li><li>独赢：听嵌张（<code>1_3</code> 等 2 万）、单吊将、或单边（<code>89</code> 赢 7、<code>12</code> 赢 3）→ 各 1 番；两面（<code>23</code> 赢 1/4）不算；平胡与独赢不可同时命中。</li><li>全幺 50；全幺 + 混一色 70；全幺 + 混一色 + 四暗刻 90；全幺七对 60（不再叠对对胡/七小对）。</li><li>全文字 100 + 将牌 1 = 101；全文字 + 四暗刻 = 120；全文字七对 120；全文字七对单吊胡 → 121（七对不判将牌）。</li><li>十三幺（东南西北中发白 + 一万九万 + 一筒九筒 + 一条九条 + 任一张成对）→ 100 + 幺将 1 + 门清 1 = 102；不判独赢。</li><li>一般高/姊妹花 每对计一次：<code>123万×2 + 123条</code> → 姊妹花 2（万-万）+ 一般高 1×2（万-条）= 4。</li><li>风刻叠加：庄家（门风东）在第 1 局（局风东）胡牌且持东刻子 → 门风刻 1 + 圈风刻 1 = +2 番；同一手改持南刻子 → 0 番；第 2 局庄家持东刻子 → 仅门风刻 +1。</li><li>风刻跨风：门风为南的玩家在东风局胡牌，持南南南 + 东东东 → 门风刻 1（南）+ 圈风刻 1（东）= 2 番。</li><li>风刻不认将：风牌只剩一对（如东东作将）→ 不计门风刻/圈风刻。</li><li>荒庄无杠：牌墙取尽且全程无杠 → 不落库、<code>round_no</code>/<code>dealer_seat</code>/<code>round_wind</code> 不变；重发后仍为该局。</li><li>荒庄有杠：本局有明杠后牌墙取尽无人胡 → <code>winnerSeat=null</code>、<code>is_draw=true</code>、杠分保留、不罚分；下一局 <code>dealer_seat+1</code>、<code>round_wind+1</code>。</li><li>发牌：庄家 14 张、闲家各 13 张；跳牌取取牌序列第 1、5 张，南西北依次取第 2、3、4 张。</li></ol>
+<h2 id="sec-15">14. 联动态</h2>
+<div class="table-wrap"><table><thead><tr><th>文档</th><th>联动内容</th><th>状态</th></tr></thead><tbody><tr><td>02</td><td><code>mj_game_round</code> 增 <code>fanRaw</code>、<code>payerJson</code>、<code>roundWind</code>；<code>mj_game</code> 增 <code>seatDrawJson</code>；<code>winType</code> 值域加 <code>rob_kong</code>；JSON 列登记</td><td>已完成</td></tr><tr><td>03</td><td>§2.1/§2.2/§3.2/§3.4–3.6/§4.1/§7/§8/§10/§12 同步（<code>wind_fan</code>、抽座、轮庄、局风、发牌、荒庄二分）</td><td>已完成</td></tr><tr><td>04</td><td>WS 增 <code>room.pause</code>/<code>room.resume</code>、<code>event.paused</code>、<code>event.seats_drawn</code>、<code>event.round_restarted</code>；<code>event.settled</code> 增 <code>fan_raw</code>/<code>multipliers</code>/<code>payer_allocation</code>/<code>kong_delta</code>；快照增 <code>round_wind</code>、<code>seats[].wind</code>/<code>is_dealer</code></td><td>已完成</td></tr><tr><td>05</td><td>结算面板（番种/倍数/包牌）、暂停按钮与暂停态遮罩、局风与庄家标识、荒庄/重发提示</td><td>已完成</td></tr><tr><td>06</td><td>番表 31 项、抽座/发牌/跳牌/荒庄二分任务与用例</td><td>已完成</td></tr><tr><td>01 / 06</td><td>目录与实施步骤引用 07（<code>families/baishi/</code> 实现清单）</td><td>待补</td></tr></tbody></table></div>
+<p>代码实现顺序建议：<code>tiles/patterns</code> 工具 → 番表求值（含互斥与抑制）→ 结算与倍数 → 包牌钩子 → 暂停房态 → 用例。</p>
+<p class="meta">由 <code>07-柏氏规则细则.md</code> 生成</p>
+</div>
+</body>
+</html>

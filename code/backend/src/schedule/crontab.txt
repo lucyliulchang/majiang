@@ -1,0 +1,16 @@
+# Mahjong schedule crontab (schedule 目录, 非 root)
+# 版本管理文件: 生产环境按实际路径替换后 `crontab -e` 应用
+# M H D m d cmd
+
+MAILTO=ops@example.com
+
+# 00:00 日志切片(切分前一天的 clean/backup 日志)
+0 0 * * * sh /data/majiang/src/schedule/restore_logslice.sh >> /data/majiang/log/schedule/logslice.log 2>&1
+
+# 03:00 全量备份(先备份)
+0 3 * * * sh /data/majiang/src/schedule/restore_backup.sh >> /data/majiang/log/schedule/backup.log 2>&1
+
+# 04:00 数据清理(后删除; 删除前当天快照已存在)
+0 4 * * * sh /data/majiang/src/schedule/restore_clean.sh >> /data/majiang/log/schedule/clean.log 2>&1
+
+# @reboot 不重复拉起: 清理/备份均为短任务, 重启后等下一个 cron 时点即可

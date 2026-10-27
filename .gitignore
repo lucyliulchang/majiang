@@ -2,22 +2,30 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
-backend/.venv/
-backend/.env
-backend/logs/
+code/backend/src/.venv/
+code/backend/src/.env
 
-# 数据库（含 WAL 边车文件与备份）—— 备份走 sqlite3 .backup
-backend/*.db
-backend/*.db-wal
-backend/*.db-shm
-backend/*.db.bak-*
-backend/tests/*.db
+# 日志：全部落在 code/backend/log/（骨架用 .gitkeep 保留）
+code/backend/log/*.log
+code/backend/log/*.log.*
+code/backend/log/schedule/*.log
+code/backend/log/schedule/backup/
+
+# 附属数据：全部落在 code/backend/data/
+# 数据库（含 WAL 边车文件）—— 备份走 sqlite3 .backup
+code/backend/data/db/*.db*
+code/backend/data/test/*.db*
+# 定时备份产物（本机保留，不入库）
+code/backend/data/backup/*
+!code/backend/data/backup/.gitkeep
+# 前端可直接访问的图片（皮肤等运行时上传物）
+code/backend/data/webserver/majiangapp/tiles/*
+!code/backend/data/webserver/majiangapp/tiles/.gitkeep
 
 # 前端
-frontend/node_modules/
-frontend/dist/
+code/frontend/node_modules/
+code/frontend/dist/
 
 # 工具与联调产物
 .playwright-cli/
 shots/
-
