@@ -15,7 +15,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common import mysqlCommon  # noqa: E402
 from realtime.room import RoomActor  # noqa: E402
-from schemas.rule import KongScore, RuleConfig, ToggleValue, TurnTimeout  # noqa: E402
+from game.families.generic.config import (  # noqa: E402
+    KongScore,
+    RuleConfig,
+    ToggleValue,
+    TurnTimeout,
+)
 
 pytestmark = pytest.mark.usefixtures("s5_env")
 
@@ -80,16 +85,23 @@ async def test_four_players_start_discard_and_chat(s5_env):
         data = snapshot["data"]
         assert data["phase"] == "discard"
         assert len([seat for seat in data["seats"] if seat]) == 4
-        assert len(data["hand"]) == 14  # 庄家 14 张
-        assert data["turn"] == 0
+        # 抽座后东位（座位 0）即庄家：庄家 14 张、闲家各 13 张（03 §3.4/§3.5）
+        selfSeat = data["self_seat"]
+        assert data["dealer_seat"] == 0
+        assert data["seats"][0]["hand_count"] == 14
+        assert data["seats"][0]["is_dealer"] is True
+        for seat in data["seats"][1:]:
+            assert seat["hand_count"] == 13
+            assert seat["is_dealer"] is False
+        assert len(data["hand"]) == (14 if selfSeat == 0 else 13)
+        assert data["turn"] == 0  # 首轮庄家直接出牌
         assert data["room"]["family_code"] == s5_env["family_code"]
 
         # 对手手牌绝不明文下发
         for seat in data["seats"]:
-            if seat and seat["seat"] != 0:
-                assert seat["hand_count"] == 13
-        assert "hand" not in data["seats"][1]
-        assert data["seats"][0]["login_id"] == owner
+            if seat["seat"] != selfSeat:
+                assert "hand" not in seat
+        assert data["seats"][selfSeat]["login_id"] == owner
 
         # 开局落库：1 场 + 4 座位（同一事务）
         assert actor.game_id
@@ -111,9 +123,14 @@ async def test_four_players_start_discard_and_chat(s5_env):
         messages = mysqlCommon.query_mj_room_message_list(actor.room_id, limit=10)
         assert any(row["content"] == "开始了" for row in messages)
 
-        tile = data["hand"][0]
+        # 出牌人是当前 turn（抽座后未必是房主）
+        turnSeat = data["turn"]
+        turnLogin = actor.slots[turnSeat].login_id
+        tile = next(
+            index for index, count in enumerate(actor.engine.seats[turnSeat].counts) if count > 0
+        )
         await actor.handle(
-            owner, {"type": "game.action", "data": {"action": "discard", "tiles": [tile]}}
+            turnLogin, {"type": "game.action", "data": {"action": "discard", "tiles": [tile]}}
         )
         assert any(
             message["type"] == "event.discarded" and message["data"]["tile"] == tile

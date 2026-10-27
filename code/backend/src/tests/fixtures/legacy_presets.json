@@ -1,0 +1,730 @@
+{
+  "generic_casual": {
+    "allow_chow": true,
+    "base_score": 1,
+    "claim_window_seconds": 8,
+    "dealer_continue_on_draw": true,
+    "dealer_continue_on_win": true,
+    "discard_pay_mode": "single",
+    "draw_penalty": {
+      "enabled": false,
+      "value": 0
+    },
+    "fan_cap": 15,
+    "fan_mode": "linear",
+    "fan_table": [
+      {
+        "exclusive_group": "structure",
+        "fan": 1,
+        "id": "ping_hu",
+        "name": "平胡",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "structure",
+        "fan": 2,
+        "id": "peng_peng_hu",
+        "name": "碰碰胡",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "suit",
+        "fan": 6,
+        "id": "qing_yi_se",
+        "name": "清一色",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "suit",
+        "fan": 2,
+        "id": "hun_yi_se",
+        "name": "混一色",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "suit",
+        "fan": 8,
+        "id": "zi_yi_se",
+        "name": "字一色",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "special",
+        "fan": 4,
+        "id": "qi_dui",
+        "name": "七对",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "special",
+        "fan": 8,
+        "id": "long_qi_dui",
+        "name": "龙七对",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "special",
+        "fan": 8,
+        "id": "shi_san_yao",
+        "name": "十三幺",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "special",
+        "fan": 8,
+        "id": "shi_san_bu_kao",
+        "name": "十三不靠",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "zi_mo",
+        "name": "自摸",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "men_qian",
+        "name": "门前清",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "kong",
+        "name": "杠",
+        "stackable": true
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "hai_di",
+        "name": "海底捞月",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "gang_shang_hua",
+        "name": "杠上开花",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "qiang_gang_hu",
+        "name": "抢杠胡",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "men_feng",
+        "name": "门风",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "quan_feng",
+        "name": "圈风",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "jian_ke",
+        "name": "箭刻",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "same",
+        "fan": 1,
+        "id": "yi_ban_gao",
+        "name": "一般高",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "same",
+        "fan": 1,
+        "id": "san_se_tong_shun",
+        "name": "三色同顺",
+        "stackable": false
+      }
+    ],
+    "kong_score": {
+      "added": 1,
+      "enabled": false,
+      "exposed": 1,
+      "hidden": 2
+    },
+    "patterns": {
+      "seven_pairs": true,
+      "standard": true,
+      "thirteen_orphans": true,
+      "thirteen_unrelated": {
+        "allow_pair": true,
+        "enabled": false,
+        "min_gap": 3,
+        "require_all_honors": false
+      }
+    },
+    "rounds_per_game": 4,
+    "ting_hint": {
+      "enabled": false,
+      "value": null
+    },
+    "turn_timeout": {
+      "enabled": false,
+      "seconds": 15
+    }
+  },
+  "generic_no_chow": {
+    "allow_chow": false,
+    "base_score": 1,
+    "claim_window_seconds": 8,
+    "dealer_continue_on_draw": true,
+    "dealer_continue_on_win": true,
+    "discard_pay_mode": "single",
+    "draw_penalty": {
+      "enabled": false,
+      "value": 0
+    },
+    "fan_cap": 12,
+    "fan_mode": "linear",
+    "fan_table": [
+      {
+        "exclusive_group": "structure",
+        "fan": 1,
+        "id": "ping_hu",
+        "name": "平胡",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "structure",
+        "fan": 2,
+        "id": "peng_peng_hu",
+        "name": "碰碰胡",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "suit",
+        "fan": 6,
+        "id": "qing_yi_se",
+        "name": "清一色",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "suit",
+        "fan": 2,
+        "id": "hun_yi_se",
+        "name": "混一色",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "suit",
+        "fan": 8,
+        "id": "zi_yi_se",
+        "name": "字一色",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "special",
+        "fan": 4,
+        "id": "qi_dui",
+        "name": "七对",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "special",
+        "fan": 8,
+        "id": "long_qi_dui",
+        "name": "龙七对",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "special",
+        "fan": 8,
+        "id": "shi_san_yao",
+        "name": "十三幺",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "special",
+        "fan": 8,
+        "id": "shi_san_bu_kao",
+        "name": "十三不靠",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "zi_mo",
+        "name": "自摸",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "men_qian",
+        "name": "门前清",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "kong",
+        "name": "杠",
+        "stackable": true
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "hai_di",
+        "name": "海底捞月",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "gang_shang_hua",
+        "name": "杠上开花",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "qiang_gang_hu",
+        "name": "抢杠胡",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "men_feng",
+        "name": "门风",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "quan_feng",
+        "name": "圈风",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "jian_ke",
+        "name": "箭刻",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "same",
+        "fan": 1,
+        "id": "yi_ban_gao",
+        "name": "一般高",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "same",
+        "fan": 1,
+        "id": "san_se_tong_shun",
+        "name": "三色同顺",
+        "stackable": false
+      }
+    ],
+    "kong_score": {
+      "added": 2,
+      "enabled": true,
+      "exposed": 2,
+      "hidden": 4
+    },
+    "patterns": {
+      "seven_pairs": true,
+      "standard": true,
+      "thirteen_orphans": true,
+      "thirteen_unrelated": {
+        "allow_pair": true,
+        "enabled": false,
+        "min_gap": 3,
+        "require_all_honors": false
+      }
+    },
+    "rounds_per_game": 4,
+    "ting_hint": {
+      "enabled": true,
+      "value": null
+    },
+    "turn_timeout": {
+      "enabled": true,
+      "seconds": 20
+    }
+  },
+  "generic_standard": {
+    "allow_chow": true,
+    "base_score": 1,
+    "claim_window_seconds": 8,
+    "dealer_continue_on_draw": true,
+    "dealer_continue_on_win": true,
+    "discard_pay_mode": "single",
+    "draw_penalty": {
+      "enabled": false,
+      "value": 0
+    },
+    "fan_cap": 8,
+    "fan_mode": "exponential",
+    "fan_table": [
+      {
+        "exclusive_group": "structure",
+        "fan": 1,
+        "id": "ping_hu",
+        "name": "平胡",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "structure",
+        "fan": 2,
+        "id": "peng_peng_hu",
+        "name": "碰碰胡",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "suit",
+        "fan": 6,
+        "id": "qing_yi_se",
+        "name": "清一色",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "suit",
+        "fan": 2,
+        "id": "hun_yi_se",
+        "name": "混一色",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "suit",
+        "fan": 8,
+        "id": "zi_yi_se",
+        "name": "字一色",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "special",
+        "fan": 4,
+        "id": "qi_dui",
+        "name": "七对",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "special",
+        "fan": 8,
+        "id": "long_qi_dui",
+        "name": "龙七对",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "special",
+        "fan": 8,
+        "id": "shi_san_yao",
+        "name": "十三幺",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "special",
+        "fan": 8,
+        "id": "shi_san_bu_kao",
+        "name": "十三不靠",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "zi_mo",
+        "name": "自摸",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "men_qian",
+        "name": "门前清",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "kong",
+        "name": "杠",
+        "stackable": true
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "hai_di",
+        "name": "海底捞月",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "gang_shang_hua",
+        "name": "杠上开花",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "qiang_gang_hu",
+        "name": "抢杠胡",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "men_feng",
+        "name": "门风",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "quan_feng",
+        "name": "圈风",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "jian_ke",
+        "name": "箭刻",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "same",
+        "fan": 1,
+        "id": "yi_ban_gao",
+        "name": "一般高",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "same",
+        "fan": 1,
+        "id": "san_se_tong_shun",
+        "name": "三色同顺",
+        "stackable": false
+      }
+    ],
+    "kong_score": {
+      "added": 1,
+      "enabled": true,
+      "exposed": 1,
+      "hidden": 2
+    },
+    "patterns": {
+      "seven_pairs": true,
+      "standard": true,
+      "thirteen_orphans": true,
+      "thirteen_unrelated": {
+        "allow_pair": true,
+        "enabled": false,
+        "min_gap": 3,
+        "require_all_honors": false
+      }
+    },
+    "rounds_per_game": 4,
+    "ting_hint": {
+      "enabled": true,
+      "value": null
+    },
+    "turn_timeout": {
+      "enabled": true,
+      "seconds": 15
+    }
+  },
+  "generic_unrelated": {
+    "allow_chow": true,
+    "base_score": 1,
+    "claim_window_seconds": 8,
+    "dealer_continue_on_draw": true,
+    "dealer_continue_on_win": true,
+    "discard_pay_mode": "single",
+    "draw_penalty": {
+      "enabled": false,
+      "value": 0
+    },
+    "fan_cap": 10,
+    "fan_mode": "exponential",
+    "fan_table": [
+      {
+        "exclusive_group": "structure",
+        "fan": 1,
+        "id": "ping_hu",
+        "name": "平胡",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "structure",
+        "fan": 2,
+        "id": "peng_peng_hu",
+        "name": "碰碰胡",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "suit",
+        "fan": 6,
+        "id": "qing_yi_se",
+        "name": "清一色",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "suit",
+        "fan": 2,
+        "id": "hun_yi_se",
+        "name": "混一色",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "suit",
+        "fan": 8,
+        "id": "zi_yi_se",
+        "name": "字一色",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "special",
+        "fan": 4,
+        "id": "qi_dui",
+        "name": "七对",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "special",
+        "fan": 8,
+        "id": "long_qi_dui",
+        "name": "龙七对",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "special",
+        "fan": 8,
+        "id": "shi_san_yao",
+        "name": "十三幺",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "special",
+        "fan": 8,
+        "id": "shi_san_bu_kao",
+        "name": "十三不靠",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "zi_mo",
+        "name": "自摸",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "men_qian",
+        "name": "门前清",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "kong",
+        "name": "杠",
+        "stackable": true
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "hai_di",
+        "name": "海底捞月",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "gang_shang_hua",
+        "name": "杠上开花",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "qiang_gang_hu",
+        "name": "抢杠胡",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "men_feng",
+        "name": "门风",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "quan_feng",
+        "name": "圈风",
+        "stackable": false
+      },
+      {
+        "exclusive_group": null,
+        "fan": 1,
+        "id": "jian_ke",
+        "name": "箭刻",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "same",
+        "fan": 1,
+        "id": "yi_ban_gao",
+        "name": "一般高",
+        "stackable": false
+      },
+      {
+        "exclusive_group": "same",
+        "fan": 1,
+        "id": "san_se_tong_shun",
+        "name": "三色同顺",
+        "stackable": false
+      }
+    ],
+    "kong_score": {
+      "added": 1,
+      "enabled": true,
+      "exposed": 1,
+      "hidden": 2
+    },
+    "patterns": {
+      "seven_pairs": true,
+      "standard": true,
+      "thirteen_orphans": true,
+      "thirteen_unrelated": {
+        "allow_pair": true,
+        "enabled": true,
+        "min_gap": 3,
+        "require_all_honors": false
+      }
+    },
+    "rounds_per_game": 4,
+    "ting_hint": {
+      "enabled": true,
+      "value": null
+    },
+    "turn_timeout": {
+      "enabled": true,
+      "seconds": 18
+    }
+  }
+}

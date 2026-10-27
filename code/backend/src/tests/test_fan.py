@@ -1,6 +1,6 @@
 from game.fan import best_win, evaluate, score_from_fan
 from game.patterns.base import FanHit, WinResult
-from schemas.rule import RuleConfig
+from game.families.generic.config import RuleConfig
 
 
 def make_win(*hits: tuple[str, int]) -> WinResult:

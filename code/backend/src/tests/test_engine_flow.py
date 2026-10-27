@@ -3,7 +3,7 @@
 from game.engine import EngineError
 from game.hand import Meld
 from game.tiles import counts_from_tiles
-from schemas.rule import KongScore, RuleConfig
+from game.families.generic.config import KongScore, RuleConfig
 
 
 def prepare(engine, hand, mapping: dict[int, str], turn: int = 0):
@@ -145,14 +145,53 @@ def test_hidden_kong_allowed_but_scores_nothing_when_disabled(engine_factory, ha
     assert engine.seats[0].round_score == 0
 
 
-def test_wall_exhausted_settles_as_draw(engine_factory, hand):
+def test_wall_exhausted_without_kong_restarts_same_round(engine_factory, hand):
+    """荒庄二分 · 无杠：本局作废不落库，局号/庄家/局风不变，广播 round_restarted（03 §3.6）。"""
     engine = prepare(engine_factory(), hand, {0: "5m1p2p3p4p5p6p7p8p9p1s2s3s4s", 1: "", 2: "", 3: ""})
     engine.front = engine.back + 1
     assert engine.remaining == 0
-    engine.apply_action(0, {"action": "discard", "tiles": [4]})
+    events = engine.apply_action(0, {"action": "discard", "tiles": [4]})
+    restarted = [event for event in events if event["type"] == "event.round_restarted"]
+    assert restarted, "无杠荒庄必须走重发分支"
+    assert restarted[0]["data"]["reason"] == "no_kong"
+    assert restarted[0]["data"]["round_no"] == 1
+    assert restarted[0]["data"]["dealer_seat"] == 0
+    assert restarted[0]["data"]["round_wind"] == 0
+    # 重发后回到出牌阶段，不产生结算结果
+    assert engine.phase == "discard"
+    assert engine.result is None
+    assert engine.restarts == 1
+    assert engine.round_no == 1
+    assert engine.dealer_seat == 0
+    assert engine.round_wind == 0
+    # 重新发牌：庄家 14、闲家各 13
+    assert sum(engine.seats[0].counts) == 14
+    assert [sum(engine.seats[seat].counts) for seat in (1, 2, 3)] == [13, 13, 13]
+
+
+def test_wall_exhausted_with_kong_settles_as_draw(engine_factory, hand):
+    """荒庄二分 · 有杠：记荒庄、杠分保留、局号+1 由上层推进、庄家迁下家（03 §3.6）。"""
+    rule = RuleConfig(kong_score=KongScore(enabled=True, exposed=1, hidden=2, added=1))
+    engine = prepare(
+        engine_factory(rule), hand, {0: "1m1m1m1m2p3p4p5p6p7p8p1s2s3s", 1: "", 2: "", 3: ""}
+    )
+    engine.apply_action(0, {"action": "kong", "kong_kind": "hidden", "tiles": [0]})
+    assert engine.kong_happened is True
+
+    engine.front = engine.back + 1
+    assert engine.remaining == 0
+    engine.apply_action(0, {"action": "discard", "tiles": [16]})
     assert engine.phase == "settled"
     assert engine.result is not None
+    assert engine.result.winner_seat is None
     assert engine.result.win_type == "none"
+    assert engine.result.is_draw is True
+    # 杠分已即时结算，荒庄不回滚、不罚分
+    assert engine.result.score_delta == [6, -2, -2, -2]
+    assert sum(engine.result.score_delta) == 0
+    assert engine.result.kong_delta == [6, -2, -2, -2]
+    # 迁庄：北位下庄即圈结束
+    assert engine.next_dealer() == 1
 
 
 def test_rob_kong_window_opens_and_settles(engine_factory, hand):

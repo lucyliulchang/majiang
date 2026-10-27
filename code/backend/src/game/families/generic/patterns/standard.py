@@ -1,10 +1,16 @@
 """标准胡：4 面子 + 1 将。递归拆解 + 回溯，多解取最大番。"""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from game.families.generic.patterns.common import situational_fan_hits, suit_fan_hits
 from game.hand import HandContext
 from game.patterns.base import FanHit, register_pattern
-from game.patterns.common import situational_fan_hits, suit_fan_hits
 from game.tiles import TILE_KINDS, is_suit
-from schemas.rule import RuleConfig
+
+if TYPE_CHECKING:
+    from game.families.generic.config import RuleConfig
 
 
 def _walk(
@@ -121,7 +127,7 @@ class StandardPattern:
             return False
         return bool(decompositions(ctx.counts, stop_at=1))
 
-    def calc_fan(self, ctx: HandContext, rule: RuleConfig) -> list[FanHit]:
+    def calc_fan(self, ctx: HandContext, rule: "RuleConfig") -> list[FanHit]:
         options = decompositions(ctx.counts)
         if not options:
             return []

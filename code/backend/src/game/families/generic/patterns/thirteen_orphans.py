@@ -1,9 +1,15 @@
 """十三幺：13 种幺九字牌各一张 + 其中任意一张成对。"""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from game.families.generic.patterns.common import situational_fan_hits
 from game.hand import HandContext
 from game.patterns.base import FanHit, register_pattern
-from game.patterns.common import situational_fan_hits
-from schemas.rule import RuleConfig
+
+if TYPE_CHECKING:
+    from game.families.generic.config import RuleConfig
 
 ORPHANS = (0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33)
 
@@ -27,7 +33,7 @@ class ThirteenOrphansPattern:
         pairs = sum(1 for tile in ORPHANS if ctx.counts[tile] == 2)
         return pairs == 1
 
-    def calc_fan(self, ctx: HandContext, rule: RuleConfig) -> list[FanHit]:
+    def calc_fan(self, ctx: HandContext, rule: "RuleConfig") -> list[FanHit]:
         hits: list[FanHit] = [FanHit("shi_san_yao")]
         hits.extend(situational_fan_hits(ctx, rule))
         return hits

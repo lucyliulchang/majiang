@@ -19,6 +19,7 @@ from common import mysqlCommon
 from common.bizCommon import BizError
 from common.loggingCommon import get_logger
 from config.localSettings import settings
+from game.families import registry
 from processor import familyService, ruleService
 from schemas.rule import RuleConfig
 
@@ -65,15 +66,23 @@ def _randomRoomCode() -> str:
 
 
 def ruleConfigOf(row: dict) -> RuleConfig:
-    """从房间/场次快照恢复规则（快照结构：{rule_family_code, template_id, config}）。
+    """从房间/场次快照恢复规则（快照结构：{rule_family_code, engine_code, config, ...}）。
 
-    兼容 S5 之前的旧快照（直接就是 RuleConfig 的字段），旧数据不会让牌桌打不开。
+    - 按快照里的 `rule_family_code` 取该族的配置模型（03 §11：前端只读快照、不反推模板）；
+    - 兼容 S5 之前的旧快照（直接就是 RuleConfig 的字段），旧数据不会让牌桌打不开；
+    - 已作废的 `dealer_continue_on_win/draw` 由模型加载时忽略并记 warning。
     """
     snapshot = row.get("ruleSnapshot")
     if not isinstance(snapshot, dict):
         snapshot = {}
     config = snapshot.get("config") if isinstance(snapshot.get("config"), dict) else snapshot
-    return RuleConfig.model_validate(config or {})
+    ruleFamilyCode = str(snapshot.get("rule_family_code") or row.get("ruleFamilyCode") or "generic")
+    try:
+        model = registry.config_model_of(ruleFamilyCode)
+    except registry.FamilyError:
+        # 族已下线但历史房间还要能打开：退回通用族模型读同一份 JSON
+        model = RuleConfig
+    return model.model_validate(config or {})
 
 
 def roomOut(row: dict, playerCount: int = 0, spectatorCount: int = 0, familyCode: str = "") -> dict:
@@ -223,15 +232,10 @@ def createRoom(
     name = (roomName or "").strip()
     if not name:
         raise _err("BAD_REQUEST", "房间名称不能为空")
-    templateRow, config = ruleService.openableTemplate(loginID, familyID, templateID)
+    # 模板 → 快照只在这里生成一次；之后改模板不影响本房间（03 §1、§11）
+    templateRow, _config, snapshot = ruleService.openableTemplate(loginID, familyID, templateID)
 
     ruleFamilyCode = _text(templateRow, "ruleFamilyCode")
-    snapshot = {
-        "rule_family_code": ruleFamilyCode,
-        "template_id": int(templateRow.get("recID") or 0),
-        "template_code": _text(templateRow, "templateCode"),
-        "config": config.model_dump(),
-    }
 
     recID = 0
     codeExhausted = True

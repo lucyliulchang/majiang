@@ -4,10 +4,15 @@
       关闭时杠牌照常进行，但一分不给。
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from game.fan import ScoreBreakdown
-from schemas.rule import RuleConfig
+
+if TYPE_CHECKING:
+    from game.families.generic.config import RuleConfig
 
 SEATS = 4
 

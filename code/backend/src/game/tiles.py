@@ -15,6 +15,12 @@ TILE_KINDS = 34
 COPIES_PER_TILE = 4
 WALL_SIZE = TILE_KINDS * COPIES_PER_TILE  # 136
 
+# 牌张集合（03 §2.2 capability.tile_set）：136 = 万筒条 + 字牌；108 = 万筒条各 36，无字牌
+TILE_SET_136 = "136"
+TILE_SET_108 = "108"
+TILE_SET_KINDS: dict[str, int] = {TILE_SET_136: 34, TILE_SET_108: 27}
+
+
 SUIT_WAN = 0
 SUIT_TONG = 1
 SUIT_TIAO = 2
@@ -66,9 +72,23 @@ def empty_counts() -> list[int]:
     return [0] * TILE_KINDS
 
 
-def new_wall(rng: random.Random | None = None) -> list[int]:
-    """造一副 136 张的牌墙并洗牌。默认用系统随机源，服务端权威。"""
-    wall = [tile for tile in range(TILE_KINDS) for _ in range(COPIES_PER_TILE)]
+def tile_kinds_of(tile_set_code: str = TILE_SET_136) -> int:
+    """牌张集合对应的牌种数；未知集合抛 ValueError（注册表导入期自检用）。"""
+    kinds = TILE_SET_KINDS.get(str(tile_set_code))
+    if kinds is None:
+        raise ValueError(f"未知的牌张集合「{tile_set_code}」，只支持 136 / 108")
+    return kinds
+
+
+def tile_set_of(tile_set_code: str = TILE_SET_136) -> tuple[int, ...]:
+    """可用的牌编码集合（capability 自检用）。"""
+    return tuple(range(tile_kinds_of(tile_set_code)))
+
+
+def new_wall(rng: random.Random | None = None, tile_set_code: str = TILE_SET_136) -> list[int]:
+    """造一副牌墙并洗牌。默认 136 张、系统随机源，服务端权威。"""
+    kinds = tile_kinds_of(tile_set_code)
+    wall = [tile for tile in range(kinds) for _ in range(COPIES_PER_TILE)]
     (rng or random.SystemRandom()).shuffle(wall)
     return wall
 

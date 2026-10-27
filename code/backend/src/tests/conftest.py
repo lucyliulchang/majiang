@@ -27,7 +27,8 @@ os.environ.setdefault("SECRET_KEY", "test-only-secret")
 os.environ.setdefault("ACCOUNT_SERVICE_URL", "http://127.0.0.1:1/acis")
 
 from game.engine import GameEngine, SeatState  # noqa: E402
-from schemas.rule import RuleConfig  # noqa: E402
+from game.families import registry  # noqa: E402
+from game.families.generic.config import RuleConfig  # noqa: E402
 
 _SUITS = {"m": 0, "p": 1, "s": 2}
 
@@ -54,12 +55,28 @@ def parse_hand(text: str) -> list[int]:
     return tiles
 
 
-def make_engine(rule: RuleConfig | None = None, dealer_seat: int = 0) -> GameEngine:
+def make_engine(
+    rule: RuleConfig | None = None,
+    dealer_seat: int | None = None,
+    round_no: int = 1,
+    rng=None,
+) -> GameEngine:
+    """从族注册表取 `generic` 引擎（S6 起测试不再直接 new 骨架类）。
+
+    `dealer_seat` 缺省时由局号推导（第 n 局庄家 = 座位 n-1，03 §3.4）。
+    """
     seats = [
         SeatState(seat=i, login_id=f"1380000000{i}", display_name=f"玩家{i}", color="#C9A063")
         for i in range(4)
     ]
-    return GameEngine(rule or RuleConfig(), seats, round_no=1, dealer_seat=dealer_seat)
+    return registry.create_engine(
+        "generic",
+        rule or RuleConfig(),
+        seats,
+        round_no=round_no,
+        dealer_seat=dealer_seat,
+        rng=rng,
+    )
 
 
 @pytest.fixture

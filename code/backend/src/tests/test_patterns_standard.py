@@ -1,7 +1,7 @@
 from game.hand import HandContext
 from game.patterns import collect_wins, is_winning, winning_tiles
 from game.tiles import counts_from_tiles
-from schemas.rule import RuleConfig
+from game.families.generic.config import RuleConfig
 
 RULE = RuleConfig()
 

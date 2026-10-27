@@ -35,11 +35,15 @@ def open_game(
     ruleFamilyCode: str,
     ruleSnapshot: dict,
     seats: list[tuple[int, str, str]],
+    seatDraw: dict | None = None,
 ) -> int:
     """创建一场牌并写入座位，返回 game_id。
 
     `seats` 为 `(seatNo, loginID, displayName)`；game 与 4 条 player 在同一事务内，
     任何一条失败整体回滚，不会出现「有场次没座位」的半场数据。
+
+    `ruleSnapshot` 必须是**开桌时**写进 `mj_room` 的那份（03 §11：开局以开桌快照为准），
+    `seatDraw` 为每场首局的抽座与掷骰记录（02 `mj_game.seatDrawJson`）。
     """
     now = misc.getTime()
     dataSet = {
@@ -47,6 +51,7 @@ def open_game(
         "roomID": roomID,
         "ruleFamilyCode": ruleFamilyCode,
         "ruleSnapshot": ruleSnapshot,
+        "seatDrawJson": seatDraw or None,
         "gameStatus": GAME_PLAYING,
         "startedYMDHMS": now,
         "regYMDHMS": now,
@@ -85,12 +90,16 @@ def save_round(gameID: int, familyID: int, settled) -> None:
     「读旧值再写回」丢分；任一语句失败则整局回滚（不会出现「有局无分」或「有分无局」）。
     """
     roundNo = int(getattr(settled, "round_no", 1) or 1)
+    # 局风看局序（第 1 局东…第 4 局北），与谁是庄家无关（03 §3.4）
+    roundWind = getattr(settled, "round_wind", None)
+    if roundWind is None:
+        roundWind = max(0, roundNo - 1)
     dataSet = {
         "gameID": gameID,
         "familyID": familyID,
         "roundNo": roundNo,
         "dealerSeat": int(getattr(settled, "dealer_seat", 0) or 0),
-        "roundWind": max(0, roundNo - 1),
+        "roundWind": int(roundWind),
         "winnerSeat": getattr(settled, "winner_seat", None),
         "winType": getattr(settled, "win_type", "none") or "none",
         "winningTile": getattr(settled, "winning_tile", None),

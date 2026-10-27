@@ -1,15 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { BookOpen, History, LayoutGrid, LogOut, UserPlus, Users } from 'lucide-vue-next'
+import { BookOpen, History, LayoutGrid, LogOut } from 'lucide-vue-next'
 
-import MembersDialog from './MembersDialog.vue'
 import { useAuthStore } from '../stores/auth'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
-const membersOpen = ref(false)
 
 const navItems = computed(() => [
   { name: 'lobby', label: '大厅', icon: LayoutGrid, active: route.name === 'lobby' },
@@ -21,8 +19,9 @@ function go(name: string): void {
   if (route.name !== name) router.push({ name })
 }
 
-function logout(): void {
-  auth.logout()
+async function logout(): Promise<void> {
+  // 后端 A5A0 是尽力而为，本地一定清干净再跳登录页
+  await auth.logout()
   router.replace({ name: 'login' })
 }
 </script>
@@ -56,22 +55,13 @@ function logout(): void {
           <component :is="item.icon" class="h-4 w-4" />
           {{ item.label }}
         </button>
-        <button
-          v-if="auth.isAdmin"
-          type="button"
-          class="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-ink-300/80 transition hover:bg-cream-100/5 hover:text-cream-100"
-          @click="membersOpen = true"
-        >
-          <Users class="h-4 w-4" />
-          成员
-        </button>
       </nav>
 
       <div class="ml-auto flex items-center gap-3">
         <div class="flex items-center gap-2 rounded-full border border-cream-100/10 bg-cream-100/5 py-1 pl-1 pr-3">
           <span
             class="flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold text-felt-950"
-            :style="{ backgroundColor: auth.user?.color || '#C9A063' }"
+            :style="{ backgroundColor: auth.avatarColor }"
           >
             {{ auth.displayName.slice(0, 1) }}
           </span>
@@ -90,16 +80,4 @@ function logout(): void {
       </div>
     </div>
   </header>
-
-  <MembersDialog v-if="membersOpen" @close="membersOpen = false" />
-
-  <!-- 让管理员入口在窄屏也能触达 -->
-  <button
-    v-if="auth.isAdmin && !membersOpen"
-    type="button"
-    class="fixed bottom-6 right-6 z-30 hidden h-12 w-12 items-center justify-center rounded-full border border-gold-400/40 bg-felt-800 text-gold-300 shadow-gold md:hidden"
-    @click="membersOpen = true"
-  >
-    <UserPlus class="h-5 w-5" />
-  </button>
 </template>

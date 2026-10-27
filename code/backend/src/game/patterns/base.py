@@ -1,14 +1,18 @@
-"""牌型插件契约与注册表。
+"""牌型插件契约与注册表（跨族共用）。
 
-新增牌型：在本目录加一个文件，实现 WinPattern 并用 @register_pattern 注册，
-再在 __init__.py 里 import 一下即可，核心引擎不需要改。
+新增牌型：在 `game/families/{engineCode}/patterns/` 加一个文件，实现 WinPattern 并用
+`@register_pattern` 注册，再在该族的 `patterns/__init__.py` 里 import 一下即可，
+核心引擎不需要改。
 """
 
-from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from __future__ import annotations
 
-from game.hand import HandContext
-from schemas.rule import RuleConfig
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from game.families.generic.config import RuleConfig
+    from game.hand import HandContext
 
 
 @dataclass
@@ -32,9 +36,9 @@ class WinPattern(Protocol):
     id: str
     name: str
 
-    def match(self, ctx: HandContext) -> bool: ...
+    def match(self, ctx: "HandContext") -> bool: ...
 
-    def calc_fan(self, ctx: HandContext, rule: RuleConfig) -> list[FanHit]: ...
+    def calc_fan(self, ctx: "HandContext", rule: "RuleConfig") -> list[FanHit]: ...
 
 
 REGISTRY: dict[str, WinPattern] = {}

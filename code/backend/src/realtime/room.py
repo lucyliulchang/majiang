@@ -17,7 +17,8 @@ from starlette.concurrency import run_in_threadpool
 
 from config.localSettings import settings
 from common.loggingCommon import get_logger
-from game.engine import EngineError, GameEngine, SeatState
+from game.engine import EngineError, GameEngine, SeatState, draw_seats
+from game.families import registry
 from game.tiles import tile_name
 from realtime import persist
 from realtime.snapshot import build_snapshot
@@ -101,6 +102,8 @@ class RoomActor:
         self.last_result: dict | None = None
         self.turn_deadline: float | None = None
         self.claim_deadline: float | None = None
+        # 本场抽座结果（每场首局抽一次，圈内 4 局不重抽，03 §3.4）
+        self.seat_draw: dict | None = None
 
         self._gen = 0
         self._turn_task: asyncio.Task | None = None
@@ -533,17 +536,23 @@ class RoomActor:
         await self._begin_game()
 
     async def _begin_game(self) -> None:
+        # 每场首局抽座一次：掷骰定东位/庄家并广播 event.seats_drawn（03 §3.4）
+        draw = draw_seats([slot.login_id for slot in self.slots if slot is not None])
+        await self._apply_seat_draw(draw)
+
         seats = [
             SeatState(
-                seat=slot.seat,
+                seat=index,
                 login_id=slot.login_id,
                 display_name=slot.display_name,
                 color=slot.color,
             )
-            for slot in self.slots
+            for index, slot in enumerate(self.slots)
             if slot is not None
         ]
-        self.engine = GameEngine(self.rule, seats, round_no=1, dealer_seat=0)
+        self.engine = registry.create_engine(self.rule_family_code or "generic", self.rule, seats, round_no=1)
+        # 抽座记录落库（mj_game.seatDrawJson）：便于复现「谁掷了多少点」
+        self.seat_draw = draw
         # 开局落库：game + 4 条 player 同一事务；失败也不阻止打牌（内存态优先）
         rows = [
             (slot.seat, slot.login_id, slot.display_name)
@@ -557,13 +566,48 @@ class RoomActor:
             self.rule_snapshot.get("rule_family_code", ""),
             self.rule_snapshot,
             rows,
+            draw,
         )
         if self.game_id is None:
             await self._notifyWriteFailed()
         self.status = "playing"
         self.last_result = None
-        logger.info("开桌 room=%s game=%s", self.code, self.game_id)
+        logger.info("开桌 room=%s game=%s dealer=%s", self.code, self.game_id, draw["dealer_seat"])
         await self._after(self.engine.start_round())
+
+    async def _apply_seat_draw(self, draw: dict) -> None:
+        """按抽座结果重排物理座位，并广播 `event.seats_drawn`。
+
+        座位号 0/1/2/3 是物理座位（0 = 东位）；抽座后座位对象整体换位，
+        观战绑定按 loginID 跟随，不跟错人（`spectator_counts()` 会重算 target_seat）。
+        """
+        byLogin = {slot.login_id: slot for slot in self.slots if slot is not None}
+        newSlots: list[PlayerSlot | None] = [None, None, None, None]
+        for entry in draw["assignments"]:
+            slot = byLogin.get(entry["login_id"])
+            if slot is None:
+                continue
+            slot.seat = int(entry["seat"])
+            newSlots[slot.seat] = slot
+        self.slots = newSlots
+        await self.broadcast(
+            make_message(
+                "event.seats_drawn",
+                {
+                    "assignments": [
+                        {
+                            "seat": int(entry["seat"]),
+                            "login_id": entry["login_id"],
+                            "dice": list(entry["dice"]),
+                        }
+                        for entry in draw["assignments"]
+                    ],
+                    "dealer_seat": int(draw["dealer_seat"]),
+                    "round_no": 1,
+                    "seat_viewer_counts": self.spectator_counts(),
+                },
+            )
+        )
 
     async def _next_round(self, login_id: str) -> None:
         if self.slot_of_login(login_id) is None:
@@ -584,11 +628,14 @@ class RoomActor:
         for slot in self.slots:
             if slot is not None:
                 slot.ready = True
-        self.engine = GameEngine(
+        # 轮庄与局风全由局号推导：第 n 局庄家 = 座位 n-1，局风 东→南→西→北（03 §3.4）。
+        # 无杠重发在同一局内由引擎自行处理（不发 game.next），因此这里只推进局号。
+        roundNo = self.engine.round_no + 1
+        self.engine = registry.create_engine(
+            self.rule_family_code or "generic",
             self.rule,
             list(self.engine.seats.values()),
-            round_no=self.engine.round_no + 1,
-            dealer_seat=self.engine.next_dealer(),
+            round_no=roundNo,
         )
         self.last_result = None
         await self._after(self.engine.start_round())
@@ -673,6 +720,8 @@ class RoomActor:
         settled = engine.result
         self.last_result = {
             "round_no": settled.round_no,
+            "dealer_seat": settled.dealer_seat,
+            "round_wind": settled.round_wind,
             "winner_seat": settled.winner_seat,
             "win_type": settled.win_type,
             "winning_tile": settled.winning_tile,
@@ -682,6 +731,13 @@ class RoomActor:
             "score_delta": settled.score_delta,
             "breakdown": settled.breakdown,
             "is_last_round": settled.round_no >= self.rule.rounds_per_game,
+            # S6 追加（04 §9.5 的 result 结构，只增字段不删字段）
+            "winners": settled.winners,
+            "fan_raw": settled.fan_raw,
+            "fan_cap": settled.fan_cap,
+            "kong_delta": settled.kong_delta,
+            "payer_allocation": [],
+            "is_draw": settled.is_draw,
         }
         if self.game_id is not None:
             saved = await self._persist(

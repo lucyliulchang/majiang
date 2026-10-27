@@ -3,7 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { CircleAlert, Loader2, LogIn, Sparkles } from 'lucide-vue-next'
 
-import Tile from '../components/table/Tile.vue'
+import AuthShell from '../components/auth/AuthShell.vue'
 import { api } from '../api/http'
 import { useAuthStore } from '../stores/auth'
 
@@ -11,20 +11,17 @@ const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 
-const form = reactive({ username: '', password: '' })
+const form = reactive({ loginId: '', passwd: '' })
 const error = ref('')
 const serverOk = ref<boolean | null>(null)
 const version = ref('1.0.0')
 
-const floating = [
-  { tile: 31, className: 'left-[8%] top-[16%]', tilt: '-12deg', delay: '0s' },
-  { tile: 4, className: 'left-[26%] top-[52%]', tilt: '8deg', delay: '1.2s' },
-  { tile: 13, className: 'right-[18%] top-[24%]', tilt: '14deg', delay: '0.6s' },
-  { tile: 22, className: 'right-[30%] bottom-[18%]', tilt: '-6deg', delay: '2s' },
-  { tile: 33, className: 'left-[46%] top-[8%]', tilt: '4deg', delay: '1.6s' }
-]
-
 onMounted(async () => {
+  // 注册/找回成功后回填账号（05 §4.1.1、§4.1.2）
+  const prefill = route.query.login_id
+  if (typeof prefill === 'string') form.loginId = prefill
+
+  auth.loadOptions()
   try {
     const health = await api.get<{ ok: boolean; version: string }>('/health')
     serverOk.value = Boolean(health.ok)
@@ -36,125 +33,101 @@ onMounted(async () => {
 
 async function submit(): Promise<void> {
   error.value = ''
-  if (!form.username.trim() || !form.password) {
+  if (!form.loginId.trim() || !form.passwd) {
     error.value = '账号和密码都要填一下'
     return
   }
   try {
-    await auth.login(form.username.trim().toLowerCase(), form.password)
+    // 账号是手机号，不做大小写/首尾以外的加工；口令明文交给后端（HTTPS 覆盖）
+    await auth.login(form.loginId.trim(), form.passwd)
     const redirect = (route.query.redirect as string) || '/'
     router.replace(redirect)
   } catch (err) {
+    // 失败不区分账号不存在/口令错（04 §2.5）；503 由后端给出账号服务不可用文案
     error.value = (err as Error).message
   }
 }
 </script>
 
 <template>
-  <div class="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10">
-    <div class="pointer-events-none absolute inset-0">
-      <div
-        v-for="item in floating"
-        :key="item.tile"
-        class="absolute opacity-[0.13] animate-floaty blur-[0.4px]"
-        :class="item.className"
-        :style="{ '--tilt': item.tilt, animationDelay: item.delay }"
-      >
-        <Tile :tile="item.tile" size="lg" class="scale-[2.4]" />
-      </div>
-      <div class="absolute left-1/2 top-1/2 h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-gold-400/[0.06] blur-3xl" />
-    </div>
-
-    <div class="relative grid w-full max-w-5xl gap-10 md:grid-cols-[1.05fr_0.95fr] md:items-center">
-      <!-- 品牌区 -->
-      <div class="hidden md:block">
-        <div class="mb-5 flex items-center gap-2 text-[11px] tracking-[0.4em] text-gold-400/80">
-          <span class="h-px w-8 bg-gold-400/50" />
-          FAMILY MAHJONG
+  <AuthShell
+    title="登录牌桌"
+    subtitle="用手机号和密码登录；账号由家庭管理员在账号服务里开通"
+    @submit="submit"
+  >
+    <template #alerts>
+      <transition name="dropbar">
+        <div
+          v-if="error"
+          class="mb-3 flex items-center gap-2 rounded-lg border border-vermilion-500/45 bg-vermilion-500/12 px-3 py-2 text-xs text-vermilion-400"
+        >
+          <CircleAlert class="h-3.5 w-3.5 shrink-0" />
+          {{ error }}
         </div>
-        <h1 class="font-num text-6xl font-bold leading-tight text-gold-gradient">家庭麻将</h1>
-        <p class="mt-4 max-w-md text-[15px] leading-relaxed text-ink-300/85">
-          一家人，一张桌。规则自己定，牌局自动算——从开局到结算，分数明明白白，聊天热热闹闹。
-        </p>
-        <div class="mt-8 grid max-w-md grid-cols-3 gap-3">
-          <div v-for="item in [
-            { title: '自定义规则', desc: '底分、番种、杠分随你' },
-            { title: '自动算番', desc: '判胡算分不会错' },
-            { title: '实时闲聊', desc: '碰杠胡全桌都知道' }
-          ]" :key="item.title" class="glass-soft rounded-xl px-3 py-2.5">
-            <p class="text-xs font-medium text-gold-300">{{ item.title }}</p>
-            <p class="mt-0.5 text-[11px] text-ink-300/70">{{ item.desc }}</p>
-          </div>
-        </div>
-      </div>
+      </transition>
+    </template>
 
-      <!-- 登录卡 -->
-      <div class="relative">
-        <transition name="dropbar">
-          <div
-            v-if="error"
-            class="mb-3 flex items-center gap-2 rounded-lg border border-vermilion-500/45 bg-vermilion-500/12 px-3 py-2 text-xs text-vermilion-400"
-          >
-            <CircleAlert class="h-3.5 w-3.5 shrink-0" />
-            {{ error }}
-          </div>
-        </transition>
+    <label class="mb-4 block">
+      <span class="mb-1.5 block text-xs tracking-wide text-ink-300/85">手机号 / 账号</span>
+      <input
+        v-model="form.loginId"
+        class="field"
+        autocomplete="username"
+        inputmode="tel"
+        placeholder="比如 13800000000"
+      />
+    </label>
 
-        <form class="glass rounded-2xl p-7 shadow-table" @submit.prevent="submit">
-          <div class="mb-6 flex items-center gap-2">
-            <Sparkles class="h-4 w-4 text-gold-300" />
-            <h2 class="text-lg font-semibold text-cream-100">登录牌桌</h2>
-          </div>
+    <label class="mb-5 block">
+      <span class="mb-1.5 flex items-center justify-between text-xs tracking-wide text-ink-300/85">
+        <span>密码</span>
+        <router-link
+          to="/forgot-password"
+          class="text-[11px] text-gold-300/80 transition hover:text-gold-300"
+        >
+          忘记密码
+        </router-link>
+      </span>
+      <input
+        v-model="form.passwd"
+        class="field"
+        type="password"
+        autocomplete="current-password"
+        placeholder="输入你的密码"
+      />
+    </label>
 
-          <label class="mb-4 block">
-            <span class="mb-1.5 block text-xs tracking-wide text-ink-300/85">家庭账号</span>
-            <input
-              v-model="form.username"
-              class="field"
-              autocomplete="username"
-              placeholder="由管理员为你创建，比如 father"
-            />
-          </label>
+    <button
+      type="submit"
+      class="btn-gold flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold"
+      :disabled="auth.loading"
+    >
+      <Loader2 v-if="auth.loading" class="h-4 w-4 animate-spin" />
+      <LogIn v-else class="h-4 w-4" />
+      {{ auth.loading ? '正在进桌…' : '进入牌桌' }}
+    </button>
 
-          <label class="mb-5 block">
-            <span class="mb-1.5 block text-xs tracking-wide text-ink-300/85">密码</span>
-            <input
-              v-model="form.password"
-              class="field"
-              type="password"
-              autocomplete="current-password"
-              placeholder="输入你的密码"
-            />
-          </label>
+    <p
+      v-if="auth.options.register_enabled"
+      class="mt-4 text-center text-[11px] text-ink-300/70"
+    >
+      还没有账号？
+      <router-link to="/register" class="text-gold-300 transition hover:text-gold-400">
+        注册一个
+      </router-link>
+    </p>
 
-          <button
-            type="submit"
-            class="btn-gold flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold"
-            :disabled="auth.loading"
-          >
-            <Loader2 v-if="auth.loading" class="h-4 w-4 animate-spin" />
-            <LogIn v-else class="h-4 w-4" />
-            {{ auth.loading ? '正在进桌…' : '进入牌桌' }}
-          </button>
-
-          <p class="mt-4 text-center text-[11px] text-ink-300/60">
-            账号由家里的管理员统一创建，忘了密码找管理员重置
-          </p>
-        </form>
-
-        <div class="mt-4 flex items-center justify-between px-1 text-[11px] text-ink-300/60">
-          <span class="flex items-center gap-1.5">
-            <span
-              class="h-1.5 w-1.5 rounded-full"
-              :class="serverOk === null ? 'bg-ink-400' : serverOk ? 'bg-jade-400' : 'bg-vermilion-400'"
-            />
-            {{ serverOk === null ? '正在连接服务…' : serverOk ? '服务正常' : '服务不可达' }}
-          </span>
-          <span>v{{ version }}</span>
-        </div>
-      </div>
-    </div>
-  </div>
+    <template #footer>
+      <span class="flex items-center gap-1.5">
+        <span
+          class="h-1.5 w-1.5 rounded-full"
+          :class="serverOk === null ? 'bg-ink-400' : serverOk ? 'bg-jade-400' : 'bg-vermilion-400'"
+        />
+        {{ serverOk === null ? '正在连接服务…' : serverOk ? '服务正常' : '服务不可达' }}
+      </span>
+      <span>v{{ version }}</span>
+    </template>
+  </AuthShell>
 </template>
 
 <style scoped>

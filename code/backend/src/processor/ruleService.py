@@ -8,8 +8,10 @@
 口径：
   - 全局预置模板 `familyID=0`：登录即可读，任何家庭都能拿来开桌；`presetFlag='1'` 只读；
   - 家庭模板：只有本家庭 ACTIVE 成员可见，创建者或家庭管理员可改/停用；
-  - `ready` 是引擎自检值，不是数据库列（02 §3.5）。S5 先按「引擎已接入的族」判定，
-    S7 接入 `game/families/registry.py` 后换成导入期自检结果，接口形状不变。
+  - `ready` 是引擎自检值，不是数据库列（02 §3.5）：由 `game/families/registry.py`
+    的导入期自检结果拼出（引擎已注册 + capability 可解析 + patterns 已注册 + tile_set 可建墙）；
+  - 校验三层（03 §9.3）：字段级（Pydantic）→ 跨字段（model_validator）→ 族能力白名单；
+    未知字段一律 400。
 """
 
 from __future__ import annotations
@@ -22,14 +24,13 @@ from common import miscCommon as misc
 from common import mysqlCommon
 from common.bizCommon import BizError
 from common.loggingCommon import get_logger
+from game.families import registry
 from processor import familyService
-from schemas.rule import RuleConfig
 
 logger = get_logger("mahjong.rule")
 
-# 已接入引擎的规则族：generic 为现有引擎，guangdong 复用同一引擎（03 §5）。
-# sichuan（108 张/缺一门/多赢家）与 baishi（07 细则）尚未接入 → ready=false，开桌拦截。
-ENGINE_READY_CODES = ("generic", "guangdong")
+# 三组开关的「从属值」字段名（校验错误归类用）
+_SWITCH_KEYS = ("turn_timeout", "kong_score", "ting_hint", "draw_penalty", "pause")
 
 
 class RuleServiceError(BizError):
@@ -57,15 +58,17 @@ def _iso(ymdhms: str) -> str:
 
 
 def isReady(row: dict) -> bool:
-    """族是否可开桌：引擎已接入 + 能力声明可解析。"""
-    engineCode = _text(row, "engineCode")
-    if engineCode not in ENGINE_READY_CODES:
+    """族是否可开桌：引擎已注册 + 自检通过 + 库里的 capability 与注册表一致（04 §5）。"""
+    code = _text(row, "ruleFamilyCode")
+    if not code:
         return False
     capability = row.get("capabilityJson")
-    if not isinstance(capability, dict) or not capability:
-        return False
-    tileSet = str(capability.get("tile_set") or row.get("tileSetCode") or "")
-    return tileSet in ("108", "136")
+    ready, issues = registry.is_ready(
+        code, capability if isinstance(capability, dict) else None
+    )
+    if not ready and issues:
+        logger.debug("族未就绪 %s：%s", code, "；".join(issues))
+    return ready
 
 
 def ruleFamilyOut(row: dict) -> dict:
@@ -115,9 +118,11 @@ _FIELD_ERROR_CODE = {
     "patterns": "RULE_PATTERN_EMPTY",
     "turn_timeout": "RULE_TURN_TIMEOUT_INVALID",
     "kong_score": "RULE_KONG_SCORE_INVALID",
+    "ting_hint": "RULE_SWITCH_UNSUPPORTED",
     "draw_penalty": "RULE_DRAW_PENALTY_INVALID",
     "rounds_per_game": "RULE_ROUNDS_INVALID",
     "claim_window_seconds": "RULE_CLAIM_WINDOW_INVALID",
+    "allow_chow": "RULE_SWITCH_UNSUPPORTED",
 }
 
 # 跨字段校验（model_validator）的 loc 为空，只能按中文文案归到细粒度错误码
@@ -125,12 +130,16 @@ _MESSAGE_KEYWORD_CODE = (
     ("底分", "RULE_BASE_SCORE_INVALID"),
     ("封顶", "RULE_FAN_CAP_INVALID"),
     ("番表", "RULE_FAN_TABLE_INVALID"),
-    ("番种", "RULE_PATTERN_EMPTY"),
+    ("番种", "RULE_FAN_TABLE_INVALID"),
     ("限时", "RULE_TURN_TIMEOUT_INVALID"),
     ("杠", "RULE_KONG_SCORE_INVALID"),
     ("荒庄", "RULE_DRAW_PENALTY_INVALID"),
     ("局数", "RULE_ROUNDS_INVALID"),
+    ("庄次", "RULE_ROUNDS_INVALID"),
     ("响应窗口", "RULE_CLAIM_WINDOW_INVALID"),
+    ("询问窗口", "RULE_CLAIM_WINDOW_INVALID"),
+    ("牌型", "RULE_PATTERN_EMPTY"),
+    ("最小间隔", "RULE_MIN_GAP_INVALID"),
 )
 
 
@@ -140,7 +149,16 @@ def _raiseConfigError(error: ValidationError):
     first = errors[0] if errors else {}
     loc = first.get("loc") or ()
     field = str(loc[0]) if loc else ""
-    message = str(first.get("msg") or "规则配置不合法").replace("Value error, ", "")
+    errorType = str(first.get("type") or "")
+    rawMessage = str(first.get("msg") or "规则配置不合法").replace("Value error, ", "")
+
+    if errorType == "extra_forbidden":
+        # 未知字段：不暴露 capabilities 之外的任何键名之外的信息，直接 400
+        raise _configError(
+            "RULE_CONFIG_INVALID", f"当前规则族不支持规则项「{field}」"
+        )
+
+    message = rawMessage
     code = _FIELD_ERROR_CODE.get(field, "")
     if not code:
         for keyword, keywordCode in _MESSAGE_KEYWORD_CODE:
@@ -150,17 +168,75 @@ def _raiseConfigError(error: ValidationError):
     raise _configError(code or "RULE_CONFIG_INVALID", message)
 
 
-def _assertCapability(capability: dict, config: RuleConfig) -> None:
-    """族能力白名单（03 §2.2）。S5 只覆盖会直接改变结算口径的项，其余随 S7 补齐。"""
-    if capability.get("fan_cap_allowed") is False and config.fan_cap is not None:
-        raise _configError("RULE_FAN_CAP_UNSUPPORTED", "当前规则族不支持封顶")
-    if capability.get("allow_chow") is False and config.allow_chow:
+def _enabledPatterns(config) -> list[str]:
+    patterns = getattr(config, "patterns", None)
+    if patterns is None:
+        return []
+    enabled: list[str] = []
+    if getattr(patterns, "standard", False):
+        enabled.append("standard")
+    if getattr(patterns, "seven_pairs", False):
+        enabled.append("seven_pairs")
+    if getattr(patterns, "thirteen_orphans", False):
+        enabled.append("thirteen_orphans")
+    thirteenUnrelated = getattr(patterns, "thirteen_unrelated", None)
+    if thirteenUnrelated is not None and getattr(thirteenUnrelated, "enabled", False):
+        enabled.append("thirteen_unrelated")
+    return enabled
+
+
+def _assertCapability(capability: dict, config, rawConfig: dict) -> None:
+    """族能力白名单（03 §2.2 / §4.1）：字段级 + 跨字段之外的第三层校验。"""
+    if not capability:
+        # 库里 capability 缺失：按「族未就绪」处理，不允许把模板写进半残状态
+        raise _configError("RULE_FAMILY_NOT_READY", "该规则族细则尚未配置完成")
+
+    # 1) 开关白名单：配置里出现族不支持的开关即拒绝（无论开关开没开）
+    allowedSwitches = set(capability.get("switches") or [])
+    for key in _SWITCH_KEYS:
+        if key in (rawConfig or {}) and key not in allowedSwitches:
+            raise _configError("RULE_SWITCH_UNSUPPORTED", f"当前规则族不支持「{key}」")
+    for key in _SWITCH_KEYS:
+        section = getattr(config, key, None)
+        if section is None:
+            continue
+        if getattr(section, "enabled", False) and key not in allowedSwitches:
+            raise _configError("RULE_SWITCH_UNSUPPORTED", f"当前规则族不支持「{key}」")
+
+    # 2) 牌型白名单
+    allowedPatterns = set(capability.get("patterns") or [])
+    for patternId in _enabledPatterns(config):
+        if patternId not in allowedPatterns:
+            raise _configError(
+                "RULE_SWITCH_UNSUPPORTED", f"当前规则族不支持牌型「{patternId}」"
+            )
+    if not allowedPatterns:
+        raise _configError("RULE_PATTERN_EMPTY", "至少要启用一种胡牌牌型，否则这局永远胡不了")
+
+    # 3) 吃牌 / 折算方式 / 封顶
+    if capability.get("allow_chow") is False and getattr(config, "allow_chow", False):
         raise _configError("RULE_SWITCH_UNSUPPORTED", "当前规则族不支持「可以吃」")
+
     fanModes = capability.get("fan_modes")
-    if isinstance(fanModes, list) and fanModes and config.fan_mode not in fanModes:
-        raise _configError(
-            "RULE_SWITCH_UNSUPPORTED", f"当前规则族不支持「{config.fan_mode}」计分方式"
-        )
+    fanMode = getattr(config, "fan_mode", None)
+    if isinstance(fanModes, list) and fanModes and fanMode not in fanModes:
+        raise _configError("RULE_SWITCH_UNSUPPORTED", f"当前规则族不支持「{fanMode}」计分方式")
+
+    fanCap = getattr(config, "fan_cap", None)
+    if capability.get("fan_cap_allowed") is False and fanCap is not None:
+        raise _configError("RULE_FAN_CAP_UNSUPPORTED", "当前规则族不支持封顶")
+    capMax = capability.get("fan_cap_max")
+    if fanCap is not None and isinstance(capMax, int) and capMax > 0 and fanCap > capMax:
+        raise _configError("RULE_FAN_CAP_INVALID", f"封顶番数必须在 0-{capMax} 之间，留空表示不封顶")
+
+    # 4) 字牌相关的牌型在无字牌族里直接禁用
+    if capability.get("honors") is False:
+        blocked = allowedPatterns & {"thirteen_orphans", "thirteen_unrelated"}
+        for patternId in _enabledPatterns(config):
+            if patternId in blocked:
+                raise _configError(
+                    "RULE_SWITCH_UNSUPPORTED", f"当前规则族无字牌，不支持牌型「{patternId}」"
+                )
 
 
 def loadRuleFamily(ruleFamilyCode: str) -> dict:
@@ -172,19 +248,68 @@ def loadRuleFamily(ruleFamilyCode: str) -> dict:
     return row
 
 
-def validateConfig(ruleFamilyCode: str, rawConfig: dict) -> RuleConfig:
-    """族存在性 + 强校验 + 能力白名单，返回校验后的 RuleConfig。"""
+def validateConfig(ruleFamilyCode: str, rawConfig: dict):
+    """族存在性 + 字段级 + 跨字段 + 能力白名单，返回校验后的族配置模型。"""
     family = loadRuleFamily(ruleFamilyCode)
+    code = _text(family, "ruleFamilyCode")
     try:
-        config = RuleConfig.model_validate(rawConfig or {})
+        model = registry.config_model_of(code)
+    except registry.FamilyError as error:
+        # 库里有族、代码里没有引擎：仍然是「族不存在」，不是配置问题
+        raise _configError(error.code, error.message, 404 if error.code == "RULE_FAMILY_NOT_FOUND" else 400)
+    try:
+        config = model.model_validate(rawConfig or {})
     except ValidationError as error:
         _raiseConfigError(error)
     capability = family.get("capabilityJson")
-    _assertCapability(capability if isinstance(capability, dict) else {}, config)
+    _assertCapability(capability if isinstance(capability, dict) else {}, config, rawConfig or {})
     return config
 
 
-def summaryText(config: RuleConfig) -> str:
+def buildSnapshot(templateRow: dict, familyRow: dict, config) -> dict:
+    """规则快照（03 §11）：开桌/开局各写一份，内容**不可变**。
+
+    只增字段不删字段：`template_id` 是 S5 已落的键，保留；
+    `engine_code` / `capability` / `captured_ymdhms` 为 03 §11 新增键。
+    """
+    capability = familyRow.get("capabilityJson")
+    return {
+        "rule_family_code": _text(templateRow, "ruleFamilyCode"),
+        "engine_code": _text(familyRow, "engineCode") or _text(templateRow, "ruleFamilyCode"),
+        "template_id": int(templateRow.get("recID") or 0),
+        "template_code": _text(templateRow, "templateCode"),
+        "template_name": _text(templateRow, "templateName"),
+        "config": config.model_dump(),
+        "capability": dict(capability) if isinstance(capability, dict) else {},
+        "captured_ymdhms": misc.getTime(),
+        # 开桌时冻结的生效选项：开关关闭时只留 enabled（03 §10 纪律 2）
+        "options": _snapshotOptions(config),
+    }
+
+
+def _snapshotOptions(config) -> dict:
+    options: dict = {
+        "rounds_per_game": getattr(config, "rounds_per_game", 4),
+        "claim_window_seconds": getattr(config, "claim_window_seconds", 8),
+        "allow_chow": bool(getattr(config, "allow_chow", True)),
+    }
+    for key in ("turn_timeout", "kong_score", "ting_hint", "draw_penalty"):
+        section = getattr(config, key, None)
+        if section is None:
+            continue
+        if not getattr(section, "enabled", False):
+            options[key] = {"enabled": False}
+            continue
+        payload = {"enabled": True}
+        for attr in ("seconds", "exposed", "hidden", "added", "value"):
+            value = getattr(section, attr, None)
+            if value is not None:
+                payload[attr] = value
+        options[key] = payload
+    return options
+
+
+def summaryText(config) -> str:
     """一句话摘要（04 §5 validate 的 summary）。"""
     parts = [
         f"底分 {config.base_score}",
@@ -363,7 +488,10 @@ def duplicateTemplate(
     source = _loadTemplate(templateID)
     _assertVisible(loginID, source)
     name = (templateName or f"{_text(source, 'templateName')} 副本").strip()[:64]
-    config = source.get("configJson")
+    # 复制也要按目标族的能力复核一次：库里残留的旧配置可能已不符合当前能力声明
+    config = validateConfig(
+        _text(source, "ruleFamilyCode"), source.get("configJson") or {}
+    )
     now = misc.getTime()
     dataSet = {
         "templateCode": _newTemplateCode(_text(source, "ruleFamilyCode")),
@@ -371,7 +499,7 @@ def duplicateTemplate(
         "ruleFamilyCode": _text(source, "ruleFamilyCode"),
         "templateName": name,
         "description": _text(source, "description")[:400],
-        "configJson": config if isinstance(config, dict) else {},
+        "configJson": config.model_dump(),
         "presetFlag": "0",
         "ownerLoginID": loginID,
         "activeFlag": "1",
@@ -404,10 +532,11 @@ def deactivateTemplate(loginID: str, templateID: int) -> dict:
     return templateOut(_loadTemplate(templateID), context.get("familyCode", ""))
 
 
-def openableTemplate(loginID: str, familyID: int, templateID: int) -> tuple[dict, RuleConfig]:
+def openableTemplate(loginID: str, familyID: int, templateID: int) -> tuple[dict, object, dict]:
     """开桌用：模板必须是本家庭可见、启用、族已就绪（04 §6）。
 
-    返回 (模板行, 强校验后的 RuleConfig)；失败抛 404/400，**不写任何表**。
+    返回 `(模板行, 强校验后的族配置, 规则快照)`；失败抛 404/400，**不写任何表**。
+    快照在这里生成一次，随后原样写进 `mj_room` 与 `mj_game`（03 §11：两者不可变）。
     """
     row = mysqlCommon.query_mj_rule_template_by_id(templateID)
     if not row:
@@ -423,4 +552,5 @@ def openableTemplate(loginID: str, familyID: int, templateID: int) -> tuple[dict
     config = validateConfig(
         _text(row, "ruleFamilyCode"), row.get("configJson") or {}
     )
-    return row, config
+    snapshot = buildSnapshot(row, family, config)
+    return row, config, snapshot

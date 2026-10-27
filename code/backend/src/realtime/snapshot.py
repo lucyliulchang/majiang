@@ -16,6 +16,7 @@ def _seat_view(actor, seat: int, look_seat: int | None, spectator_counts: list[i
     melds: list[dict] = []
     round_score = 0
     total_score = 0
+    wind = None
     if engine is not None:
         state = engine.seats.get(seat)
         if state is not None:
@@ -24,6 +25,8 @@ def _seat_view(actor, seat: int, look_seat: int | None, spectator_counts: list[i
             melds = [meld.to_dict(reveal=reveal or meld.kind != "kong_hidden") for meld in state.melds]
             round_score = state.round_score
             total_score = state.total_score
+        # 门风：(seat - 庄家座位) % 4，庄家恒为东（03 §3.4）
+        wind = engine.seat_wind(seat)
     return {
         "seat": seat,
         "login_id": slot.login_id,
@@ -38,6 +41,9 @@ def _seat_view(actor, seat: int, look_seat: int | None, spectator_counts: list[i
         "total_score": total_score,
         # 该座位当前围观人数（0–10），全房可见、不含观战者身份
         "spectator_count": spectator_counts[seat],
+        # S6 追加：门风与庄家标记（04 §9.5；抽座结果只广播一次，重连靠这里恢复）
+        "wind": wind,
+        "is_dealer": bool(engine is not None and seat == engine.dealer_seat),
     }
 
 
@@ -73,6 +79,10 @@ def build_snapshot(actor, viewer_seat: int | None, viewer_login_id: str = "") ->
         "status": actor.status,
         "round_no": engine.round_no if engine else 0,
         "dealer_seat": engine.dealer_seat if engine else None,
+        # 局风 = 局序 - 1：第 1 局东、第 2 局南…（03 §3.4，与谁是庄家无关）
+        "round_wind": engine.round_wind if engine else 0,
+        # 生效选项：开关关闭时只有 enabled，不下发从属值（03 §10）
+        "rule_options": engine.snapshot_options() if engine else {},
         "game_total_rounds": rule.rounds_per_game,
         "hand": [],
         "drawn": None,

@@ -1,18 +1,43 @@
-"""对局状态机。
+"""对局状态机骨架（四族共用）。
 
-状态：waiting → discard（该谁出牌）→ claim（碰杠胡询问窗口）→ discard … → settled
+状态：waiting → dealing → discard（该谁出牌）→ claim（碰杠胡询问窗口）→ discard … → settled
 所有合法性校验都在这里完成，前端提交的只是"意图"。
+
+本文件是**通用骨架**（03 §3.1）：只依赖牌张、询问窗口、番种折算与结算四个跨族工具，
+不认识任何具体规则族的配置类；族的差异通过注入的 `rule` 对象（鸭子类型）与
+`game/families/{engineCode}/engine.py` 的适配层表达。
+
+对局流程口径（03 §3.4–3.6，四族完全一致）：
+- 抽座：每圈首局掷 2 骰定东位/庄家，圈内 4 局不重抽；
+- 轮庄与局风：第 n 局庄家 = 座位 (n-1) % 4，局风 = 第 n 局 → 东/南/西/北；
+- 发牌：每人 4 张 × 3 轮 = 12 张，庄家跳牌取序列第 1、第 5 张（14 张），闲家 13 张；
+- 荒庄二分：牌墙取尽无胡 —— 本局有杠 → 记荒庄、迁庄、计局；无杠 → 重发本局、不计数。
 """
 
+from __future__ import annotations
+
+import random
 from dataclasses import dataclass, field
+from typing import Protocol, runtime_checkable
 
 from game.claims import ClaimWindow, chow_options, chow_tiles
 from game.fan import best_win
 from game.hand import HandContext, Meld
 from game.patterns import collect_wins, is_winning, winning_tiles
 from game.scoring import kong_delta, settle_draw, settle_rob_kong, settle_win
-from game.tiles import empty_counts, new_wall, tile_name
-from schemas.rule import RuleConfig
+from game.tiles import (
+    TILE_SET_136,
+    empty_counts,
+    new_wall,
+    tile_kinds_of,
+    tile_name,
+)
+
+#: 一圈固定 4 个庄次（北位下庄即圈结束，03 §3.4）
+MAX_ROUNDS = 4
+#: 每家每轮 4 张（2 墩），共发 3 轮
+DEAL_TILES_PER_PASS = 4
+DEAL_PASSES = 3
 
 
 class EngineError(Exception):
@@ -40,6 +65,8 @@ class SeatState:
 
 @dataclass
 class SettledRound:
+    """一局结算（03 §3.2 `RoundSettlement` 的单赢家形态；通用族 winners 长度恒为 0/1）。"""
+
     round_no: int
     dealer_seat: int
     winner_seat: int | None
@@ -50,31 +77,137 @@ class SettledRound:
     fan_total: int
     score_delta: list[int]
     breakdown: dict | None
+    # ---- S6 追加字段（快照/落库只增不删，03 §11）----
+    round_wind: int = 0
+    fan_raw: int = 0
+    fan_cap: int | None = None
+    kong_delta: list[int] = field(default_factory=lambda: [0, 0, 0, 0])
+    is_draw: bool = False
+    restarts: int = 0
+
+    @property
+    def winners(self) -> list[dict]:
+        """统一结构：单赢家长度 1，荒庄为空（03 §3.2）。"""
+        if self.winner_seat is None:
+            return []
+        return [
+            {
+                "seat": self.winner_seat,
+                "win_type": self.win_type,
+                "winning_tile": self.winning_tile,
+                "pattern_id": self.pattern_id,
+                "fan_items": self.fan_items,
+                "fan_raw": self.fan_raw,
+                "fan_cap": self.fan_cap,
+                "fan_total": self.fan_total,
+                "multipliers": {"self_draw": 1, "dealer": 1},
+                "score_from_fan": self.breakdown.get("score", 0) if self.breakdown else 0,
+                "breakdown": self.breakdown,
+            }
+        ]
 
 
 def _order_after(seat: int) -> list[int]:
     return [(seat + step) % 4 for step in range(1, 4)]
 
 
+def dealer_of_round(round_no: int) -> int:
+    """第 n 局庄家 = 座位 (n-1) % 4（03 §3.4：每局换庄，不设连庄）。"""
+    return (max(1, int(round_no)) - 1) % MAX_ROUNDS
+
+
+def round_wind_of(round_no: int) -> int:
+    """局风 = 局序 - 1：第 1 局东、第 2 局南、第 3 局西、第 4 局北（与谁是庄家无关）。"""
+    return (max(1, int(round_no)) - 1) % MAX_ROUNDS
+
+
+def roll_dice(rng: random.Random | None = None) -> list[int]:
+    """掷 2 颗骰子。"""
+    source = rng or random.SystemRandom()
+    return [source.randint(1, 6), source.randint(1, 6)]
+
+
+def draw_seats(login_ids: list[str], rng: random.Random | None = None) -> dict:
+    """抽座（03 §3.4）：每圈首局执行一次，圈内 4 局不重抽。
+
+    ① 四人各抽一张风签（东南西北各一张）定物理座位；
+    ② 四人依次各掷 2 颗骰子，点数和最大者坐 座位 0（东位）并坐庄，
+       若其抽到的不是东位则与东位玩家交换座位；
+    ③ 同点按先掷者优先（「先为东」）；仍并列最高则并列者重掷到唯一最大。
+
+    返回 `{dealer_seat, assignments:[{seat, login_id, dice}]}`，`assignments` 按座位 0→3 排序。
+    """
+    if len(login_ids) != 4:
+        raise EngineError("BAD_SEATS", "抽座需要正好 4 位玩家")
+    source = rng or random.SystemRandom()
+
+    lots = [0, 1, 2, 3]  # 0=东 1=南 2=西 3=北，抽签结果即物理座位
+    source.shuffle(lots)
+    # 抽签顺序 = login_ids 顺序；lot_seat[login] = 抽到的座位
+    lot_seat: dict[str, int] = {login: lots[index] for index, login in enumerate(login_ids)}
+    at_seat: dict[int, str] = {seat: login for login, seat in lot_seat.items()}
+
+    # 依次按物理座位 0→3 掷骰，记录每人的点数（骰子属于人）
+    dice_of: dict[str, list[int]] = {}
+    for seat in range(4):
+        dice_of[at_seat[seat]] = roll_dice(source)
+
+    def total_of(login: str) -> int:
+        return sum(dice_of[login])
+
+    # 先掷者优先：座位号小者先掷，同点取先掷者
+    contenders = [at_seat[seat] for seat in range(4)]
+    best = max(contenders, key=lambda login: (total_of(login), -contenders.index(login)))
+    tied = [login for login in contenders if total_of(login) == total_of(best)]
+    if len(tied) > 1:
+        # 并列最高：并列者重掷到唯一最大
+        while len(tied) > 1:
+            for login in tied:
+                dice_of[login] = roll_dice(source)
+            top = max(total_of(login) for login in tied)
+            tied = [login for login in tied if total_of(login) == top]
+        best = tied[0]
+
+    # 最大者坐东位（座位 0）；若抽到的不是东位，与东位玩家交换座位
+    east_login = at_seat[0]
+    if best != east_login:
+        lot_seat[best], lot_seat[east_login] = 0, lot_seat[best]
+        at_seat = {seat: login for login, seat in lot_seat.items()}
+
+    assignments = [
+        {"seat": seat, "login_id": at_seat[seat], "dice": list(dice_of[at_seat[seat]])}
+        for seat in range(4)
+    ]
+    return {"dealer_seat": 0, "assignments": assignments}
+
+
 class GameEngine:
+    """通用状态机骨架。族通过 `rule` 对象注入参数，通过子类/工厂注入差异。"""
+
+    family_code = "generic"
+    tile_set_code = TILE_SET_136
+
     def __init__(
         self,
-        rule: RuleConfig,
+        rule,
         seats: list[SeatState],
         round_no: int = 1,
-        dealer_seat: int = 0,
-        round_wind: int = 0,
+        dealer_seat: int | None = None,
+        round_wind: int | None = None,
+        rng: random.Random | None = None,
     ):
         self.rule = rule
         self.seats: dict[int, SeatState] = {item.seat: item for item in seats}
         self.round_no = round_no
-        self.dealer_seat = dealer_seat
-        self.round_wind = round_wind
+        # 第 n 局庄家 = 座位 n-1，局风 = 第 n 局（03 §3.4）；显式传入时以传入值为准
+        self.dealer_seat = dealer_of_round(round_no) if dealer_seat is None else dealer_seat
+        self.round_wind = round_wind_of(round_no) if round_wind is None else round_wind
+        self.rng = rng
 
         self.wall: list[int] = []
         self.front = 0
         self.back = -1
-        self.turn = dealer_seat
+        self.turn = self.dealer_seat
         self.phase = "waiting"
         self.last_draw: int | None = None
         self.after_kong = False
@@ -82,9 +215,17 @@ class GameEngine:
         self.last_discard_seat: int | None = None
         self.claim: ClaimWindow | None = None
         self.kong_accumulated: list[int] = [0, 0, 0, 0]
+        # 本局是否发生过杠：决定牌墙取尽后是「荒庄」还是「重发」（03 §3.6）
+        self.kong_happened = False
+        self.restarts = 0
+        self.deal: dict = {}
         self.result: SettledRound | None = None
 
     # ------------------------------------------------------------------ 基础
+    @property
+    def tile_set(self) -> tuple[int, ...]:
+        return tuple(range(tile_kinds_of(self.tile_set_code)))
+
     @property
     def remaining(self) -> int:
         return max(0, self.back - self.front + 1)
@@ -96,6 +237,7 @@ class GameEngine:
         return state
 
     def seat_wind(self, seat: int) -> int:
+        """门风 = (座位 - 庄家座位) % 4：庄家恒为东风，逐局整体转动。"""
         return (seat - self.dealer_seat) % 4
 
     def _ctx(
@@ -123,14 +265,20 @@ class GameEngine:
         )
 
     # ------------------------------------------------------------------ 开局
-    def start_round(self) -> list[dict]:
-        self.wall = new_wall()
-        self.front = 0
-        self.back = len(self.wall) - 1
+    def start_round(
+        self, dealer_seat: int | None = None, round_wind: int | None = None
+    ) -> list[dict]:
+        """洗牌 → 掷骰定开牌点 → 发牌（4×3 + 跳牌）→ 庄家直接出牌。"""
+        if dealer_seat is not None:
+            self.dealer_seat = dealer_seat
+        if round_wind is not None:
+            self.round_wind = round_wind
+
         self.phase = "dealing"
         self.result = None
         self.claim = None
         self.kong_accumulated = [0, 0, 0, 0]
+        self.kong_happened = False
         self.last_discard = None
         self.last_discard_seat = None
         self.after_kong = False
@@ -141,19 +289,37 @@ class GameEngine:
             state.discards = []
             state.round_score = 0
 
-        for _ in range(13):
-            for seat in [(self.dealer_seat + step) % 4 for step in range(4)]:
-                tile = self._draw_front()
-                if tile is None:
-                    break
-                self.seat_state(seat).counts[tile] += 1
+        self.wall = new_wall(self.rng, self.tile_set_code)
+        dice = roll_dice(self.rng)
+        total = dice[0] + dice[1]
+        # 从庄家起数 total 家得开牌家（庄家算第 1 家）
+        break_seat = (self.dealer_seat + total - 1) % 4
+        self.wall = self._break_wall(self.wall, break_seat, total)
+        self.front = 0
+        self.back = len(self.wall) - 1
+        self.deal = {"dice": dice, "break_seat": break_seat, "break_stack": total}
 
-        dealt = self._draw_front()
-        if dealt is not None:
-            self.seat_state(self.dealer_seat).counts[dealt] += 1
-        self.last_draw = dealt
+        order = [(self.dealer_seat + step) % 4 for step in range(4)]
+        for _ in range(DEAL_PASSES):
+            for seat in order:
+                for _ in range(DEAL_TILES_PER_PASS):
+                    tile = self._draw_front()
+                    if tile is None:
+                        break
+                    self.seat_state(seat).counts[tile] += 1
+
+        # 跳牌：庄家取第 1、第 5 张；下家、对家、上家依次取第 2、3、4 张
+        jump = [self._draw_front() for _ in range(5)]
+        if all(tile is not None for tile in jump):
+            self.seat_state(order[0]).counts[jump[0]] += 1
+            self.seat_state(order[0]).counts[jump[4]] += 1
+            for index, seat in enumerate(order[1:], start=1):
+                self.seat_state(seat).counts[jump[index]] += 1
+
         self.turn = self.dealer_seat
         self.phase = "discard"
+        # 首轮庄家不摸牌，直接出牌；下发的 drawn 是跳牌的第 5 张
+        self.last_draw = jump[4] if all(tile is not None for tile in jump) else None
 
         return [
             {
@@ -163,10 +329,29 @@ class GameEngine:
                     "dealer_seat": self.dealer_seat,
                     "round_wind": self.round_wind,
                     "wall_count": self.remaining,
+                    "deal": dict(self.deal),
                 },
             },
             self._turn_event(),
         ]
+
+    def _break_wall(self, wall: list[int], break_seat: int, stacks: int) -> list[int]:
+        """按开牌点把牌墙排成取牌序列（首尾相接，尾部为补牌端与海底判定端）。
+
+        牌墙按座位分成 4 段（136 张每段 34 张 = 17 墩）：从开牌家牌墙**右端**数 `stacks` 墩，
+        其后一墩为开牌点，自该点按座位顺序续接成取牌序列。
+        """
+        segment_size = len(wall) // 4
+        stacks_per_segment = max(1, segment_size // 2)
+        offset_stacks = max(0, stacks_per_segment - min(stacks, stacks_per_segment))
+        offset = min(offset_stacks * 2, segment_size - 1)
+        start = break_seat * segment_size
+        head = wall[start : start + segment_size]
+        sequence = head[offset:] + head[:offset]
+        for step in range(1, 4):
+            left = ((break_seat + step) % 4) * segment_size
+            sequence.extend(wall[left : left + segment_size])
+        return sequence
 
     def _draw_front(self) -> int | None:
         if self.front > self.back:
@@ -228,6 +413,64 @@ class GameEngine:
             if waits:
                 result[tile] = waits
         return result
+
+    def snapshot_options(self) -> dict:
+        """下发到牌桌快照的生效选项：开关关闭时只给 enabled，不给从属值（03 §10）。"""
+        rule = self.rule
+        options: dict = {
+            "rounds_per_game": getattr(rule, "rounds_per_game", MAX_ROUNDS),
+            "claim_window_seconds": getattr(rule, "claim_window_seconds", 8),
+            "allow_chow": bool(getattr(rule, "allow_chow", True)),
+        }
+        timeout = getattr(rule, "turn_timeout", None)
+        if timeout is not None:
+            options["turn_timeout"] = (
+                {"enabled": True, "seconds": timeout.seconds}
+                if timeout.enabled
+                else {"enabled": False}
+            )
+        kong = getattr(rule, "kong_score", None)
+        if kong is not None:
+            options["kong_score"] = (
+                {"enabled": True, "exposed": kong.exposed, "hidden": kong.hidden, "added": kong.added}
+                if kong.enabled
+                else {"enabled": False}
+            )
+        ting = getattr(rule, "ting_hint", None)
+        if ting is not None:
+            options["ting_hint"] = {"enabled": bool(ting.enabled)}
+        draw = getattr(rule, "draw_penalty", None)
+        if draw is not None:
+            options["draw_penalty"] = (
+                {"enabled": True, "value": draw.value or 0} if draw.enabled else {"enabled": False}
+            )
+        return options
+
+    def settlement(self) -> dict | None:
+        """03 §3.2 的统一结算结构（通用族恒为单赢家）。"""
+        if self.result is None:
+            return None
+        settled = self.result
+        return {
+            "round_no": settled.round_no,
+            "dealer_seat": settled.dealer_seat,
+            "round_wind": settled.round_wind,
+            "winners": settled.winners,
+            "score_delta": list(settled.score_delta),
+            "payer_allocation": [],
+            "kong_delta": list(settled.kong_delta),
+            "summary": self._summary_text(settled),
+            "is_draw": settled.is_draw,
+        }
+
+    def _summary_text(self, settled: SettledRound) -> str:
+        breakdown = settled.breakdown or {}
+        pattern_name = str(breakdown.get("pattern_name") or "")
+        lines = breakdown.get("lines") or []
+        parts = [f"{line['name']} {line['fan']}" for line in lines if line.get("fan")]
+        if pattern_name and parts:
+            return f"{pattern_name}：" + " + ".join(parts)
+        return pattern_name
 
     # ------------------------------------------------------------------ 动作
     def apply_action(self, seat: int, action: dict) -> list[dict]:
@@ -444,6 +687,7 @@ class GameEngine:
             Meld(kind="kong_exposed", tiles=[tile] * 4, from_seat=window.from_seat)
         )
         self._take_from_river(window.from_seat, tile)
+        self.kong_happened = True
         events = [
             {
                 "type": "event.kongged",
@@ -467,6 +711,7 @@ class GameEngine:
                 raise EngineError("BAD_KONG", "暗杠需要手里正好有 4 张相同的牌")
             state.counts[tile] = 0
             state.melds.append(Meld(kind="kong_hidden", tiles=[tile] * 4))
+            self.kong_happened = True
             events = [
                 {"type": "event.kongged", "data": {"seat": seat, "kind": "hidden", "tile": tile}}
             ]
@@ -511,11 +756,13 @@ class GameEngine:
                     kind="kong_added", tiles=[tile] * 4, from_seat=meld.from_seat
                 )
                 break
+        self.kong_happened = True
         events = [{"type": "event.kongged", "data": {"seat": seat, "kind": "added", "tile": tile}}]
         events.extend(self._award_kong(seat, "added", None))
         return events
 
     def _award_kong(self, seat: int, kind: str, from_seat: int | None) -> list[dict]:
+        self.kong_happened = True
         delta = kong_delta(self.rule, seat, kind, from_seat)
         for index, value in enumerate(delta):
             self.kong_accumulated[index] += value
@@ -612,10 +859,32 @@ class GameEngine:
         return self._finish(seat, "discard", tile, breakdown, outcome.delta)
 
     def _settle_draw(self) -> list[dict]:
+        """牌墙取尽无人胡：有杠 → 荒庄（迁庄计局）；无杠 → 重发本局（不计数）。"""
+        if not self.kong_happened:
+            return self._restart_round()
         outcome = settle_draw(self.rule, self.dealer_seat, self.kong_accumulated)
         return self._finish(None, "none", None, None, outcome.delta)
 
-    def _finish(self, winner: int | None, win_type: str, tile: int | None, breakdown, delta: list[int]) -> list[dict]:
+    def _restart_round(self) -> list[dict]:
+        """无杠重发：座位、庄家、局风、局号全部不变，重新洗牌发同一局（03 §3.6）。"""
+        self.restarts += 1
+        events = self.start_round()
+        restart = {
+            "type": "event.round_restarted",
+            "data": {
+                "round_no": self.round_no,
+                "dealer_seat": self.dealer_seat,
+                "round_wind": self.round_wind,
+                "wall_count": self.remaining,
+                "reason": "no_kong",
+                "restarts": self.restarts,
+            },
+        }
+        return [restart] + events
+
+    def _finish(
+        self, winner: int | None, win_type: str, tile: int | None, breakdown, delta: list[int]
+    ) -> list[dict]:
         self.phase = "settled"
         self.claim = None
         for index in range(4):
@@ -634,6 +903,12 @@ class GameEngine:
             fan_total=breakdown.fan_total if breakdown else 0,
             score_delta=delta,
             breakdown=breakdown.to_dict() if breakdown else None,
+            round_wind=self.round_wind,
+            fan_raw=breakdown.fan_raw if breakdown else 0,
+            fan_cap=self.rule.fan_cap,
+            kong_delta=list(self.kong_accumulated),
+            is_draw=winner is None,
+            restarts=self.restarts,
         )
         return [
             {
@@ -641,6 +916,7 @@ class GameEngine:
                 "data": {
                     "round_no": self.round_no,
                     "dealer_seat": self.dealer_seat,
+                    "round_wind": self.round_wind,
                     "winner_seat": winner,
                     "win_type": win_type,
                     "winning_tile": tile,
@@ -649,16 +925,59 @@ class GameEngine:
                     "fan_items": self.result.fan_items,
                     "score_delta": delta,
                     "summary": self.result.breakdown,
+                    # S6 追加（只增字段不删字段，04 §12）
+                    "winners": self.result.winners,
+                    "fan_raw": self.result.fan_raw,
+                    "fan_cap": self.result.fan_cap,
+                    "kong_delta": self.result.kong_delta,
+                    "is_draw": self.result.is_draw,
+                    "restarts": self.result.restarts,
                 },
             }
         ]
 
-    def next_dealer(self) -> int:
-        """庄家是否连庄。"""
-        if self.result is None:
-            return self.dealer_seat
-        if self.result.winner_seat == self.dealer_seat and self.rule.dealer_continue_on_win:
-            return self.dealer_seat
-        if self.result.winner_seat is None and self.rule.dealer_continue_on_draw:
-            return self.dealer_seat
-        return (self.dealer_seat + 1) % 4
+    def next_dealer(self, settlement: SettledRound | None = None) -> int:
+        """恒返回下家（03 §3.4）：每局换庄、第 n 局庄家 = 座位 n-1，不支持连庄。
+
+        `settlement` 参数只为对齐 `RuleEngine` 协议，通用族不看输赢。
+        """
+        _ = settlement
+        return (self.dealer_seat + 1) % MAX_ROUNDS
+
+
+@runtime_checkable
+class RuleEngine(Protocol):
+    """引擎契约（03 §3.2）：四族共用同一组方法，房间层只认这套协议。
+
+    族可以自由定义内部字段与方法，但下面这些必须存在——`families/registry.py`
+    在导入期只做 capability 自检，方法级契约靠这个 Protocol（单测会 isinstance 校验）。
+    """
+
+    family_code: str
+    rule: object
+    seats: dict[int, SeatState]
+    round_no: int
+    dealer_seat: int
+    round_wind: int
+    turn: int
+    phase: str
+    result: SettledRound | None
+
+    @property
+    def tile_set(self) -> tuple[int, ...]: ...
+
+    def start_round(self, dealer_seat: int | None = None, round_wind: int | None = None) -> list[dict]: ...
+
+    def legal_actions(self, seat: int) -> dict: ...
+
+    def apply_action(self, seat: int, action: dict) -> list[dict]: ...
+
+    def timeout_claim(self) -> list[dict]: ...
+
+    def tenpai_map(self, seat: int) -> dict[int, list[int]]: ...
+
+    def settlement(self) -> dict | None: ...
+
+    def next_dealer(self, settlement: SettledRound | None = None) -> int: ...
+
+    def snapshot_options(self) -> dict: ...

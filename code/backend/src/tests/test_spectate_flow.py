@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config.localSettings import settings  # noqa: E402
 from processor import roomService  # noqa: E402
 from realtime.room import RoomActor  # noqa: E402
-from schemas.rule import RuleConfig  # noqa: E402
+from game.families.generic.config import RuleConfig  # noqa: E402
 
 pytestmark = pytest.mark.usefixtures("s5_env")
 
@@ -113,29 +113,34 @@ async def test_select_target_reveals_only_target_hand(s5_env):
     ws = add_spectator(actor, guest)
     try:
         await start_game(actor, sockets)
-        await actor.handle(guest, {"type": "spectate.target", "data": {"seat": 2}})
+        # 座位由抽座决定，按 loginID 反查当前座位（03 §3.4）
+        target_login = s5_env["members"][2]
+        seat = actor.seat_of_login(target_login)
+        assert seat is not None
+        await actor.handle(guest, {"type": "spectate.target", "data": {"seat": seat}})
 
         data = ws.snapshot()
-        assert data["spectate"]["target_seat"] == 2
-        assert data["spectate"]["target_login_id"] == s5_env["members"][2]
+        assert data["spectate"]["target_seat"] == seat
+        assert data["spectate"]["target_login_id"] == target_login
         assert data["spectate"]["viewer_count"] == 1
         assert data["spectate"]["limit_per_seat"] == settings.spectate_limit_per_seat
         assert data["hand"], "观战目标的手牌应为明文"
         assert data["legal"]["actions"] == [], "观战者不能操作"
-        assert data["seats"][2]["spectator_count"] == 1
-        assert data["seats"][0]["spectator_count"] == 0
+        assert data["seats"][seat]["spectator_count"] == 1
+        assert sum(seat["spectator_count"] for seat in data["seats"]) == 1
 
         # 其余座位没有手牌字段，只有张数
-        for seat in data["seats"]:
-            assert "hand" not in seat
-        target = actor.engine.seats[2]
+        for seatView in data["seats"]:
+            assert "hand" not in seatView
+        target = actor.engine.seats[seat]
         assert len(data["hand"]) == sum(target.counts)
 
         event = sockets[s5_env["owner"]].last("event.spectate_changed")
         assert event is not None
-        assert event["data"]["target_seat"] == 2
+        assert event["data"]["target_seat"] == seat
         assert event["data"]["viewer_count"] == 1
-        assert event["data"]["seat_viewer_counts"] == [0, 0, 1, 0]
+        assert event["data"]["seat_viewer_counts"][seat] == 1
+        assert sum(event["data"]["seat_viewer_counts"]) == 1
         # 广播里不含观战者身份
         assert "login_id" not in event["data"]
     finally:
@@ -177,7 +182,7 @@ async def test_eleventh_viewer_rejected_and_binding_kept(s5_env):
         error = ws.last("error")
         assert error is not None
         assert error["data"]["code"] == "SPECTATE_TARGET_FULL"
-        assert actor.spectators[eleventh].target_login_id == s5_env["members"][1]
+        assert actor.spectators[eleventh].target_login_id == actor.slots[1].login_id
         assert actor.spectator_counts() == [10, 1, 0, 0]
     finally:
         actor._clear_timers()
@@ -258,7 +263,7 @@ async def test_binding_follows_login_after_seat_swap(s5_env):
     ws = add_spectator(actor, guest)
     try:
         await start_game(actor, sockets)
-        target_login = s5_env["members"][2]
+        target_login = actor.slots[2].login_id
         await actor.handle(guest, {"type": "spectate.target", "data": {"seat": 2}})
         assert actor.spectators[guest].target_login_id == target_login
 

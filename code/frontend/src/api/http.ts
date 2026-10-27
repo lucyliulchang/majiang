@@ -28,9 +28,12 @@ export function setStoredUser(user: unknown): void {
 
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  /** 04 §1 的错误码（如 ACCOUNT_AUTH_FAILED / VERIFY_CODE_INVALID），无则空串 */
+  code: string
+  constructor(status: number, message: string, code = '') {
     super(message)
     this.status = status
+    this.code = code
   }
 }
 
@@ -61,7 +64,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   if (!response.ok) {
     const detail = (payload && (payload.detail || payload.message)) || '请求失败，请稍后再试'
-    throw new ApiError(response.status, typeof detail === 'string' ? detail : '请求失败')
+    const code = (payload && typeof payload.code === 'string' && payload.code) || ''
+    throw new ApiError(
+      response.status,
+      typeof detail === 'string' ? detail : '请求失败',
+      code
+    )
   }
   return payload as T
 }

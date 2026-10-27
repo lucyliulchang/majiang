@@ -1,7 +1,7 @@
 from game.fan import evaluate
 from game.patterns.base import FanHit, WinResult
 from game.scoring import settle_draw, settle_rob_kong, settle_win
-from schemas.rule import KongScore, RuleConfig, ToggleValue
+from game.families.generic.config import KongScore, RuleConfig, ToggleValue
 
 
 def test_self_draw_all_pay():

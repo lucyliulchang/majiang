@@ -1,84 +1,70 @@
-"""密码哈希与 JWT。
+"""JWT 签发与校验（HS256）。
 
-密码刻意不使用 passlib（新版 bcrypt 兼容性坑多），直接用标准库 hashlib.scrypt。
-存储格式：scrypt$n$r$p$<salt_b64>$<dk_b64>
+口径（01 §5.5、04 §1）：
+  - 载荷只有 `sub`（loginID，字符串）、`role`（本系统全局角色 admin/member）、`iat`、`exp`；
+  - **不放家庭信息**，也不放昵称、头像等可变资料（一律回查 USER_BASIC）；
+  - 口令由账号服务管理，本文件**不再包含任何口令哈希/校验逻辑**（S3 起移除 scrypt）。
+
+密钥与 TTL 来自环境（SECRET_KEY / TOKEN_TTL_HOURS），默认值仅用于本地开发。
 """
 
-import base64
-import hashlib
-import hmac
-import os
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Mapping
 
 import jwt
 
-_SCRYPT_N = 2**14
-_SCRYPT_R = 8
-_SCRYPT_P = 1
-_DKLEN = 32
-
 _ALGO = "HS256"
+ROLE_ADMIN = "admin"
+ROLE_MEMBER = "member"
 
 
-def _b64e(raw: bytes) -> str:
-    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+def _resolve(secret: str | None) -> str:
+    if secret:
+        return secret
+    from config.localSettings import settings  # 延迟导入，避免循环依赖
+
+    return settings.secret_key
 
 
-def _b64d(text: str) -> bytes:
-    pad = "=" * (-len(text) % 4)
-    return base64.urlsafe_b64decode(text + pad)
+def _ttlHours(ttlHours: int | None) -> int:
+    if ttlHours is not None:
+        return int(ttlHours)
+    from config.localSettings import settings
 
-
-def hash_password(password: str) -> str:
-    if not password:
-        raise ValueError("密码不能为空")
-    salt = os.urandom(16)
-    dk = hashlib.scrypt(
-        password.encode("utf-8"),
-        salt=salt,
-        n=_SCRYPT_N,
-        r=_SCRYPT_R,
-        p=_SCRYPT_P,
-        dklen=_DKLEN,
-    )
-    return f"scrypt${_SCRYPT_N}${_SCRYPT_R}${_SCRYPT_P}${_b64e(salt)}${_b64e(dk)}"
-
-
-def verify_password(password: str, stored: str) -> bool:
-    if not password or not stored:
-        return False
-    parts = stored.split("$")
-    if len(parts) != 6 or parts[0] != "scrypt":
-        return False
-    try:
-        n, r, p = int(parts[1]), int(parts[2]), int(parts[3])
-        salt = _b64d(parts[4])
-        expected = _b64d(parts[5])
-    except (ValueError, TypeError):
-        return False
-    actual = hashlib.scrypt(
-        password.encode("utf-8"), salt=salt, n=n, r=r, p=p, dklen=len(expected)
-    )
-    return hmac.compare_digest(actual, expected)
+    return int(settings.token_ttl_hours)
 
 
 def create_access_token(
-    user_id: int, username: str, role: str, secret: str, ttl_hours: int
+    loginID: str, role: str, secret: str | None = None, ttlHours: int | None = None
 ) -> str:
+    """签发 JWT：sub=loginID、role、iat/exp（epoch 秒）。"""
+    subject = (loginID or "").strip()
+    if not subject:
+        raise ValueError("loginID 不能为空")
+
     now = datetime.now(timezone.utc)
     payload: dict[str, Any] = {
-        "sub": str(user_id),
-        "name": username,
-        "role": role,
+        "sub": subject,
+        "role": ROLE_ADMIN if role == ROLE_ADMIN else ROLE_MEMBER,
         "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(hours=ttl_hours)).timestamp()),
+        "exp": int((now + timedelta(hours=_ttlHours(ttlHours))).timestamp()),
     }
-    return jwt.encode(payload, secret, algorithm=_ALGO)
+    return jwt.encode(payload, _resolve(secret), algorithm=_ALGO)
 
 
-def decode_access_token(token: str, secret: str) -> dict[str, Any] | None:
+def decode_access_token(token: str, secret: str | None = None) -> dict[str, Any] | None:
+    """校验并解出载荷；签名错误 / 过期 / 结构非法一律返回 None（由上层映射 401）。"""
+    if not token:
+        return None
     try:
-        return jwt.decode(token, secret, algorithms=[_ALGO])
+        payload = jwt.decode(token, _resolve(secret), algorithms=[_ALGO])
     except jwt.PyJWTError:
         return None
+    if not isinstance(payload, dict) or not payload.get("sub"):
+        return None
+    return payload
+
+
+def role_from_payload(payload: Mapping[str, Any]) -> str:
+    """从载荷取本系统角色，异常值一律回落 member（最小权限）。"""
+    return ROLE_ADMIN if payload.get("role") == ROLE_ADMIN else ROLE_MEMBER

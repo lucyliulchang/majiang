@@ -4,10 +4,16 @@
 所以这里完全由规则模板的参数驱动，改规则不改代码。
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from game.families.generic.patterns.common import situational_fan_hits
 from game.hand import HandContext
 from game.patterns.base import FanHit, register_pattern
-from game.patterns.common import situational_fan_hits
-from schemas.rule import RuleConfig, ThirteenUnrelatedOptions
+
+if TYPE_CHECKING:
+    from game.families.generic.config import RuleConfig, ThirteenUnrelatedOptions
 
 
 class ThirteenUnrelatedPattern:
@@ -16,10 +22,12 @@ class ThirteenUnrelatedPattern:
 
     def match(self, ctx: HandContext) -> bool:
         """无规则上下文时用默认参数判断，引擎实际走 match_with_rule。"""
+        from game.families.generic.config import RuleConfig
+
         return self.match_with_rule(ctx, RuleConfig())
 
-    def match_with_rule(self, ctx: HandContext, rule: RuleConfig) -> bool:
-        options: ThirteenUnrelatedOptions = rule.patterns.thirteen_unrelated
+    def match_with_rule(self, ctx: HandContext, rule: "RuleConfig") -> bool:
+        options: "ThirteenUnrelatedOptions" = rule.patterns.thirteen_unrelated
         if not options.enabled:
             return False
         if ctx.melds:
@@ -50,7 +58,7 @@ class ThirteenUnrelatedPattern:
                     return False
         return True
 
-    def calc_fan(self, ctx: HandContext, rule: RuleConfig) -> list[FanHit]:
+    def calc_fan(self, ctx: HandContext, rule: "RuleConfig") -> list[FanHit]:
         hits: list[FanHit] = [FanHit("shi_san_bu_kao")]
         hits.extend(situational_fan_hits(ctx, rule))
         return hits
