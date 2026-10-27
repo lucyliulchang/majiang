@@ -1,106 +1,166 @@
-"""实时层的落库操作。
+"""实时层的落库操作（S5：全部走 mysqlCommon + 事务）。
 
-原则：每局结束立即落库，把"进程重启丢牌局"的损失限制在当前这一局。
+原则（01 §7.4、§9）：
+  1. 每局结束立即落库，把"进程重启丢牌局"的损失限制在当前这一局；
+  2. 一个业务动作一个事务：开局（game + players）、结算（round + totalScore）必须原子；
+  3. 这些函数是**同步阻塞**的，只能在 `run_in_threadpool` 里调用（见 realtime/room.py），
+     绝不能在协程里直接触库。
 """
 
-from datetime import datetime, timezone
+from __future__ import annotations
 
-from db.base import SessionLocal
-from db.models import Game, GamePlayer, GameRound, RoomMessage
+from common import miscCommon as misc
+from common import mysqlCommon
+from common.bizCommon import BizError
+from common.loggingCommon import get_logger
+from processor.roomService import messageOut
 
+logger = get_logger("mahjong.persist")
 
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def open_game(room_id: int, rule_snapshot: dict, seats: list[tuple[int, int]]) -> int:
-    """创建一场牌并写入座位，返回 game_id。seats 为 (seat, user_id)。"""
-    with SessionLocal() as session:
-        game = Game(room_id=room_id, rule_snapshot=rule_snapshot, status="playing")
-        session.add(game)
-        session.flush()
-        for seat, user_id in seats:
-            session.add(GamePlayer(game_id=game.id, seat=seat, user_id=user_id, total_score=0))
-        session.commit()
-        return game.id
+GAME_PLAYING = "PLAYING"
+GAME_FINISHED = "FINISHED"
 
 
-def save_round(game_id: int, settled, seat_users: dict[int, int]) -> None:
-    with SessionLocal() as session:
-        session.add(
-            GameRound(
-                game_id=game_id,
-                round_no=settled.round_no,
-                dealer_seat=settled.dealer_seat,
-                winner_seat=settled.winner_seat,
-                win_type=settled.win_type,
-                winning_tile=settled.winning_tile,
-                pattern_id=settled.pattern_id,
-                fan_items=settled.fan_items,
-                fan_total=settled.fan_total,
-                score_delta=settled.score_delta,
+class PersistError(BizError):
+    """落库失败（不阻断对局，由调用方记录日志并提示）。"""
+
+
+def _writeFailed(action: str) -> PersistError:
+    return PersistError("DB_WRITE_FAILED", f"数据保存失败（{action}），请重试", 500)
+
+
+def open_game(
+    roomID: int,
+    familyID: int,
+    ruleFamilyCode: str,
+    ruleSnapshot: dict,
+    seats: list[tuple[int, str, str]],
+) -> int:
+    """创建一场牌并写入座位，返回 game_id。
+
+    `seats` 为 `(seatNo, loginID, displayName)`；game 与 4 条 player 在同一事务内，
+    任何一条失败整体回滚，不会出现「有场次没座位」的半场数据。
+    """
+    now = misc.getTime()
+    dataSet = {
+        "familyID": familyID,
+        "roomID": roomID,
+        "ruleFamilyCode": ruleFamilyCode,
+        "ruleSnapshot": ruleSnapshot,
+        "gameStatus": GAME_PLAYING,
+        "startedYMDHMS": now,
+        "regYMDHMS": now,
+        "delFlag": "0",
+    }
+    with mysqlCommon.transaction():
+        gameID = mysqlCommon.insert_mj_game(mysqlCommon.MJ_GAME_TABLE, dataSet)
+        if gameID <= 0:
+            raise _writeFailed("开局")
+        for seat, loginID, displayName in seats:
+            inserted = mysqlCommon.insert_mj_game_player(
+                mysqlCommon.MJ_GAME_PLAYER_TABLE,
+                {
+                    "gameSeatKey": f"{gameID}_{seat}",
+                    "gameID": gameID,
+                    "familyID": familyID,
+                    "seatNo": seat,
+                    "loginID": loginID,
+                    "displayName": (displayName or "")[:40],
+                    "totalScore": 0,
+                    "regID": loginID,
+                    "regYMDHMS": now,
+                    "delFlag": "0",
+                },
             )
-        )
-        players = (
-            session.query(GamePlayer).filter(GamePlayer.game_id == game_id).all()
-        )
-        by_seat = {player.seat: player for player in players}
-        for seat, delta in enumerate(settled.score_delta):
-            player = by_seat.get(seat)
-            if player is None:
+            if inserted <= 0:
+                raise _writeFailed("开局座位")
+    logger.info("开局落库 room=%s game=%s players=%d", roomID, gameID, len(seats))
+    return gameID
+
+
+def save_round(gameID: int, familyID: int, settled) -> None:
+    """一局结算落库：`mj_game_round` 与 `mj_game_player.totalScore` 同事务。
+
+    totalScore 用 `UPDATE ... SET totalScore = totalScore + ?` 做自增，避免并发下
+    「读旧值再写回」丢分；任一语句失败则整局回滚（不会出现「有局无分」或「有分无局」）。
+    """
+    roundNo = int(getattr(settled, "round_no", 1) or 1)
+    dataSet = {
+        "gameID": gameID,
+        "familyID": familyID,
+        "roundNo": roundNo,
+        "dealerSeat": int(getattr(settled, "dealer_seat", 0) or 0),
+        "roundWind": max(0, roundNo - 1),
+        "winnerSeat": getattr(settled, "winner_seat", None),
+        "winType": getattr(settled, "win_type", "none") or "none",
+        "winningTile": getattr(settled, "winning_tile", None),
+        "patternID": getattr(settled, "pattern_id", None),
+        "fanItemsJson": getattr(settled, "fan_items", []) or [],
+        "fanRaw": int(getattr(settled, "fan_raw", 0) or getattr(settled, "fan_total", 0) or 0),
+        "fanTotal": int(getattr(settled, "fan_total", 0) or 0),
+        "scoreDeltaJson": getattr(settled, "score_delta", []) or [],
+        "payerJson": getattr(settled, "payer_json", None),
+        "finishedYMDHMS": misc.getTime(),
+    }
+    scoreDelta = list(getattr(settled, "score_delta", []) or [])
+    with mysqlCommon.transaction():
+        recID = mysqlCommon.insert_mj_game_round_settlement(dataSet)
+        if recID <= 0:
+            raise _writeFailed("结算")
+        for seat, delta in enumerate(scoreDelta):
+            delta = int(delta or 0)
+            if delta == 0:
                 continue
-            player.total_score += delta
-            expected = seat_users.get(seat)
-            if expected is not None and player.user_id != expected:
-                player.user_id = expected
-        session.commit()
+            affected = mysqlCommon.update_mj_game_player_score(gameID, seat, delta)
+            if affected <= 0:
+                raise _writeFailed("结算计分")
+    logger.info("结算落库 game=%s round=%s delta=%s", gameID, roundNo, scoreDelta)
 
 
-def close_game(game_id: int) -> None:
-    with SessionLocal() as session:
-        game = session.get(Game, game_id)
-        if game is None:
-            return
-        game.status = "finished"
-        game.ended_at = utcnow()
-        session.commit()
+def close_game(gameID: int) -> None:
+    """结束一场：FINISHED + endedYMDHMS。不存在时静默（重复调用幂等）。"""
+    if not gameID:
+        return
+    affected = mysqlCommon.update_mj_game_status(gameID, GAME_FINISHED)
+    if affected < 0:
+        raise _writeFailed("结束场次")
 
 
-def save_message(room_id: int, user_id: int | None, kind: str, content: str) -> dict:
-    with SessionLocal() as session:
-        message = RoomMessage(
-            room_id=room_id, user_id=user_id, kind=kind, content=content, created_at=utcnow()
-        )
-        session.add(message)
-        session.commit()
-        return {
-            "id": message.id,
-            "room_id": room_id,
-            "user_id": user_id,
-            "kind": kind,
-            "content": content,
-            "created_at": message.created_at.isoformat(),
-        }
+def save_message(
+    roomID: int, familyID: int, loginID: str | None, kind: str, content: str
+) -> dict:
+    """写一条聊天/系统播报，返回 04 §9.4 的 chat.message 结构。"""
+    now = misc.getTime()
+    recID = mysqlCommon.insert_mj_room_message(
+        mysqlCommon.MJ_ROOM_MESSAGE_TABLE,
+        {
+            "roomID": roomID,
+            "familyID": familyID,
+            "loginID": loginID or None,
+            "messageKind": kind or "chat",
+            "content": (content or "")[:500],
+            "createdYMDHMS": now,
+            "regID": loginID or "system",
+            "regYMDHMS": now,
+            "delFlag": "0",
+        },
+    )
+    if recID <= 0:
+        raise _writeFailed("聊天")
+    row = {
+        "recID": recID,
+        "roomID": roomID,
+        "loginID": loginID or "",
+        "userName": "",
+        "messageKind": kind,
+        "content": content,
+        "createdYMDHMS": now,
+    }
+    return messageOut(row)
 
 
-def load_messages(room_id: int, limit: int = 50) -> list[dict]:
-    with SessionLocal() as session:
-        rows = (
-            session.query(RoomMessage)
-            .filter(RoomMessage.room_id == room_id)
-            .order_by(RoomMessage.id.desc())
-            .limit(limit)
-            .all()
-        )
-        rows.reverse()
-        return [
-            {
-                "id": row.id,
-                "room_id": row.room_id,
-                "user_id": row.user_id,
-                "kind": row.kind,
-                "content": row.content,
-                "created_at": row.created_at.isoformat(),
-            }
-            for row in rows
-        ]
+def load_messages(roomID: int, limit: int = 50) -> list[dict]:
+    """最近聊天（按时间正序）；查询必带 LIMIT。"""
+    rows = mysqlCommon.query_mj_room_message_list(roomID, limit=limit)
+    rows.reverse()
+    return [messageOut(row) for row in rows]

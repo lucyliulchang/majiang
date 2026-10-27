@@ -27,7 +27,8 @@ class EngineError(Exception):
 @dataclass
 class SeatState:
     seat: int
-    user_id: int
+    # 账号服务身份是 loginID 字符串（04 §11：user_id(int) → login_id(string)）
+    login_id: str
     display_name: str
     color: str
     counts: list[int] = field(default_factory=empty_counts)

@@ -18,7 +18,17 @@ class RoomManager:
         return self._actors.get(code)
 
     def get_or_create(
-        self, code: str, room_id: int, name: str, host_id: int, rule: RuleConfig, rule_name: str
+        self,
+        code: str,
+        room_id: int,
+        family_id: int,
+        family_code: str,
+        family_name: str,
+        name: str,
+        host_login_id: str,
+        rule: RuleConfig,
+        rule_name: str,
+        rule_snapshot: dict,
     ) -> RoomActor:
         actor = self._actors.get(code)
         if actor is not None:
@@ -26,11 +36,14 @@ class RoomManager:
         actor = RoomActor(
             code=code,
             room_id=room_id,
+            family_id=family_id,
+            family_code=family_code,
+            family_name=family_name,
             name=name,
-            host_id=host_id,
+            host_login_id=host_login_id,
             rule=rule,
             rule_name=rule_name,
-            rule_snapshot=rule.model_dump(),
+            rule_snapshot=rule_snapshot,
         )
         self._actors[code] = actor
         logger.info("房间演员创建 code=%s room=%s", code, room_id)

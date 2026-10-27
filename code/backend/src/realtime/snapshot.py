@@ -25,12 +25,12 @@ def _seat_view(actor, seat: int, viewer_seat: int | None) -> dict | None:
             total_score = state.total_score
     return {
         "seat": seat,
-        "user_id": slot.user_id,
+        "login_id": slot.login_id,
         "display_name": slot.display_name,
         "color": slot.color,
         "ready": slot.ready,
         "connected": slot.connected,
-        "is_host": slot.user_id == actor.host_id,
+        "is_host": slot.login_id == actor.host_login_id,
         "hand_count": hand_count,
         "melds": melds,
         "round_score": round_score,
@@ -43,11 +43,18 @@ def build_snapshot(actor, viewer_seat: int | None) -> dict:
     rule = actor.rule
     payload = {
         "room": {
+            # 04 §9.5 字段
+            "room_code": actor.code,
+            "room_name": actor.name,
+            "host_login_id": actor.host_login_id,
+            "family_code": actor.family_code,
+            "family_name": actor.family_name,
+            "rule_name": actor.rule_name,
+            "rule_family_code": actor.rule_family_code,
+            "rule_brief": rule.brief(),
+            # 兼容旧前端的别名（S6 前端切到上名字段后删除）
             "code": actor.code,
             "name": actor.name,
-            "host_id": actor.host_id,
-            "rule_name": actor.rule_name,
-            "rule_brief": rule.brief(),
         },
         "self_seat": viewer_seat,
         "seats": [_seat_view(actor, seat, viewer_seat) for seat in range(4)],
