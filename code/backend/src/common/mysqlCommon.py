@@ -1264,6 +1264,7 @@ def query_mj_room_list(familyID, limit = _DEF_QUERY_LIMIT_NUM, beforeID = 0):
 def query_mj_rule_template_list(familyID, ruleFamilyCode = ""):
     """模板列表：家庭自有 + 全局预置（familyID IN (0, ?)），只列启用项"""
     result = []
+    _requireDB()
     sqlStr = (
         "SELECT recID, templateCode, familyID, ruleFamilyCode, templateName, description, "
         "configJson, presetFlag, ownerLoginID, activeFlag, sortOrder "

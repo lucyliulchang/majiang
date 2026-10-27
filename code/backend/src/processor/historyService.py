@@ -12,11 +12,8 @@ from __future__ import annotations
 from common import miscCommon as misc
 from common import mysqlCommon
 from common.bizCommon import BizError
-from common.loggingCommon import get_logger
 from game.tiles import tile_name
 from processor import familyService
-
-logger = get_logger("mahjong.history")
 
 DEFAULT_GAME_LIMIT = 30
 MAX_GAME_LIMIT = 100

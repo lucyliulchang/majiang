@@ -31,8 +31,6 @@ logger = get_logger("mahjong.rule")
 # sichuan（108 张/缺一门/多赢家）与 baishi（07 细则）尚未接入 → ready=false，开桌拦截。
 ENGINE_READY_CODES = ("generic", "guangdong")
 
-MAX_TEMPLATE_LIMIT = 100
-
 
 class RuleServiceError(BizError):
     """规则域业务异常（HTTP 状态 + 错误码 + 中文提示）。"""
@@ -238,9 +236,8 @@ def listTemplates(
     familyID: int,
     familyCode: str,
     ruleFamilyCode: str = "",
-    limit: int = MAX_TEMPLATE_LIMIT,
 ) -> list[dict]:
-    """本家庭模板 + 全局预置（04 §5 #18）；只列启用项。"""
+    """本家庭模板 + 全局预置（04 §5 #18）；只列启用项（LIMIT 由查询函数统一收口）。"""
     familyService.assertMemberOfFamilyID(loginID, familyID, requireEnabled=True)
     rows = mysqlCommon.query_mj_rule_template_list(familyID, ruleFamilyCode)
     return [templateOut(row, familyCode) for row in rows]
