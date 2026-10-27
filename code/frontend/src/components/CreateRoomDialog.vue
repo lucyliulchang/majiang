@@ -4,10 +4,12 @@ import { Check, Loader2, X } from 'lucide-vue-next'
 
 import { api } from '../api/http'
 import { useToast } from '../composables/useToast'
+import { useAuthStore } from '../stores/auth'
 import type { RoomInfo, RuleTemplate } from '../types'
 
 const emit = defineEmits<{ close: []; created: [room: RoomInfo] }>()
 const toast = useToast()
+const auth = useAuthStore()
 
 const rules = ref<RuleTemplate[]>([])
 const selectedId = ref<number | null>(null)
@@ -56,8 +58,9 @@ async function submit(): Promise<void> {
   saving.value = true
   try {
     const room = await api.post<RoomInfo>('/rooms', {
-      name: name.value.trim(),
-      rule_template_id: selectedId.value
+      family_code: auth.currentFamilyCode || '',
+      room_name: name.value.trim(),
+      template_id: selectedId.value
     })
     emit('created', room)
   } catch (error) {
@@ -104,7 +107,7 @@ async function submit(): Promise<void> {
               @click="selectedId = template.id"
             >
               <div class="flex items-center gap-1.5">
-                <span class="text-sm font-medium text-cream-100">{{ template.name }}</span>
+                <span class="text-sm font-medium text-cream-100">{{ template.template_name }}</span>
                 <span
                   v-if="template.is_preset"
                   class="rounded bg-jade-500/20 px-1.5 py-0.5 text-[10px] text-jade-400"

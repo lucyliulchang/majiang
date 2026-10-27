@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 
 import { closeSocket, openSocket, sendMessage, setMessageHandler, setStatusHandler } from '../api/ws'
 import { useToast } from '../composables/useToast'
-import type { ChatMessage, LegalAction, SeatView, Snapshot } from '../types'
+import type { ChatMessage, LegalAction, SeatView, Snapshot, SpectateView } from '../types'
 import { tileName, tilesName } from '../utils/tile'
 
 export interface Banner {
@@ -32,6 +32,24 @@ export const useGameStore = defineStore('game', () => {
   const mySeatView = computed(() =>
     selfSeat.value === null ? null : (snapshot.value?.seats?.[selfSeat.value] ?? null)
   )
+  /** 观战视角：在座玩家为 null；观战者未选目标也为 null（只收公共状态） */
+  const spectate = computed<SpectateView | null>(() => snapshot.value?.spectate ?? null)
+  const spectateSeat = computed(() => spectate.value?.target_seat ?? null)
+  const isSpectator = computed(() => selfSeat.value === null)
+  /** 观战目标座位视图（未选目标为 null） */
+  const spectateSeatView = computed<SeatView | null>(() => {
+    const seat = spectateSeat.value
+    if (seat === null) return null
+    return snapshot.value?.seats?.[seat] ?? null
+  })
+  /** 每个座位的围观人数（0–10），满员置灰用 */
+  const seatViewerCounts = computed<number[]>(() => {
+    const counts = [0, 0, 0, 0]
+    for (let seat = 0; seat < 4; seat += 1) {
+      counts[seat] = snapshot.value?.seats?.[seat]?.spectator_count ?? 0
+    }
+    return counts
+  })
   const hand = computed(() => snapshot.value?.hand ?? [])
   const drawn = computed(() => snapshot.value?.drawn ?? null)
   const phase = computed(() => snapshot.value?.phase ?? 'waiting')
@@ -72,7 +90,7 @@ export const useGameStore = defineStore('game', () => {
   function pushSystem(text: string): void {
     chat.value.push({
       id: Date.now() + Math.random(),
-      user_id: null,
+      login_id: null,
       kind: 'system',
       content: text,
       created_at: new Date().toISOString()
@@ -114,6 +132,17 @@ export const useGameStore = defineStore('game', () => {
       case 'event.game_finished':
         finished.value = data
         break
+      case 'event.spectate_changed':
+        // 目标离座：横幅消失 + 提示重新选择（快照随后会把视角重置为未选择）
+        if (data.target_seat === null && data.target_login_id) {
+          const name = snapshot.value?.seats?.find(
+            (seat) => seat && seat.login_id === data.target_login_id
+          )?.display_name
+          if (spectate.value?.target_login_id === data.target_login_id) {
+            flash(`${name || '这位家人'} 已离座，请重新选择观战对象`, 'info')
+          }
+        }
+        break
       case 'event.ready_changed':
         break
       default:
@@ -128,7 +157,7 @@ export const useGameStore = defineStore('game', () => {
       return
     }
     if (type === 'room.welcome') {
-      roomCode.value = data.room?.code || roomCode.value
+      roomCode.value = data.room?.room_code || data.room?.code || roomCode.value
       chat.value = (data.chat || []) as ChatMessage[]
       return
     }
@@ -212,6 +241,11 @@ export const useGameStore = defineStore('game', () => {
     send('chat.send', { content: text })
   }
 
+  /** 选择/切换观战目标；null 表示取消跟随（S5b） */
+  function followSeat(seat: number | null): void {
+    send('spectate.target', { seat })
+  }
+
   return {
     snapshot,
     chat,
@@ -224,6 +258,11 @@ export const useGameStore = defineStore('game', () => {
     seats,
     selfSeat,
     mySeatView,
+    spectate,
+    spectateSeat,
+    spectateSeatView,
+    isSpectator,
+    seatViewerCounts,
     hand,
     drawn,
     phase,
@@ -247,6 +286,7 @@ export const useGameStore = defineStore('game', () => {
     discard,
     act,
     pass,
-    sendChat
+    sendChat,
+    followSeat
   }
 })

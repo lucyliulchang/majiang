@@ -7,11 +7,11 @@ import type { ChatMessage } from '../types'
 const props = withDefaults(
   defineProps<{
     messages: ChatMessage[]
-    selfUserId?: number | null
+    selfLoginId?: string
     connected?: boolean
     title?: string
   }>(),
-  { selfUserId: null, connected: true, title: '牌桌闲聊' }
+  { selfLoginId: '', connected: true, title: '牌桌闲聊' }
 )
 
 const emit = defineEmits<{ send: [text: string] }>()
@@ -29,7 +29,7 @@ function submit(): void {
 }
 
 function isMine(message: ChatMessage): boolean {
-  return props.selfUserId !== null && message.user_id === props.selfUserId
+  return Boolean(props.selfLoginId) && message.login_id === props.selfLoginId
 }
 
 function timeOf(message: ChatMessage): string {

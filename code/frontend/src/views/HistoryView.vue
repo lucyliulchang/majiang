@@ -35,7 +35,12 @@ async function load(): Promise<void> {
 
 onMounted(load)
 
+// 场次状态自 S5 起统一为大写（04 §7）
 const STATUS_TEXT: Record<string, string> = {
+  FINISHED: '已结束',
+  ABORTED: '中断',
+  PLAYING: '进行中',
+  // 兼容旧数据
   finished: '已结束',
   aborted: '中断',
   playing: '进行中'

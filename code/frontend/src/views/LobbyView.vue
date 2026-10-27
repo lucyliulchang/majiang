@@ -8,7 +8,7 @@ import CreateRoomDialog from '../components/CreateRoomDialog.vue'
 import { api } from '../api/http'
 import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
-import type { RoomInfo, StatsInfo } from '../types'
+import type { RoomInfo, RoomJoinCheck, StatsInfo } from '../types'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -70,8 +70,13 @@ async function join(): Promise<void> {
   }
   checking.value = true
   try {
-    const info = await api.get<{ code: string }>(`/rooms/code/${code.value}`)
-    router.push({ name: 'room', params: { code: info.code } })
+    const info = await api.get<RoomJoinCheck>(`/rooms/code/${code.value}`)
+    if (!info.can_join && !info.spectate.available) {
+      toast.warn('牌桌满了，围观位也满了，稍后再试')
+      return
+    }
+    if (!info.can_join) toast.info(`座位已满，将以观战身份进入（可围观 ${info.spectate.limit_per_seat * 4} 人）`)
+    router.push({ name: 'room', params: { code: info.room_code } })
   } catch (error) {
     codeError.value = (error as Error).message
     digits.value = ['', '', '', '', '', '']
@@ -83,11 +88,11 @@ async function join(): Promise<void> {
 
 function onCreated(room: RoomInfo): void {
   creating.value = false
-  router.push({ name: 'room', params: { code: room.code } })
+  router.push({ name: 'room', params: { code: room.room_code } })
 }
 
 function enterRoom(room: RoomInfo): void {
-  router.push({ name: 'room', params: { code: room.code } })
+  router.push({ name: 'room', params: { code: room.room_code } })
 }
 
 const quickLinks = computed(() => [
@@ -152,15 +157,16 @@ const quickLinks = computed(() => [
               @click="enterRoom(room)"
             >
               <div class="flex items-start justify-between gap-2">
-                <span class="text-sm font-medium text-cream-100">{{ room.name }}</span>
+                <span class="text-sm font-medium text-cream-100">{{ room.room_name }}</span>
                 <span class="rounded bg-felt-950/60 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.16em] text-gold-300">
-                  {{ room.code }}
+                  {{ room.room_code }}
                 </span>
               </div>
               <p class="mt-1.5 text-[11px] text-ink-300/70">{{ room.rule_name }}</p>
               <div class="mt-2 flex items-center gap-3 text-[11px] text-ink-300/60">
                 <span>{{ room.player_count }} / 4 人</span>
-                <span>{{ room.status === 'open' ? '等待开局' : room.status }}</span>
+                <span v-if="room.spectator_count">· {{ room.spectator_count }} 人围观</span>
+                <span>{{ room.status === 'OPEN' ? '等待开局' : '已关闭' }}</span>
               </div>
             </button>
           </div>

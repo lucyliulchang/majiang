@@ -10,6 +10,7 @@ import HandTiles from '../components/table/HandTiles.vue'
 import PlayerSeat from '../components/table/PlayerSeat.vue'
 import ResultModal from '../components/table/ResultModal.vue'
 import ScoreBoard from '../components/table/ScoreBoard.vue'
+import SpectatePanel from '../components/table/SpectatePanel.vue'
 import Tile from '../components/table/Tile.vue'
 import TurnTimer from '../components/table/TurnTimer.vue'
 import { useToast } from '../composables/useToast'
@@ -27,6 +28,7 @@ const code = String(route.params.code || '').toUpperCase()
 const selected = ref<number | null>(null)
 const dismissedRound = ref<number | null>(null)
 const chatOpen = ref(false)
+const spectateOpen = ref(false)
 
 onMounted(() => {
   game.enterRoom(code)
@@ -77,9 +79,31 @@ const myTurnTimerVisible = computed(
 
 const canDiscard = computed(() => game.isMyTurn && game.hasAction('discard'))
 const showActionBar = computed(() => {
+  if (isSpectator.value) return false
   const actions = game.legal
   return actions.some((item) => item.action !== 'discard')
 })
+
+// ---- 观战（S5b）：一人一目标，未选目标只收公共牌面 ----
+const spectate = computed(() => game.spectate)
+const spectateTarget = computed(() => game.spectateSeatView)
+const spectateLimit = computed(() => spectate.value?.limit_per_seat ?? 10)
+const spectateViewerCount = computed(() => spectate.value?.viewer_count ?? 0)
+const needSpectateChoice = computed(() => isSpectator.value && !spectateTarget.value)
+
+function openSpectate(): void {
+  spectateOpen.value = true
+}
+
+function follow(seat: number): void {
+  game.followSeat(seat)
+  spectateOpen.value = false
+}
+
+function cancelSpectate(): void {
+  game.followSeat(null)
+  spectateOpen.value = false
+}
 
 function onSelect(tile: number): void {
   if (!canDiscard.value) return
@@ -97,7 +121,7 @@ function onAct(action: LegalAction): void {
 }
 
 function copyCode(): void {
-  const text = game.snapshot?.room?.code || code
+  const text = game.snapshot?.room?.room_code || code
   navigator.clipboard?.writeText(text).then(
     () => toast.success(`邀请码 ${text} 已复制`),
     () => toast.warn(`邀请码是 ${text}`)
@@ -129,8 +153,8 @@ const hintEnabled = computed(() => Boolean(game.ruleBrief?.ting_hint))
     <header class="flex h-14 shrink-0 items-center border-b border-gold-400/15 bg-felt-950/85 px-4 backdrop-blur">
       <div v-if="game.snapshot" class="w-full">
         <ScoreBoard
-          :room-name="game.snapshot.room.name"
-          :code="game.snapshot.room.code"
+          :room-name="game.snapshot.room.room_name"
+          :code="game.snapshot.room.room_code"
           :rule-name="game.snapshot.room.rule_name"
           :rule-brief="game.ruleBrief"
           :wall-count="game.snapshot.wall_count"
@@ -146,6 +170,22 @@ const hintEnabled = computed(() => Boolean(game.ruleBrief?.ting_hint))
         正在进入牌桌 {{ code }}…
       </div>
     </header>
+
+    <!-- 观战横幅：常驻但不遮挡牌河（独立一行，不叠在牌桌上） -->
+    <div
+      v-if="isSpectator && spectateTarget"
+      class="flex h-9 shrink-0 items-center justify-center gap-2 border-b border-gold-400/15 bg-gold-400/[0.06] px-3 text-xs"
+    >
+      <Eye class="h-3.5 w-3.5 shrink-0 text-gold-300" />
+      <span class="truncate text-cream-100">正在观战：{{ spectateTarget.display_name }}</span>
+      <span class="shrink-0 text-ink-300/70">{{ spectateViewerCount }}/{{ spectateLimit }}</span>
+      <button type="button" class="btn-ghost shrink-0 rounded px-2 py-0.5 text-[11px]" @click="openSpectate">
+        切换
+      </button>
+      <button type="button" class="shrink-0 rounded px-2 py-0.5 text-[11px] text-ink-300/70" @click="cancelSpectate">
+        取消跟随
+      </button>
+    </div>
 
     <div class="flex min-h-0 flex-1">
       <!-- 牌桌 -->
@@ -273,7 +313,7 @@ const hintEnabled = computed(() => Boolean(game.ruleBrief?.ting_hint))
               <div class="flex items-center gap-2">
                 <span
                   class="flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-felt-950"
-                  :style="{ backgroundColor: mySeatView?.color || auth.user?.color || '#C9A063' }"
+                  :style="{ backgroundColor: mySeatView?.color || auth.avatarColor }"
                 >
                   {{ (mySeatView?.display_name || auth.displayName).slice(0, 1) }}
                 </span>
@@ -315,8 +355,9 @@ const hintEnabled = computed(() => Boolean(game.ruleBrief?.ting_hint))
             </div>
 
             <div class="flex min-h-[70px] items-end justify-center overflow-x-auto pb-1">
+              <!-- 在座玩家看自己的牌；观战者看目标（只读）；未选目标没有任何手牌 -->
               <HandTiles
-                v-if="!isSpectator"
+                v-if="!isSpectator || spectateTarget"
                 :tiles="game.hand"
                 :drawn="game.drawn"
                 :selected="selected"
@@ -326,7 +367,12 @@ const hintEnabled = computed(() => Boolean(game.ruleBrief?.ting_hint))
                 @select="onSelect"
                 @discard="onDiscard"
               />
-              <p v-else class="pb-4 text-xs text-ink-300/60">你在观战，看不到任何人的手牌</p>
+              <div v-else class="flex items-center gap-2 pb-4">
+                <p class="text-xs text-ink-300/60">你在观战，还没选观战对象</p>
+                <button type="button" class="btn-gold rounded-lg px-3 py-1 text-[11px]" @click="openSpectate">
+                  选一位家人
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -347,7 +393,7 @@ const hintEnabled = computed(() => Boolean(game.ruleBrief?.ting_hint))
       <aside class="hidden w-[330px] shrink-0 p-3 pl-0 lg:block">
         <ChatPanel
           :messages="game.chat"
-          :self-user-id="auth.user?.id ?? null"
+          :self-login-id="auth.loginId"
           :connected="game.connected"
           @send="game.sendChat"
         />
@@ -372,10 +418,41 @@ const hintEnabled = computed(() => Boolean(game.ruleBrief?.ting_hint))
       <div class="h-full w-[86%] max-w-[360px] p-3">
         <ChatPanel
           :messages="game.chat"
-          :self-user-id="auth.user?.id ?? null"
+          :self-login-id="auth.loginId"
           :connected="game.connected"
           @send="game.sendChat"
         />
+      </div>
+    </div>
+
+    <!-- 观战选择层：未选目标时常驻；点「切换」时作为弹层 -->
+    <div
+      v-if="needSpectateChoice || spectateOpen"
+      class="fixed inset-0 z-[60] flex items-end justify-center bg-felt-950/85 px-3 pb-4 backdrop-blur-sm sm:items-center"
+      @click.self="spectateTarget && (spectateOpen = false)"
+    >
+      <div class="glass w-full max-w-lg rounded-2xl p-4 shadow-table">
+        <div class="mb-2 flex items-center justify-between">
+          <h2 class="text-sm font-medium text-cream-100">选择观战对象</h2>
+          <button
+            v-if="spectateTarget"
+            type="button"
+            class="rounded px-2 py-0.5 text-[11px] text-ink-300/70"
+            @click="spectateOpen = false"
+          >
+            关闭
+          </button>
+        </div>
+        <SpectatePanel
+          :seats="game.snapshot?.seats || [null, null, null, null]"
+          :target-login-id="spectate?.target_login_id ?? null"
+          :limit="spectateLimit"
+          @select="follow"
+          @cancel="cancelSpectate"
+        />
+        <p v-if="!spectateTarget" class="mt-3 text-[11px] leading-relaxed text-ink-300/60">
+          不选也能留在牌桌旁看公共牌面（牌河、分数、倒计时），但看不到任何人的手牌。
+        </p>
       </div>
     </div>
 

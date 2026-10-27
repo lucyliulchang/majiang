@@ -7,15 +7,18 @@ import FanTableEditor from '../components/FanTableEditor.vue'
 import RuleForm from '../components/RuleForm.vue'
 import { api } from '../api/http'
 import { useToast } from '../composables/useToast'
+import { useAuthStore } from '../stores/auth'
 import type { RuleConfig, RuleTemplate } from '../types'
 
 const toast = useToast()
+const auth = useAuthStore()
 
 const templates = ref<RuleTemplate[]>([])
 const loading = ref(true)
 const saving = ref(false)
 const currentId = ref<number | null>(null)
 const presetEditing = ref(false)
+const currentRuleFamily = ref('generic')
 const draft = ref<{ name: string; description: string; config: RuleConfig } | null>(null)
 
 function clone<T>(value: T): T {
@@ -43,8 +46,9 @@ async function load(selectFirst = false): Promise<void> {
 function select(template: RuleTemplate): void {
   currentId.value = template.id
   presetEditing.value = template.is_preset
+  currentRuleFamily.value = template.rule_family_code || 'generic'
   draft.value = {
-    name: template.name,
+    name: template.template_name,
     description: template.description,
     config: clone(template.config)
   }
@@ -54,6 +58,7 @@ function createNew(): void {
   const base = templates.value.find((item) => item.is_preset) || templates.value[0]
   currentId.value = null
   presetEditing.value = false
+  currentRuleFamily.value = base?.rule_family_code || 'generic'
   draft.value = {
     name: '我的家庭规矩',
     description: '',
@@ -99,12 +104,16 @@ async function save(): Promise<void> {
   saving.value = true
   try {
     const payload = {
-      name: draft.value.name.trim(),
+      template_name: draft.value.name.trim(),
       description: draft.value.description.trim(),
       config: draft.value.config
     }
     if (currentId.value === null) {
-      const created = await api.post<RuleTemplate>('/rules', payload)
+      const created = await api.post<RuleTemplate>('/rules', {
+        family_code: auth.currentFamilyCode || '',
+        rule_family_code: currentRuleFamily.value,
+        ...payload
+      })
       await load()
       select(created)
       toast.success('规则已创建')
@@ -127,7 +136,9 @@ async function duplicate(): Promise<void> {
     return
   }
   try {
-    const created = await api.post<RuleTemplate>(`/rules/${currentId.value}/duplicate`)
+    const created = await api.post<RuleTemplate>(`/rules/${currentId.value}/duplicate`, {
+      family_code: auth.currentFamilyCode || ''
+    })
     await load()
     select(created)
     toast.success('已复制成你自己的模板，可以随便改了')
@@ -188,7 +199,7 @@ onMounted(() => load(true))
               @click="select(template)"
             >
               <div class="flex items-center gap-1.5">
-                <span class="truncate text-sm text-cream-100">{{ template.name }}</span>
+                <span class="truncate text-sm text-cream-100">{{ template.template_name }}</span>
                 <span
                   v-if="template.is_preset"
                   class="ml-auto shrink-0 rounded bg-jade-500/20 px-1.5 py-0.5 text-[10px] text-jade-400"

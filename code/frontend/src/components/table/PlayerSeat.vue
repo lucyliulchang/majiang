@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Crown, WifiOff } from 'lucide-vue-next'
+import { Crown, Eye, WifiOff } from 'lucide-vue-next'
 
 import Tile from './Tile.vue'
 import type { SeatView } from '../../types'
@@ -53,6 +53,15 @@ const backs = computed(() => Math.min(hiddenCount.value, 14))
         <Crown v-if="seat.is_host" class="h-3 w-3 text-gold-300" />
         <WifiOff v-if="!seat.connected" class="h-3 w-3 text-vermilion-400" />
       </p>
+      <!-- 被围观人数（全房可见，不暴露观战者身份） -->
+      <span
+        v-if="(seat.spectator_count ?? 0) > 0"
+        class="mt-0.5 inline-flex items-center gap-0.5 text-[10px] text-gold-400/80"
+        :title="`${seat.spectator_count} 人正在围观`"
+      >
+        <Eye class="h-3 w-3" />
+        围观 {{ seat.spectator_count }}
+      </span>
       <div class="mt-0.5 flex items-center gap-2 text-[11px]">
         <span :class="total >= 0 ? 'text-jade-400' : 'text-vermilion-400'">
           {{ total > 0 ? '+' : '' }}{{ total }}
