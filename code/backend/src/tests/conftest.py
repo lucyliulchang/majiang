@@ -1,7 +1,11 @@
-"""测试公用的手牌解析与引擎构造工具。
+"""测试公用：手牌解析、引擎构造与测试库指针。
 
 手牌写法：123m 456p 789s 11z
 - m 万 / p 筒 / s 条 / z 字（1z=东 … 7z=白）
+
+数据层（S5）：**不再有 SQLite / ORM**，DB 相关用例直连测试库 `mahjong_test`
+（02 §6.3：建库建表用 `python tools/initTables.py --env test_server --seed`）。
+库不可用时由 `mysql_ready` fixture 跳过相关用例，引擎与纯函数用例照常跑。
 """
 
 import os
@@ -13,18 +17,14 @@ import pytest
 _SRC_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_SRC_DIR))
 
-# 测试库独立，绝不动开发/生产数据。必须在导入 config.localSettings 之前设置。
-# 跑测试产生的库同样属于附属数据，统一落在 code/backend/data/test/。
-_TEST_DATA_DIR = _SRC_DIR.parent / "data" / "test"
-_TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
-TEST_DB = _TEST_DATA_DIR / "test_mahjong.db"
-for suffix in ("", "-wal", "-shm"):
-    stale = Path(str(TEST_DB) + suffix)
-    if stale.exists():
-        stale.unlink()
-os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB.as_posix()}"
+# 必须在导入 config.* 之前设置：测试库独立，绝不动开发/生产数据。
+# mysqlSettings 用 override=False 读 .env，因此这里的值优先于 .env 的 mahjong_data。
+os.environ["APP_ENV"] = "test_server"
+os.environ["MYSQL_WRITE_DB"] = "mahjong_test"
+os.environ["MYSQL_READ_DB"] = "mahjong_test"
 os.environ.setdefault("SECRET_KEY", "test-only-secret")
-os.environ.setdefault("ADMIN_INIT_PASSWORD", "test-admin-pass")
+# 账号服务不参与单测：用例里 monkeypatch common/accountClient，禁止任何真实出网
+os.environ.setdefault("ACCOUNT_SERVICE_URL", "http://127.0.0.1:1/acis")
 
 from game.engine import GameEngine, SeatState  # noqa: E402
 from schemas.rule import RuleConfig  # noqa: E402
@@ -56,7 +56,7 @@ def parse_hand(text: str) -> list[int]:
 
 def make_engine(rule: RuleConfig | None = None, dealer_seat: int = 0) -> GameEngine:
     seats = [
-        SeatState(seat=i, user_id=i + 1, display_name=f"玩家{i}", color="#C9A063")
+        SeatState(seat=i, login_id=f"1380000000{i}", display_name=f"玩家{i}", color="#C9A063")
         for i in range(4)
     ]
     return GameEngine(rule or RuleConfig(), seats, round_no=1, dealer_seat=dealer_seat)
@@ -70,3 +70,93 @@ def hand():
 @pytest.fixture
 def engine_factory():
     return make_engine
+
+
+@pytest.fixture(scope="session")
+def mysql_ready():
+    """测试库可用性闸门：不可用时跳过该用例，而不是让整个测试集报连接错误。"""
+    from config import mysqlSettings
+
+    if mysqlSettings.dbW is None or not mysqlSettings.pingServer():
+        pytest.skip(
+            "测试库 mahjong_test 不可用：先建库建表 "
+            "`python tools/initTables.py --env test_server --seed`"
+        )
+    return mysqlSettings
+
+
+# S5 数据层用例的固定账号（loginID 即账号服务的登录号）
+S5_OWNER = "13800000001"
+S5_MEMBERS = (
+    (S5_OWNER, "爸爸"),
+    ("13800000002", "妈妈"),
+    ("13800000003", "姐姐"),
+    ("13800000004", "弟弟"),
+)
+S5_FAMILY_CODE = "s5test"
+
+
+@pytest.fixture(scope="session")
+def s5_env(mysql_ready):
+    """真实测试库环境：账号档案 + 家庭 + 4 名成员 + 预置模板 + 一个 OPEN 房间。
+
+    全部走业务代码（familyService / roomService / 种子），因此这里验证的是真实 SQL；
+    结束只软删本次创建的房间，家庭与账号档案保留（幂等复用）。
+    """
+    from common import miscCommon as misc
+    from common import mysqlCommon
+    from processor import accountService, familyService, roomService
+    from tools.seedPresets import installPresets
+
+    installPresets()
+
+    for loginID, nickName in S5_MEMBERS:
+        accountService.ensureUserBasic(loginID)
+        mysqlCommon.updateUserBasic(loginID, {"nickName": nickName})
+
+    family = mysqlCommon.query_mj_family_by_code(S5_FAMILY_CODE)
+    if family:
+        familyID = int(family.get("recID") or 0)
+    else:
+        familyID = int(
+            familyService.bootstrapFamily(S5_OWNER, "S5 测试家庭", S5_FAMILY_CODE)["familyID"]
+        )
+
+    now = misc.getTime()
+    for loginID, _nickName in S5_MEMBERS:
+        if mysqlCommon.query_mj_family_member(familyID, loginID):
+            continue
+        mysqlCommon.insert_mj_family_member(
+            mysqlCommon.MJ_FAMILY_MEMBER_TABLE,
+            {
+                "familyMemberKey": f"{familyID}_{loginID}",
+                "familyID": familyID,
+                "loginID": loginID,
+                "memberRole": "OWNER" if loginID == S5_OWNER else "MEMBER",
+                "memberStatus": "ACTIVE",
+                "joinedYMDHMS": now,
+                "regID": loginID,
+                "regYMDHMS": now,
+                "delFlag": "0",
+            },
+        )
+
+    template = mysqlCommon.query_mj_rule_template_by_code("generic_standard")
+    room = roomService.createRoom(
+        S5_OWNER, familyID, S5_FAMILY_CODE, "S5 测试房", int(template.get("recID") or 0)
+    )
+
+    yield {
+        "family_id": familyID,
+        "family_code": S5_FAMILY_CODE,
+        "owner": S5_OWNER,
+        "members": [loginID for loginID, _ in S5_MEMBERS],
+        "template_id": int(template.get("recID") or 0),
+        "room": room,
+    }
+
+    # 尽力清理：只软删本次房间，不动物业数据
+    try:
+        mysqlCommon.delete_mj_soft(mysqlCommon.MJ_ROOM_TABLE, room["id"], "pytest")
+    except Exception:  # noqa: BLE001 清理失败不影响用例结论
+        pass
