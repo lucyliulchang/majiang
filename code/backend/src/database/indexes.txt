@@ -1,0 +1,23 @@
+# 索引清单：<表名> <索引名> <列1,列2,...>（单空格分隔）
+# 由 tools/initTables.py 在建表后按需创建：先查 information_schema.statistics，已存在则跳过。
+# 02 §4 的 mj_user_pref.idx_mjpref_login 未列入：该列已是内联 UNIQUE，重复建普通索引无收益。
+mj_family_member idx_mjm_family_login loginID,memberStatus
+mj_family_member idx_mjm_family familyID,delFlag
+mj_rule_template idx_mjr_family_family familyID,ruleFamilyCode,activeFlag
+mj_room idx_mjroom_family_status familyID,roomStatus,recID
+mj_room idx_mjroom_host hostLoginID,roomStatus
+mj_game idx_mjgame_room roomID,recID
+mj_game idx_mjgame_family_status familyID,gameStatus,recID
+mj_game_player idx_mjgp_login loginID,recID
+mj_game_player idx_mjgp_game gameID,seatNo
+mj_game_round idx_mjgr_game gameID,roundNo
+mj_room_message idx_mjmsg_room roomID,recID
+mj_room_message idx_mjmsg_family familyID,createdYMDHMS
+mj_tile_skin idx_mjskin_family_status familyID,skinStatus,sortOrder
+mj_tile_skin_asset idx_mjsa_skin skinID,tileKey
+mj_audit_log idx_mjaudit_family familyID,recID
+mj_room_message idx_mjmsg_created createdYMDHMS
+mj_game idx_mjgame_started gameStatus,startedYMDHMS
+mj_game_round idx_mjgr_finished finishedYMDHMS
+mj_room idx_mjroom_closed roomStatus,closedYMDHMS
+mj_audit_log idx_mjaudit_created createdYMDHMS
