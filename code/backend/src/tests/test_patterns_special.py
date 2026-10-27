@@ -1,7 +1,7 @@
-from app.game.hand import HandContext
-from app.game.patterns import collect_wins, is_winning
-from app.game.tiles import counts_from_tiles
-from app.schemas.rule import PatternSwitches, RuleConfig, ThirteenUnrelatedOptions
+from game.hand import HandContext
+from game.patterns import collect_wins, is_winning
+from game.tiles import counts_from_tiles
+from schemas.rule import PatternSwitches, RuleConfig, ThirteenUnrelatedOptions
 
 ORPHANS = [0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33]
 

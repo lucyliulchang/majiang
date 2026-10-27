@@ -12,11 +12,11 @@ from sqlalchemy import select
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.db.base import SessionLocal, init_db  # noqa: E402
-from app.db.models import Room, User  # noqa: E402
-from app.realtime.room import RoomActor  # noqa: E402
-from app.schemas.rule import KongScore, RuleConfig, ToggleValue, TurnTimeout  # noqa: E402
-from app.seeds.presets import install_presets  # noqa: E402
+from db.base import SessionLocal, init_db  # noqa: E402
+from db.models import Room, User  # noqa: E402
+from realtime.room import RoomActor  # noqa: E402
+from schemas.rule import KongScore, RuleConfig, ToggleValue, TurnTimeout  # noqa: E402
+from tools.seedPresets import install_presets  # noqa: E402
 
 
 class FakeWS:

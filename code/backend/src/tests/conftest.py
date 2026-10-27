@@ -13,8 +13,8 @@ import pytest
 _SRC_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_SRC_DIR))
 
-# 测试库独立，绝不动开发/生产数据。必须在导入 app.core.config 之前设置。
-# 跑测试产生的库同样属于附属数据，统一落在 backend/data/test/。
+# 测试库独立，绝不动开发/生产数据。必须在导入 config.localSettings 之前设置。
+# 跑测试产生的库同样属于附属数据，统一落在 code/backend/data/test/。
 _TEST_DATA_DIR = _SRC_DIR.parent / "data" / "test"
 _TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
 TEST_DB = _TEST_DATA_DIR / "test_mahjong.db"
@@ -26,8 +26,8 @@ os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB.as_posix()}"
 os.environ.setdefault("SECRET_KEY", "test-only-secret")
 os.environ.setdefault("ADMIN_INIT_PASSWORD", "test-admin-pass")
 
-from app.game.engine import GameEngine, SeatState  # noqa: E402
-from app.schemas.rule import RuleConfig  # noqa: E402
+from game.engine import GameEngine, SeatState  # noqa: E402
+from schemas.rule import RuleConfig  # noqa: E402
 
 _SUITS = {"m": 0, "p": 1, "s": 2}
 

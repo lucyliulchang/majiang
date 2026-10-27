@@ -1,7 +1,7 @@
-from app.game.hand import HandContext
-from app.game.patterns import collect_wins, is_winning, winning_tiles
-from app.game.tiles import counts_from_tiles
-from app.schemas.rule import RuleConfig
+from game.hand import HandContext
+from game.patterns import collect_wins, is_winning, winning_tiles
+from game.tiles import counts_from_tiles
+from schemas.rule import RuleConfig
 
 RULE = RuleConfig()
 
@@ -61,7 +61,7 @@ def test_tenpai_multi_wait(hand):
 
 
 def test_win_with_meld(hand):
-    from app.game.hand import Meld
+    from game.hand import Meld
 
     melds = [Meld(kind="pong", tiles=[0, 0, 0], from_seat=1)]
     tiles = hand("456m789m123p11s")
@@ -69,7 +69,7 @@ def test_win_with_meld(hand):
 
 
 def test_open_hand_is_not_men_qian(hand):
-    from app.game.hand import Meld
+    from game.hand import Meld
 
     melds = [Meld(kind="pong", tiles=[0, 0, 0], from_seat=1)]
     tiles = hand("456m789m123p11s")

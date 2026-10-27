@@ -28,15 +28,16 @@ monitorFileStatusFileName = "tempMonitorFileName.json"
 
 processData = [
     {
-        "key": "app.main:app",
+        "key": "main.app:app",
         "cmd": "sudo systemctl restart mahjong",
         "param": "",
-        "file": "/data/majiang/src/app/main.py",
+        "file": "/data/majiang/src/main/app.py",
         "fileList": [
             "/data/majiang/src/.env",
             "/data/majiang/src/requirements.txt",
-            "/data/majiang/src/app/core/config.py",
-            "/data/majiang/src/app/core/logging.py",
+            "/data/majiang/src/config/basicSettings.py",
+            "/data/majiang/src/config/localSettings.py",
+            "/data/majiang/src/common/loggingCommon.py",
         ],
         # "num": 1,   #不检查数量就不要填, 进程数由 systemd 保证
     },
@@ -47,7 +48,7 @@ existProcessKeys = [
 
 serviceMonitorData = [
     {
-        "key": "app.main:app",
+        "key": "main.app:app",
         "cmd": "sudo systemctl restart mahjong",
         "description": "mahjong health",
         "method": "get",

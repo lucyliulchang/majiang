@@ -1,6 +1,6 @@
 """开箱脚本：批量创建家庭成员账号（也可用于自测/演示）。
 
-用法（在 backend 目录下）：
+用法（在 code/backend/src 目录下）：
     python -m scripts.bootstrap_family                     # 用默认四位家人 + 密码 family123
     python -m scripts.bootstrap_family --password 123456   # 自定义初始密码
     python -m scripts.bootstrap_family --list              # 只看现有成员
@@ -16,10 +16,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import select  # noqa: E402
 
-from app.core.security import hash_password  # noqa: E402
-from app.db.base import SessionLocal, init_db  # noqa: E402
-from app.db.models import User  # noqa: E402
-from app.seeds.presets import install_presets  # noqa: E402
+from common.securityCommon import hash_password  # noqa: E402
+from db.base import SessionLocal, init_db  # noqa: E402
+from db.models import User  # noqa: E402
+from tools.seedPresets import install_presets  # noqa: E402
 
 DEFAULT_MEMBERS = [
     ("father", "爸爸", "#C9A063"),

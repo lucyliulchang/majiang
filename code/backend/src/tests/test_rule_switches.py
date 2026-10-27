@@ -3,8 +3,8 @@
 import pytest
 from pydantic import ValidationError
 
-from app.game.scoring import kong_delta
-from app.schemas.rule import (
+from game.scoring import kong_delta
+from schemas.rule import (
     KongScore,
     PatternSwitches,
     RuleConfig,

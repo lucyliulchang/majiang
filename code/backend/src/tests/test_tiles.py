@@ -1,6 +1,6 @@
 from collections import Counter
 
-from app.game.tiles import (
+from game.tiles import (
     TILE_KINDS,
     WALL_SIZE,
     counts_from_tiles,

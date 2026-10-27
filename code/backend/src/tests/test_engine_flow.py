@@ -1,9 +1,9 @@
 """对局状态机：发牌、摸打、仲裁优先级、杠分开关、抢杠胡、荒庄。"""
 
-from app.game.engine import EngineError
-from app.game.hand import Meld
-from app.game.tiles import counts_from_tiles
-from app.schemas.rule import KongScore, RuleConfig
+from game.engine import EngineError
+from game.hand import Meld
+from game.tiles import counts_from_tiles
+from schemas.rule import KongScore, RuleConfig
 
 
 def prepare(engine, hand, mapping: dict[int, str], turn: int = 0):

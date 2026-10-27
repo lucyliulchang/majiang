@@ -30,7 +30,15 @@ majiang/
 └── code/
     ├── backend/
     │   ├── src/             # 只有代码，运行时产物一律不落这里
-    │   │   ├── app/         # 现有实现：FastAPI 装配 + api/core/db/game/realtime/schemas/seeds
+    │   │   ├── main/        # FastAPI 装配：app.py、deps.py、ws.py、api/（REST 路由）
+    │   │   ├── processor/   # 领域服务（当前空壳，S3/S4 填充）
+    │   │   ├── common/      # securityCommon、loggingCommon、miscCommon
+    │   │   ├── config/      # basicSettings（常量/默认值）、localSettings（环境映射与派生路径）
+    │   │   ├── game/        # 引擎、牌型、番种、算分
+    │   │   ├── realtime/    # 房态演员、快照、落库
+    │   │   ├── schemas/     # Pydantic 契约
+    │   │   ├── db/          # SQLAlchemy 过渡层（S5 删除）
+    │   │   ├── tools/       # seedPresets（种子数据；S2 起扩展为建表工具）
     │   │   ├── schedule/    # crontab 驱动：dataClean、dataBackup、logslice + restore_*.sh
     │   │   ├── monitor/     # monitor.py（原样复制）+ monitorConfig.py（按项目维护）
     │   │   ├── scripts/     # 一次性运维脚本
@@ -95,7 +103,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 Copy-Item .env.example .env      # 填 MySQL 口令、SECRET_KEY、ACCOUNT_SERVICE_URL
 .\.venv\Scripts\python.exe tools\initTables.py --env local --seed
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn main.app:app --host 127.0.0.1 --port 8000
 
 # 3. 前端
 cd code/frontend
