@@ -46,6 +46,15 @@ async function load(): Promise<void> {
 
 onMounted(load)
 
+/** 客队场次：这场牌属于别的家庭（自己凭邀请码过去打的） */
+function isGuestGame(game: GameSummary | GameDetail): boolean {
+  return Boolean(game.family_code) && game.family_code !== familyCode.value
+}
+
+function guestFamilyName(game: GameSummary | GameDetail): string {
+  return game.family_name || game.family_code || '其他家庭'
+}
+
 // 切家庭：战绩与统计整份重拉，明细抽屉一并关掉（避免看到别家的对局）
 watch(familyCode, () => {
   detail.value = null
@@ -118,16 +127,17 @@ async function openDetail(id: number): Promise<void> {
         <p class="text-[11px] tracking-[0.32em] text-gold-400/70">HISTORY</p>
         <h1 class="mt-1 text-2xl font-semibold text-cream-100">战绩与对账</h1>
         <p class="mt-1 text-sm text-ink-300/80">
-          {{ auth.currentFamilyName }} · 每局的番种、分数变化都留了底，家里谁赢谁输一目了然。
+          {{ auth.currentFamilyName }} · 每局的番种、分数变化都留了底；在别人家打的客队场次也会一并列出。
         </p>
       </div>
 
       <div class="grid gap-4 lg:grid-cols-[320px_1fr]">
         <div class="space-y-4">
           <div class="glass rounded-2xl p-4">
-            <p class="mb-3 flex items-center gap-1.5 text-sm font-medium text-gold-300">
+            <p class="mb-1 flex items-center gap-1.5 text-sm font-medium text-gold-300">
               <Trophy class="h-4 w-4" /> 我的总计
             </p>
+            <p class="mb-3 text-[10px] text-ink-300/55">统计口径：当前家庭内，不含客队场次</p>
             <div class="grid grid-cols-2 gap-2.5">
               <div class="rounded-xl border border-cream-100/10 bg-cream-100/[0.03] px-3 py-2.5">
                 <p class="text-[11px] text-ink-300/70">累计积分</p>
@@ -201,6 +211,12 @@ async function openDetail(id: number): Promise<void> {
               <div class="min-w-[120px]">
                 <p class="text-xs text-cream-100">{{ game.room_name }}</p>
                 <p class="text-[11px] text-ink-300/60">{{ fmt(game.started_at) }}</p>
+                <span
+                  v-if="isGuestGame(game)"
+                  class="mt-1 inline-block rounded border border-gold-400/25 bg-gold-400/[0.08] px-1 py-[1px] text-[10px] leading-tight text-gold-300/90"
+                >
+                  客队 · {{ guestFamilyName(game) }}
+                </span>
               </div>
               <div class="flex flex-1 flex-wrap items-center gap-1.5">
                 <span
@@ -234,7 +250,15 @@ async function openDetail(id: number): Promise<void> {
           <div>
             <p class="text-[11px] tracking-[0.28em] text-gold-400/70">場次明細</p>
             <h2 class="mt-1 text-lg font-semibold text-cream-100">{{ detail?.room_name || '加载中…' }}</h2>
-            <p class="text-xs text-ink-300/70">{{ detail ? fmt(detail.started_at) : '' }} · {{ detail?.rule_name }}</p>
+            <p class="text-xs text-ink-300/70">
+              {{ detail ? fmt(detail.started_at) : '' }} · {{ detail?.rule_name }}
+              <span
+                v-if="detail && isGuestGame(detail)"
+                class="ml-1 rounded border border-gold-400/25 bg-gold-400/[0.08] px-1 py-[1px] text-[10px] text-gold-300/90"
+              >
+                客队 · {{ guestFamilyName(detail) }}
+              </span>
+            </p>
           </div>
           <button type="button" class="btn-ghost rounded-lg p-2" @click="detail = null">
             <X class="h-4 w-4" />

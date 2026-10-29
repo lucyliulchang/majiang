@@ -1881,26 +1881,44 @@ def query_mj_game_by_id(gameID):
     return result
 
 
-def query_mj_game_list(familyID, loginID = "", limit = _DEF_GAME_QUERY_LIMIT_NUM, beforeID = 0):
-    """场次列表（1 条 SQL）：场次 + 房间名 + 规则名 + 我的总分。
+def query_mj_game_list(familyID, loginID = "", limit = _DEF_GAME_QUERY_LIMIT_NUM, beforeID = 0,
+                       crossFamily = False):
+    """场次列表（1 条 SQL）：场次 + 房间名 + 规则名 + 归属家庭 + 我的总分。
 
     参与者明细由 `query_mj_game_player_list_by_games` 批量取回（再 1 条 SQL），
     调用方按 gameID 归组——**不做逐场次查询**（S5 消除 N+1）。
+
+    `crossFamily=True`：不限家庭，只按 loginID 列出「我参与过的全部场次」，
+    用于客队玩家（在别人家打过牌）的战绩；此时必须传 loginID，
+    否则直接返回空，避免退化成全站裸查。
     """
     result = []
+    if crossFamily and not loginID:
+        return result
     _requireDB()
     sqlStr = (
         "SELECT g.recID, g.familyID, g.roomID, g.ruleFamilyCode, g.ruleSnapshot, "
         "g.gameStatus, g.startedYMDHMS, g.endedYMDHMS, "
         "COALESCE(r.roomName, '') AS roomName, COALESCE(t.templateName, '') AS ruleName, "
+        "COALESCE(f.familyCode, '') AS familyCode, COALESCE(f.familyName, '') AS familyName, "
         "COALESCE((SELECT p.totalScore FROM %s p WHERE p.gameID = g.recID AND p.loginID = %%s "
         "AND (p.delFlag = '0' OR p.delFlag IS NULL) LIMIT 1), 0) AS myScore "
         "FROM %s g "
         "LEFT JOIN %s r ON r.recID = g.roomID "
         "LEFT JOIN %s t ON t.recID = r.templateID "
-        "WHERE g.familyID = %%s AND (g.delFlag = '0' OR g.delFlag IS NULL)"
-    ) % (MJ_GAME_PLAYER_TABLE, MJ_GAME_TABLE, MJ_ROOM_TABLE, MJ_RULE_TEMPLATE_TABLE)
-    valuesList = [loginID or "", toIntSafe(familyID)]
+        "LEFT JOIN %s f ON f.recID = g.familyID "
+        "WHERE (g.delFlag = '0' OR g.delFlag IS NULL)"
+    ) % (
+        MJ_GAME_PLAYER_TABLE,
+        MJ_GAME_TABLE,
+        MJ_ROOM_TABLE,
+        MJ_RULE_TEMPLATE_TABLE,
+        MJ_FAMILY_TABLE,
+    )
+    valuesList = [loginID or ""]
+    if not crossFamily:
+        sqlStr += " AND g.familyID = %s"
+        valuesList.append(toIntSafe(familyID))
     if loginID:
         sqlStr += (
             " AND EXISTS (SELECT 1 FROM %s p2 WHERE p2.gameID = g.recID AND p2.loginID = %%s "

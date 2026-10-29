@@ -54,9 +54,11 @@ def playerOut(row: dict) -> dict:
 
 
 def gameOut(row: dict, players: list[dict]) -> dict:
-    """04 §7 games[] 的一项。"""
+    """04 §7 games[] 的一项（`family_*` 标明这场牌属于哪个家庭，客队场次靠它区分）。"""
     return {
         "id": int(row.get("recID") or 0),
+        "family_code": _text(row, "familyCode"),
+        "family_name": _text(row, "familyName"),
         "room_name": _text(row, "roomName") or "已删除的房间",
         "rule_name": _text(row, "ruleName") or "自定义规则",
         "status": _text(row, "gameStatus") or "PLAYING",
@@ -73,10 +75,16 @@ def listGames(
     limit: int = DEFAULT_GAME_LIMIT,
     beforeID: int = 0,
 ) -> list[dict]:
-    """我的场次（04 §7 #31）：只列本家庭内自己参与过的场次。"""
+    """我的场次（04 §7 #31）：本家庭 + 客队（在别人家打过）的场次全部列出。
+
+    仍先校验本家庭成员：战绩页是登录用户的功能入口，房间/战绩列表不接受无家庭上下文。
+    查询跨家庭时**只按 loginID**过滤，因此不会看到别人家的、自己没参加的场次。
+    """
     familyService.assertMemberOfFamilyID(loginID, familyID)
     limit = _limitOf(limit)
-    games = mysqlCommon.query_mj_game_list(familyID, loginID, limit=limit, beforeID=beforeID)
+    games = mysqlCommon.query_mj_game_list(
+        familyID, loginID, limit=limit, beforeID=beforeID, crossFamily=True
+    )
     if not games:
         return []
 
@@ -98,12 +106,16 @@ def gameDetail(loginID: str, gameID: int, operatorIsSystemAdmin: bool = False) -
         raise HistoryServiceError("GAME_NOT_FOUND", "场次不存在", 404)
 
     familyID = int(game.get("familyID") or 0)
-    context = familyService.assertMemberOfFamilyID(loginID, familyID)
     players = detail.get("players") or []
     isPlayer = any(_text(row, "loginID") == loginID for row in players)
-    isFamilyAdmin = context.get("memberRole") in FAMILY_ADMIN_ROLES
-    if not (isPlayer or isFamilyAdmin or operatorIsSystemAdmin):
-        raise HistoryServiceError("FORBIDDEN", "这场牌你没参加", 403)
+    if not (isPlayer or operatorIsSystemAdmin):
+        # 非参与者只剩「该家庭 owner/admin」一种可能；客队参与者不再被成员校验挡住
+        context = familyService.assertMemberOfFamilyID(loginID, familyID)
+        if context.get("memberRole") not in FAMILY_ADMIN_ROLES:
+            raise HistoryServiceError("FORBIDDEN", "这场牌你没参加", 403)
+
+    # 客队玩家不是成员，拿不到家庭上下文，这里直接读家庭主档只取展示用的 family_code
+    family = mysqlCommon.query_mj_family_by_id(familyID)
 
     snapshot = game.get("ruleSnapshot")
     if not isinstance(snapshot, dict):
@@ -136,7 +148,8 @@ def gameDetail(loginID: str, gameID: int, operatorIsSystemAdmin: bool = False) -
 
     return {
         "id": int(game.get("recID") or 0),
-        "family_code": _text(context, "familyCode"),
+        "family_code": _text(family, "familyCode"),
+        "family_name": _text(family, "familyName"),
         "room_name": _text(game, "roomName") or "已删除的房间",
         "rule_name": _text(game, "ruleName") or "自定义规则",
         "rule_snapshot": ruleSnapshot,

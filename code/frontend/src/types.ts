@@ -306,6 +306,9 @@ export interface ChatMessage {
 
 export interface GameSummary {
   id: number
+  /** 这场牌所属家庭；与当前家庭不同即为客队场次 */
+  family_code?: string
+  family_name?: string
   room_name: string
   rule_name: string
   status: string
@@ -317,6 +320,8 @@ export interface GameSummary {
 
 export interface GameDetail {
   id: number
+  family_code?: string
+  family_name?: string
   room_name: string
   rule_name: string
   rule_snapshot: RuleConfig
