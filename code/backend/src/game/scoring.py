@@ -116,10 +116,15 @@ def settle_win(
 
 
 def settle_draw(rule: RuleConfig, dealer_seat: int, kong_accumulated: list[int] | None = None) -> RoundOutcome:
-    """荒庄：默认不输不赢；开了荒庄罚分则其余三家付给庄家。"""
+    """荒庄：默认不输不赢；开了荒庄罚分则其余三家付给庄家。
+
+    `draw_penalty` 不是每族都有（柏氏 07 无此项），缺字段即视为不罚分——
+    这里绝不能直接 `rule.draw_penalty`，否则荒庄会在结算时抛 AttributeError。
+    """
     delta = list(kong_accumulated) if kong_accumulated else _zeros()
-    if rule.draw_penalty.enabled:
-        points = rule.draw_penalty.value or 0
+    penalty = getattr(rule, "draw_penalty", None)
+    if getattr(penalty, "enabled", False):
+        points = int(getattr(penalty, "value", 0) or 0)
         if points > 0:
             for seat in range(SEATS):
                 if seat == dealer_seat:

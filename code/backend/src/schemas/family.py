@@ -55,8 +55,15 @@ class MemberAddRequest(BaseModel):
 
 
 class MemberUpdateRequest(BaseModel):
+    """PATCH /api/families/{family_code}/members/{login_id}。
+
+    `nick_name` 是 owner/admin 代改成员的昵称（写 USER_BASIC.nickName），
+    不能与「转让家长」「移出成员」在同一次请求里提交。
+    """
+
     member_role: str | None = None
     member_status: str | None = None
+    nick_name: str | None = None
 
 
 class OkOut(BaseModel):

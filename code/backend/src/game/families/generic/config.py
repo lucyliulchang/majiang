@@ -127,10 +127,14 @@ class FanItem(_StrictModel):
 
 
 class TurnTimeout(_StrictModel):
-    """出牌限时。关闭 = 不限时，牌桌不显示倒计时。"""
+    """出牌限时。关闭 = 不限时（`seconds=0`），牌桌不显示倒计时。
 
-    enabled: bool = True
-    seconds: int = 15
+    默认不限时：家庭局常常边聊边打，超时自动出牌容易把好牌打飞；
+    真需要限时，在开局前由房主在牌桌上开（WS `game.start` 带 `turn_timeout`）。
+    """
+
+    enabled: bool = False
+    seconds: int = 0
 
 
 class KongScore(_StrictModel):

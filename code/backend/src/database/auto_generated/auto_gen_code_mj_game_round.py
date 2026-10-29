@@ -5,7 +5,7 @@
 #Author: Steven Lian's team
 #E-mail: steven.lian@gmail.com
 #Date: 2026-10-27 
-#Description: auto_generated/auto_gen_code_mj_game_round.py ·şÎñ½Ó¿Ú
+#Description: auto_generated/auto_gen_code_mj_game_round.py æœåŠ¡æ¥å£
 
 
 #mysqlCommon code begin 
@@ -26,32 +26,33 @@ def decode_tablename_mj_game_round(tableName):
     return result
 
 
-#´´½¨mj_game_round±í
+#åˆ›å»ºmj_game_roundè¡¨
 def create_mj_game_round(tableName):
     aList = ["CREATE TABLE IF NOT EXISTS %s("
-    "recID INT AUTO_INCREMENT PRIMARY KEY COMMENT '¼ÇÂ¼ID',",
-    "gameID INT NOT NULL COMMENT '³¡´ÎID',",
-    "familyID INT NOT NULL COMMENT '¼ÒÍ¥ID',",
-    "roundNo SMALLINT NOT NULL COMMENT '¾ÖºÅ ´Ó1¿ªÊ¼',",
-    "dealerSeat TINYINT NOT NULL COMMENT '×¯¼Ò×ùÎ»',",
-    "roundWind TINYINT NOT NULL DEFAULT 0 COMMENT '±¾¾Ö¾Ö·ç 0¶«1ÄÏ2Î÷3±±',",
-    "winnerSeat TINYINT NULL COMMENT 'Ó®¼Ò×ùÎ» NULLÎª»Ä×¯',",
-    "winType VARCHAR(16) NOT NULL DEFAULT 'none' COMMENT 'self_draw»òdiscard»òrob_kong»ònone',",
-    "winningTile TINYINT NULL COMMENT 'ºúÅÆÅÆ±àÂë 0µ½33',",
-    "patternID VARCHAR(32) NULL COMMENT 'ÅÆĞÍ±êÊ¶',",
-    "fanItemsJson JSON NULL COMMENT '·¬ÖÖÃ÷Ï¸ º¬±¶ÊıÓë·â¶¥ĞÅÏ¢',",
-    "fanRaw INT NOT NULL DEFAULT 0 COMMENT '·â¶¥Ç°·¬Êı ²»·â¶¥Ê±µÈÓÚfanTotal',",
-    "fanTotal INT NOT NULL DEFAULT 0 COMMENT '×Ü·¬ ·â¶¥ºó',",
-    "scoreDeltaJson JSON NULL COMMENT 'ËÄ¼Ò·Ö²î Ë³ĞòÎª×ùÎ»0µ½3',",
-    "payerJson JSON NULL COMMENT '¸¶¿î·½Ã÷Ï¸ º¬°üÅÆÕßÓë±»°ü¼Ò ¼û03¹æÔò×åÉè¼Æ',",
-    "finishedYMDHMS VARCHAR(16) NOT NULL COMMENT '½áËãÊ±¼ä',",
+    "recID INT AUTO_INCREMENT PRIMARY KEY COMMENT 'è®°å½•ID',",
+    "gameID INT NOT NULL COMMENT 'åœºæ¬¡ID',",
+    "familyID INT NOT NULL COMMENT 'å®¶åº­ID',",
+    "roundNo SMALLINT NOT NULL COMMENT 'å±€å· ä»1å¼€å§‹',",
+    "dealerSeat TINYINT NOT NULL COMMENT 'åº„å®¶åº§ä½',",
+    "roundWind TINYINT NOT NULL DEFAULT 0 COMMENT 'æœ¬å±€å±€é£ 0ä¸œ1å—2è¥¿3åŒ—',",
+    "winnerSeat TINYINT NULL COMMENT 'èµ¢å®¶åº§ä½ NULLä¸ºè’åº„',",
+    "winType VARCHAR(16) NOT NULL DEFAULT 'none' COMMENT 'self_drawæˆ–discardæˆ–rob_kongæˆ–none',",
+    "winningTile TINYINT NULL COMMENT 'èƒ¡ç‰Œç‰Œç¼–ç  0åˆ°33',",
+    "patternID VARCHAR(32) NULL COMMENT 'ç‰Œå‹æ ‡è¯†',",
+    "fanItemsJson JSON NULL COMMENT 'ç•ªç§æ˜ç»† å«å€æ•°ä¸å°é¡¶ä¿¡æ¯',",
+    "fanRaw INT NOT NULL DEFAULT 0 COMMENT 'å°é¡¶å‰ç•ªæ•° ä¸å°é¡¶æ—¶ç­‰äºfanTotal',",
+    "fanTotal INT NOT NULL DEFAULT 0 COMMENT 'æ€»ç•ª å°é¡¶å',",
+    "scoreDeltaJson JSON NULL COMMENT 'å››å®¶åˆ†å·® é¡ºåºä¸ºåº§ä½0åˆ°3',",
+    "payerJson JSON NULL COMMENT 'ä»˜æ¬¾æ–¹æ˜ç»† å«åŒ…ç‰Œè€…ä¸è¢«åŒ…å®¶ è§03è§„åˆ™æ—è®¾è®¡',",
+    "finalHandsJson JSON NULL COMMENT 'ç»ˆå±€å››å®¶æ‰‹ç‰Œä¸å‰¯éœ² å«èƒ¡å¼  ç”¨äºç»“ç®—å›æ”¾æ ¸å¯¹',",
+    "finishedYMDHMS VARCHAR(16) NOT NULL COMMENT 'ç»“ç®—æ—¶é—´',",
     "label VARCHAR(32) COMMENT 'label',",
     "memo VARCHAR(200) COMMENT 'memo',",
-    "regID VARCHAR(32) COMMENT '×¢²áID',",
-    "regYMDHMS VARCHAR(16) COMMENT '×¢²áÄêÔÂÈÕ',",
-    "modifyID VARCHAR(32) COMMENT 'ĞŞ¸ÄÓÃ»§ID',",
-    "modifyYMDHMS VARCHAR(16) COMMENT 'ĞŞ¸ÄÄêÔÂÈÕ',",
-    "delFlag CHAR(1) NOT NULL DEFAULT '0' COMMENT 'É¾³ı±ê¼Ç'"
+    "regID VARCHAR(32) COMMENT 'æ³¨å†ŒID',",
+    "regYMDHMS VARCHAR(16) COMMENT 'æ³¨å†Œå¹´æœˆæ—¥',",
+    "modifyID VARCHAR(32) COMMENT 'ä¿®æ”¹ç”¨æˆ·ID',",
+    "modifyYMDHMS VARCHAR(16) COMMENT 'ä¿®æ”¹å¹´æœˆæ—¥',",
+    "delFlag CHAR(1) NOT NULL DEFAULT '0' COMMENT 'åˆ é™¤æ ‡è®°'"
     ")  ENGINE=INNODB DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci;"
     ]
     tempStr = "".join(aList)
@@ -68,13 +69,13 @@ def create_mj_game_round(tableName):
     return result
 
 
-#É¾³ımj_game_round±í
+#åˆ é™¤mj_game_roundè¡¨
 def drop_mj_game_round(tableName):
     result = dropTableGeneral(tableName)
     return result
 
 
-#mj_game_round É¾³ı¼ÇÂ¼
+#mj_game_round åˆ é™¤è®°å½•
 def delete_mj_game_round(tableName,recID):
     result = 0
     sqlStr = f"DELETE FROM {tableName}"
@@ -93,7 +94,7 @@ def delete_mj_game_round(tableName,recID):
     return result
 
 
-#mj_game_round Ôö¼Ó¼ÇÂ¼
+#mj_game_round å¢åŠ è®°å½•
 def insert_mj_game_round(tableName,dataSet):
     result = 0
     try:
@@ -164,6 +165,8 @@ def insert_mj_game_round(tableName,dataSet):
 
         saveSet["payerJson"] = dataSet.get("payerJson", "") 
 
+        saveSet["finalHandsJson"] = dataSet.get("finalHandsJson", "") 
+
         saveSet["finishedYMDHMS"] = dataSet.get("finishedYMDHMS", "") 
 
         saveSet["label"] = dataSet.get("label", "") 
@@ -187,7 +190,7 @@ def insert_mj_game_round(tableName,dataSet):
     return result
 
 
-#mj_game_round ĞŞ¸Ä¼ÇÂ¼
+#mj_game_round ä¿®æ”¹è®°å½•
 def update_mj_game_round(tableName,recID,dataSet):
     result = -2
     try:
@@ -267,6 +270,10 @@ def update_mj_game_round(tableName,recID,dataSet):
         if payerJson:
             saveSet["payerJson"] = payerJson
 
+        finalHandsJson = dataSet.get("finalHandsJson") 
+        if finalHandsJson:
+            saveSet["finalHandsJson"] = finalHandsJson
+
         finishedYMDHMS = dataSet.get("finishedYMDHMS") 
         if finishedYMDHMS:
             saveSet["finishedYMDHMS"] = finishedYMDHMS
@@ -305,7 +312,7 @@ def update_mj_game_round(tableName,recID,dataSet):
     return result
 
 
-#mj_game_round ²éÑ¯¼ÇÂ¼
+#mj_game_round æŸ¥è¯¢è®°å½•
 def query_mj_game_round(tableName,recID = "0", delFlag = "0", mode = "full",limitNum = comGD._DEF_MAX_QUERY_LIMIT_NUM):
     result = []
     columns = "*"
@@ -351,7 +358,7 @@ def query_mj_game_round(tableName,recID = "0", delFlag = "0", mode = "full",limi
 #http interface code begin 
 
 
-#Server RESTÔö¼Ó´úÂë
+#Server RESTå¢åŠ ä»£ç 
 def funcGameroundAdd(CMD,dataSet,sessionIDSet):
     result = {}
     errCode = "B0"
@@ -359,8 +366,8 @@ def funcGameroundAdd(CMD,dataSet,sessionIDSet):
     rtnField = ""
     rtnData = {}
 
-    dataValidFlag = True #Êı¾İÊÇ·ñÓĞĞ§µÄ±êÖ¾
-    rtnErrMsgList = [] #Êı¾İ´íÎóÔ­Òò
+    dataValidFlag = True #æ•°æ®æ˜¯å¦æœ‰æ•ˆçš„æ ‡å¿—
+    rtnErrMsgList = [] #æ•°æ®é”™è¯¯åŸå› 
 
     try:
         lang = dataSet.get("lang", comGD._DEF_DEFAULT_LANGUAGE)
@@ -371,7 +378,7 @@ def funcGameroundAdd(CMD,dataSet,sessionIDSet):
 
         if tempUserID != "":
             loginID = tempUserID
-            #È¨ÏŞ¼ì²é
+            #æƒé™æ£€æŸ¥
 
             if errCode == "B0": #
                 #data validation check
@@ -404,7 +411,7 @@ def funcGameroundAdd(CMD,dataSet,sessionIDSet):
                     rtnData["recID"] = str(recID)
 
                     if recID <= 0:
-                        #¼ÇÂ¼Ìí¼ÓÊ§°Ü
+                        #è®°å½•æ·»åŠ å¤±è´¥
                         errCode = "CG"
                         _LOG.warning(f"rtn:{recID},saveSet:{saveSet}")
                     else:
@@ -439,7 +446,7 @@ def funcGameroundAdd(CMD,dataSet,sessionIDSet):
     return result
 
 
-#Server RESTÉ¾³ı´úÂë
+#Server RESTåˆ é™¤ä»£ç 
 def funcGameroundDel(CMD,dataSet,sessionIDSet):
     result = {}
     errCode = "B0"
@@ -447,8 +454,8 @@ def funcGameroundDel(CMD,dataSet,sessionIDSet):
     rtnField = ""
     rtnData = {}
 
-    dataValidFlag = True #Êı¾İÊÇ·ñÓĞĞ§µÄ±êÖ¾
-    rtnErrMsgList = [] #Êı¾İ´íÎóÔ­Òò
+    dataValidFlag = True #æ•°æ®æ˜¯å¦æœ‰æ•ˆçš„æ ‡å¿—
+    rtnErrMsgList = [] #æ•°æ®é”™è¯¯åŸå› 
 
     try:
 
@@ -460,7 +467,7 @@ def funcGameroundDel(CMD,dataSet,sessionIDSet):
 
         if tempUserID != "":
             loginID = tempUserID
-            #È¨ÏŞ¼ì²é
+            #æƒé™æ£€æŸ¥
 
             if errCode == "B0": #
                 recID = dataSet.get("recID", "")
@@ -504,7 +511,7 @@ def funcGameroundDel(CMD,dataSet,sessionIDSet):
     return result
 
 
-#Server RESTĞŞ¸Ä´úÂë
+#Server RESTä¿®æ”¹ä»£ç 
 def funcGameroundModify(CMD,dataSet,sessionIDSet):
     result = {}
     errCode = "B0"
@@ -512,8 +519,8 @@ def funcGameroundModify(CMD,dataSet,sessionIDSet):
     rtnField = ""
     rtnData = {}
 
-    dataValidFlag = True #Êı¾İÊÇ·ñÓĞĞ§µÄ±êÖ¾
-    rtnErrMsgList = [] #Êı¾İ´íÎóÔ­Òò
+    dataValidFlag = True #æ•°æ®æ˜¯å¦æœ‰æ•ˆçš„æ ‡å¿—
+    rtnErrMsgList = [] #æ•°æ®é”™è¯¯åŸå› 
 
     try:
 
@@ -526,7 +533,7 @@ def funcGameroundModify(CMD,dataSet,sessionIDSet):
         if tempUserID != "":
             loginID = tempUserID
 
-            #È¨ÏŞ¼ì²é/¹¦ÄÜ¼ì²â
+            #æƒé™æ£€æŸ¥/åŠŸèƒ½æ£€æµ‹
 
             if errCode == "B0": #
                 #data validation check
@@ -550,10 +557,10 @@ def funcGameroundModify(CMD,dataSet,sessionIDSet):
                 label = dataSet.get("label") 
                 memo = dataSet.get("memo") 
                 delFlag = dataSet.get("delFlag") 
-                #data valid ¼ì²é
+                #data valid æ£€æŸ¥
 
                 if dataValidFlag:
-                    #µ±Ç°¼ÇÂ¼»ñÈ¡
+                    #å½“å‰è®°å½•è·å–
                     recID = dataSet.get("recID", "")
 
                     tableName = comMysql.tablename_convertor_mj_game_round()
@@ -562,7 +569,7 @@ def funcGameroundModify(CMD,dataSet,sessionIDSet):
                     if len(currDataList) == 1:
                         currDataSet = currDataList[0]
 
-                        #È¨ÏŞ»òÆäËû¼ì²é
+                        #æƒé™æˆ–å…¶ä»–æ£€æŸ¥
                         if errCode == "B0": #
 
                             saveSet = {}
@@ -626,7 +633,7 @@ def funcGameroundModify(CMD,dataSet,sessionIDSet):
                                 saveSet["modifyID"] = loginID
                                 saveSet["modifyYMDHMS"] = misc.getTime()
 
-                                #±£´æÊı¾İ
+                                #ä¿å­˜æ•°æ®
                                 tableName = comMysql.tablename_convertor_mj_game_round()
                                 rtn = comMysql.update_mj_game_round(tableName,recID,saveSet)
                                 rtnData["rtn"] = str(rtn)
@@ -673,7 +680,7 @@ def funcGameroundModify(CMD,dataSet,sessionIDSet):
     return result
 
 
-#Server REST²éÑ¯´úÂë
+#Server RESTæŸ¥è¯¢ä»£ç 
 def funcGameroundQry(CMD,dataSet,sessionIDSet):
     result = {}
     errCode = "B0"
@@ -681,8 +688,8 @@ def funcGameroundQry(CMD,dataSet,sessionIDSet):
     rtnField = ""
     rtnData = {}
 
-    dataValidFlag = True #Êı¾İÊÇ·ñÓĞĞ§µÄ±êÖ¾
-    rtnErrMsgList = [] #Êı¾İ´íÎóÔ­Òò
+    dataValidFlag = True #æ•°æ®æ˜¯å¦æœ‰æ•ˆçš„æ ‡å¿—
+    rtnErrMsgList = [] #æ•°æ®é”™è¯¯åŸå› 
 
     try:
 
@@ -695,15 +702,15 @@ def funcGameroundQry(CMD,dataSet,sessionIDSet):
         if tempUserID != "":
             loginID = tempUserID
 
-            #È¨ÏŞ¼ì²é
+            #æƒé™æ£€æŸ¥
 
             if errCode == "B0": #
-                #»ñÈ¡²éÑ¯ÊäÈë²ÎÊı
+                #è·å–æŸ¥è¯¢è¾“å…¥å‚æ•°
                 recID = dataSet.get("recID", "")
 
                 #houseID = dataSet.get("houseID", "")
 
-                forceFlashFlag = dataSet.get("forceFlashFlag",comGD._CONST_NO) #ÊÇ·ñÇ¿ÖÆ²éÑ¯(Ë¢ĞÂ)±ê¼Ç
+                forceFlashFlag = dataSet.get("forceFlashFlag",comGD._CONST_NO) #æ˜¯å¦å¼ºåˆ¶æŸ¥è¯¢(åˆ·æ–°)æ ‡è®°
 
                 searchOption = dataSet.get("searchOption")
 
@@ -711,14 +718,14 @@ def funcGameroundQry(CMD,dataSet,sessionIDSet):
 
                 #limitNum = dataSet.get("limitNum",0)
 
-                #È¨ÏŞ¼ì²é/¹¦ÄÜ¼ì²â
+                #æƒé™æ£€æŸ¥/åŠŸèƒ½æ£€æµ‹
 
                 rightCheckFlag = True
 
                 if rightCheckFlag:
 
-                    #Éú³ÉindexKey
-                    indexKeyDataSet = {} #²éÑ¯Éú³ÉindexµÄÒòËØ
+                    #ç”ŸæˆindexKey
+                    indexKeyDataSet = {} #æŸ¥è¯¢ç”Ÿæˆindexçš„å› ç´ 
                     if recID:
                         indexKeyDataSet["recID"] = recID
                     if searchOption:
@@ -734,14 +741,14 @@ def funcGameroundQry(CMD,dataSet,sessionIDSet):
                     beginNum = int(dataSet.get("beginNum", comGD._DEF_BUFFER_DATA_BEGIN_NUM)) 
                     endNum = int(dataSet.get("endNum", comGD._DEF_BUFFER_DATA_END_NUM)) 
 
-                    #ÅĞ¶ÏÊı¾İÊÇ·ñÔÚ»º³åÇø:
+                    #åˆ¤æ–­æ•°æ®æ˜¯å¦åœ¨ç¼“å†²åŒº:
                     if not(useQueryBufferFlag and chkBufferExist(indexKey)) or forceFlashFlag == comGD._CONST_YES:
 
                         if searchOption:
                             currDataList = []
                             tableName = comMysql.tablename_convertor_mj_game_round()
                             allDataList = comMysql.query_mj_game_round(tableName,mode = mode)
-                            allowList = ["description", "label"] #É¸Ñ¡×Ö¶Î
+                            allowList = ["description", "label"] #ç­›é€‰å­—æ®µ
                             serachResultSet = comFC.handleSearchOption(searchOption,allowList, allDataList)
                             if serachResultSet["rtn"] == "B0":
                                 currDataList = serachResultSet.get("data", [])
@@ -758,7 +765,7 @@ def funcGameroundQry(CMD,dataSet,sessionIDSet):
                         for currDataSet in currDataList:
                             aSet = {}
 
-                            #ĞèÒª°ÑÎÄ¼ş×ªÒÆµ½public domain
+                            #éœ€è¦æŠŠæ–‡ä»¶è½¬ç§»åˆ°public domain
                             #appendixFileID00 =  currDataSet.get("appendixFileID00", "")
                             #appendixFileID00 = getTempLocation(appendixFileID00, privateFlag = True)
 
@@ -791,8 +798,8 @@ def funcGameroundQry(CMD,dataSet,sessionIDSet):
 
                             dataList.append(aSet)
 
-                        #ÁÙÊ±»º´æ»úÖÆ,¸Ä½øĞÍ, 2023/10/16
-                        indexKey = putQuery2Buffer(indexKey, dataList) #´æ·ÅÊı¾İµ½ÁÙÊ±»º³åÇøÈ¥
+                        #ä¸´æ—¶ç¼“å­˜æœºåˆ¶,æ”¹è¿›å‹, 2023/10/16
+                        indexKey = putQuery2Buffer(indexKey, dataList) #å­˜æ”¾æ•°æ®åˆ°ä¸´æ—¶ç¼“å†²åŒºå»
 
                     rtnData = getQueryBufferComplte(indexKey, beginNum = beginNum,  endNum = endNum)
 
@@ -892,7 +899,7 @@ msg = '{"CMD":"mj_game_round","sessionID":"adminonly","gameID":"-66","familyID":
 
 
 #insert code begin 
-#ÒÑÓĞÊı¾İ²åÈëº¯Êı
+#å·²æœ‰æ•°æ®æ’å…¥å‡½æ•°
 def recordsAdd():
     pass
 #insert dode end 

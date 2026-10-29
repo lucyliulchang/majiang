@@ -48,6 +48,8 @@ FAMILY_DISABLED = "DISABLED"
 # 04 §3：family_code ^[a-z][a-z0-9_]{1,31}$
 FAMILY_CODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 _FAMILY_NAME_MAX_LEN = 64
+# 04 §2 的注册昵称口径（1–20 字），owner/admin 代改成员昵称沿用
+_NICK_NAME_MAX_LEN = 20
 
 # 审计动作码（S4）
 ACTION_FAMILY_CREATE = "FAMILY_CREATE"
@@ -317,6 +319,16 @@ def _validateFamilyName(familyName: str) -> str:
         raise _badRequest("FAMILY_NAME_REQUIRED", "请填写家庭名称")
     if len(name) > _FAMILY_NAME_MAX_LEN:
         raise _badRequest("FAMILY_NAME_TOO_LONG", "家庭名称最多 64 字")
+    return name
+
+
+def _validateNickName(nickName: str) -> str:
+    """成员昵称：1–20 字，允许中文/字母/数字/符号，只做长度与空值校验。"""
+    name = (nickName or "").strip()
+    if not name:
+        raise _badRequest("NICK_NAME_REQUIRED", "请填写昵称")
+    if len(name) > _NICK_NAME_MAX_LEN:
+        raise _badRequest("NICK_NAME_TOO_LONG", "昵称最多 20 字")
     return name
 
 
@@ -642,25 +654,32 @@ def updateMember(
     targetLoginID: str,
     memberRole: str | None = None,
     memberStatus: str | None = None,
+    nickName: str | None = None,
     clientIP: str = "",
     operatorIsSystemAdmin: bool = False,
 ) -> dict:
     """更新成员：owner/admin。
 
+    - `nick_name`：owner/admin 代改成员昵称（写 `USER_BASIC.nickName`）；owner 的
+      昵称只有本人或系统管理员能改，其他管理员改他人昵称不涉及账号服务；
     - `member_role=OWNER` 走转让流程（仅当前 owner 或系统管理员）；
     - 直接改 owner 的角色 → 400 `OWNER_MUST_TRANSFER`（必须先转让）；
     - `member_status=LEFT` 等价移出成员（保留行，便于重新加入）；
-    - 停用 owner → 400 `MEMBER_OWNER_PROTECTED`。
+    - 停用 owner → 400 `OWNER_MUST_TRANSFER`。
     """
     target = accountService.normalizeLoginID(targetLoginID)
     if not target:
         raise _badRequest("ACCOUNT_LOGIN_ID_INVALID", "缺少成员账号")
+
+    newNickName = _validateNickName(nickName) if nickName is not None else None
 
     if memberRole is not None:
         role = (memberRole or "").strip().upper()
         if role not in MEMBER_ROLE_LIST:
             raise _badRequest("MEMBER_ROLE_INVALID", "成员角色只支持 OWNER / ADMIN / MEMBER")
         if role == ROLE_OWNER:
+            if newNickName is not None:
+                raise _badRequest("MEMBER_UPDATE_CONFLICT", "转让家长时不能同时修改昵称")
             return transferOwner(
                 loginID,
                 familyCode,
@@ -679,6 +698,8 @@ def updateMember(
                 "MEMBER_STATUS_INVALID", "成员状态只支持 ACTIVE / DISABLED / LEFT"
             )
         if status == STATUS_LEFT:
+            if newNickName is not None:
+                raise _badRequest("MEMBER_UPDATE_CONFLICT", "移出成员时不能同时修改昵称")
             return removeMember(
                 loginID,
                 familyCode,
@@ -695,31 +716,45 @@ def updateMember(
         raise FamilyServiceError("MEMBER_NOT_FOUND", "成员不存在", 404)
 
     currentRole = _text(member, "memberRole")
+    before = memberOut(member)
+    currentNickName = _text(member, "nickName")
+
     if currentRole == ROLE_OWNER:
         # owner 不能被降级/停用：只能先转让（04 §3）
-        if target == loginID:
-            raise _badRequest("OWNER_MUST_TRANSFER", "请先把家庭管理员转让给其他成员")
-        raise FamilyServiceError("NOT_FAMILY_ADMIN", "不能修改家庭管理员的角色", 403)
+        if newNickName is not None and target != loginID and not operatorIsSystemAdmin:
+            raise FamilyServiceError("NOT_FAMILY_ADMIN", "不能修改家庭管理员的昵称", 403)
+        if role is not None and role != currentRole:
+            if target == loginID:
+                raise _badRequest("OWNER_MUST_TRANSFER", "请先把家庭管理员转让给其他成员")
+            raise FamilyServiceError("NOT_FAMILY_ADMIN", "不能修改家庭管理员的角色", 403)
+        if status is not None and status != before["member_status"]:
+            if target == loginID:
+                raise _badRequest("OWNER_MUST_TRANSFER", "请先把家庭管理员转让给其他成员")
+            raise FamilyServiceError("NOT_FAMILY_ADMIN", "不能修改家庭管理员的状态", 403)
 
-    before = memberOut(member)
     dataSet: dict = {}
     if role and role != currentRole:
         dataSet["memberRole"] = role
     if status and status != before["member_status"]:
         dataSet["memberStatus"] = status
+    renameNickName = newNickName is not None and newNickName != currentNickName
 
-    if not dataSet:
+    if not dataSet and not renameNickName:
         return before
 
     now = misc.getTime()
-    dataSet["modifyID"] = loginID
-    dataSet["modifyYMDHMS"] = now
 
     with mysqlCommon.transaction():
-        affected = mysqlCommon.update_mj_family_member_by_id(
-            familyID, int(member.get("recID") or 0), dataSet
-        )
-        if affected < 0:
+        if dataSet:
+            dataSet["modifyID"] = loginID
+            dataSet["modifyYMDHMS"] = now
+            affected = mysqlCommon.update_mj_family_member_by_id(
+                familyID, int(member.get("recID") or 0), dataSet
+            )
+            if affected < 0:
+                raise FamilyServiceError("DB_WRITE_FAILED", "数据保存失败，请重试", 500)
+
+        if renameNickName and not accountService.updateNickName(target, newNickName, loginID):
             raise FamilyServiceError("DB_WRITE_FAILED", "数据保存失败，请重试", 500)
 
         after = memberOut(_loadMemberRow(familyID, target))
@@ -730,8 +765,16 @@ def updateMember(
             "MEMBER",
             target,
             {
-                "before": {"member_role": before["member_role"], "member_status": before["member_status"]},
-                "after": {"member_role": after["member_role"], "member_status": after["member_status"]},
+                "before": {
+                    "member_role": before["member_role"],
+                    "member_status": before["member_status"],
+                    "nick_name": before["nick_name"],
+                },
+                "after": {
+                    "member_role": after["member_role"],
+                    "member_status": after["member_status"],
+                    "nick_name": after["nick_name"],
+                },
             },
             clientIP,
         )

@@ -18,6 +18,7 @@ from main.deps import current_user_from_token
 from processor import roomService
 from realtime import persist
 from realtime.manager import room_manager
+from realtime.snapshot import welcome_payload
 from schemas.ws import make_message, parse_envelope
 
 router = APIRouter()
@@ -76,70 +77,92 @@ async def websocket_endpoint(websocket: WebSocket, token: str = "", code: str = 
 
     display_name = user.display_name
     color = misc.stableColorOf(user.login_id)
+    is_member = bool(meta.get("is_member"))
+    slot = None
+    join_pending = False
     async with actor.lock:
-        # 4 座满且 4×10 观战位满 → 4005 断开；满座但仍有名额只回 ROOM_FULL（非致命）
-        if actor.slot_of_login(user.login_id) is None and actor.spectate_full():
-            await _reject(
-                websocket,
-                "ROOM_SPECTATE_FULL",
-                "围观人数已满，暂时进不去",
-                _CLOSE_SPECTATE_FULL,
-            )
-            return
-        slot = actor.assign(user.login_id, display_name, color)
-        if slot is not None:
-            await actor.drop_spectate(user.login_id)
-        actor.attach(user.login_id, websocket)
-    if slot is None:
-        await actor.send_error(
-            user.login_id, "ROOM_FULL", "四个座位都坐满了，先选个家人观战吧"
-        )
+        if actor.needs_approval(user.login_id, is_member):
+            # 非本家庭成员凭码进桌（S10）：先挂起，房主在牌桌上确认后才分配座位
+            actor.add_pending(user.login_id, display_name, color, websocket)
+            join_pending = True
+            if actor.host_login_id in actor.conns:
+                await actor.push_snapshot_to(actor.host_login_id)
+        else:
+            # 4 座满且 4×10 观战位满 → 4005 断开；满座但仍有名额只回 ROOM_FULL（非致命）
+            if actor.slot_of_login(user.login_id) is None and actor.spectate_full():
+                await _reject(
+                    websocket,
+                    "ROOM_SPECTATE_FULL",
+                    "围观人数已满，暂时进不去",
+                    _CLOSE_SPECTATE_FULL,
+                )
+                return
+            slot = actor.assign(user.login_id, display_name, color)
+            if slot is not None:
+                await actor.drop_spectate(user.login_id)
+            actor.attach(user.login_id, websocket)
 
-    chat = await run_in_threadpool(persist.load_messages, actor.room_id, 50)
-    await actor.send(
-        user.login_id,
-        make_message(
-            "room.welcome",
-            {
-                "room": {
+    if join_pending:
+        # 待确认：连接先留着，房主点「同意」后由 RoomActor 补 welcome + 快照
+        await websocket.send_json(
+            make_message(
+                "room.join_pending",
+                {
                     "room_code": actor.code,
                     "room_name": actor.name,
-                    "host_login_id": actor.host_login_id,
-                    "family_code": actor.family_code,
                     "family_name": actor.family_name,
-                    "rule_name": actor.rule_name,
-                    "rule_family_code": actor.rule_family_code,
-                    "rule_brief": actor.rule.brief(),
-                    "spectator_count": actor.spectator_count(),
-                    # 兼容旧前端的别名（S6 前端切换后删除）
-                    "code": actor.code,
-                    "name": actor.name,
+                    "host_login_id": actor.host_login_id,
+                    "message": "这是别人家的牌桌，已把进桌申请发给房主",
                 },
-                "self_seat": slot.seat if slot else None,
-                "spectate": actor.spectate_of(user.login_id),
-                "chat": chat,
-            },
-        ),
-    )
-    await actor.push_all()
-    logger.info(
-        "连接建立 room=%s login=%s seat=%s",
-        room_code,
-        user.login_id,
-        slot.seat if slot else "观战",
-    )
+            )
+        )
+        logger.info("进桌待房主确认 room=%s login=%s", room_code, user.login_id)
+    else:
+        if slot is None:
+            await actor.send_error(
+                user.login_id, "ROOM_FULL", "四个座位都坐满了，先选个家人观战吧"
+            )
+        chat = await run_in_threadpool(persist.load_messages, actor.room_id, 50)
+        await actor.send(
+            user.login_id,
+            make_message("room.welcome", welcome_payload(actor, user.login_id, slot, chat)),
+        )
+        await actor.push_all()
+        logger.info(
+            "连接建立 room=%s login=%s seat=%s",
+            room_code,
+            user.login_id,
+            slot.seat if slot else "观战",
+        )
 
     try:
         while True:
             raw = await websocket.receive_json()
             envelope = parse_envelope(raw)
             if envelope is None:
-                await actor.send_error(user.login_id, "BAD_MESSAGE", "消息格式不对")
+                await websocket.send_json(
+                    make_message("error", {"code": "BAD_MESSAGE", "message": "消息格式不对"})
+                )
+                continue
+            # 还没获房主同意的访客：只回心跳，业务消息一律挡回（批准后本连接自动转正）
+            if actor.is_pending_conn(user.login_id, websocket):
+                if envelope.type == "ping":
+                    await websocket.send_json(make_message("pong"))
+                else:
+                    await websocket.send_json(
+                        make_message(
+                            "error",
+                            {"code": "JOIN_PENDING", "message": "等房主确认后就能进桌"},
+                        )
+                    )
                 continue
             try:
                 await actor.handle(
                     user.login_id, {"type": envelope.type, "data": envelope.data}
                 )
+                # 房主结束了牌局并关房：演员已销毁，本连接没有可推的房态了
+                if actor.closed:
+                    break
             except Exception as error:  # noqa: BLE001 单条消息异常不能影响其他人
                 logger.warning(
                     "处理消息失败 room=%s login=%s: %s", room_code, user.login_id, error
@@ -150,6 +173,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = "", code: str = 
     finally:
         async with actor.lock:
             actor.detach(user.login_id, websocket)
-        await actor.push_all()
+        if not actor.closed:
+            await actor.push_all()
         if not actor.conns and settings.seat_reserve_seconds >= 0:
             logger.info("房间无在线连接 room=%s（座位保留中）", room_code)

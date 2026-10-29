@@ -182,11 +182,20 @@ export interface RoomJoinCheck {
   status: string
   player_count: number
   can_join: boolean
+  /** 非本家庭成员：进桌要房主在牌桌上确认 */
+  needs_approval?: boolean
   spectate: {
     limit_per_seat: number
     viewer_counts: number[]
     available: boolean
   }
+}
+
+/** 房主专属：非本家庭成员凭码申请进桌（S10） */
+export interface JoinRequest {
+  login_id: string
+  display_name: string
+  requested_at: number
 }
 
 export interface LegalAction {
@@ -202,6 +211,8 @@ export interface MeldView {
   tiles: number[]
   count: number
   from_seat: number | null
+  /** 副露里那张「别人打出来的牌」（吃/碰/明杠有值；暗杠/补杠为 null） */
+  claim_tile?: number | null
 }
 
 export interface SeatView {
@@ -249,6 +260,11 @@ export interface RoundResult {
   score_delta: number[]
   breakdown: { pattern_name: string; lines: FanLine[]; fan_raw: number; fan_total: number; capped: boolean } | null
   is_last_round?: boolean
+  /** 本局累计杠分（四家，下标即座位）；番分之外的加减分 */
+  kong_delta?: number[]
+  /** 生效倍数：自摸 ×2、庄家份 ×2（柏氏）；其它族恒为 1 */
+  multipliers?: { self_draw: number; dealer: number }
+  summary_text?: string
 }
 
 export interface Snapshot {
@@ -270,6 +286,8 @@ export interface Snapshot {
   self_seat: number | null
   /** 在座玩家恒为 null；观战者已选目标时有值 */
   spectate: SpectateView | null
+  /** 房主专属：等待确认的进桌申请（其他人恒为空数组） */
+  join_requests?: JoinRequest[]
   seats: (SeatView | null)[]
   status: string
   round_no: number
@@ -339,6 +357,23 @@ export interface GameDetail {
     fan_items: FanLine[]
     fan_total: number
     score_delta: number[]
+    /** 终局四家手牌与副露（旧局为空数组），用于核对番种 */
+    final_hands: {
+      seat: number
+      login_id?: string
+      display_name: string
+      concealed: number[]
+      melds: {
+        kind: string
+        kind_name: string
+        tiles: number[]
+        from_seat: number | null
+        claim_tile: number | null
+      }[]
+      is_winner: boolean
+      win_type: string | null
+      winning_tile: number | null
+    }[]
   }[]
 }
 
@@ -360,7 +395,7 @@ export interface SkinInfo {
   tile_aspect: number
   asset_count: number
   preview_url: string | null
-  /** tile_key → 绝对 URL（`/majiangapp/tiles/...`），缺项表示该张回退 CSS */
+  /** tile_key → 绝对 URL（`/majiangapp/tiles/...`），缺项表示该张使用内置矢量牌面 */
   assets: Record<string, string>
   fallback: string
   updated_at: string

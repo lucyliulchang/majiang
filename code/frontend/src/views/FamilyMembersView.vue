@@ -15,6 +15,7 @@ import {
   CircleAlert,
   Crown,
   Loader2,
+  Pencil,
   RotateCcw,
   ShieldCheck,
   Trash2,
@@ -53,6 +54,9 @@ const includeLeft = ref(false)
 const acting = ref('')
 const pending = ref<{ member: FamilyMember; action: MemberAction } | null>(null)
 const addForm = reactive({ login_id: '', member_role: 'MEMBER' })
+const renameTarget = ref<FamilyMember | null>(null)
+const renameValue = ref('')
+const renaming = ref(false)
 
 const familyCode = computed(() => String(route.params.familyCode || ''))
 const family = computed(
@@ -83,6 +87,13 @@ function displayName(member: FamilyMember): string {
 
 function isSelf(member: FamilyMember): boolean {
   return member.login_id === auth.loginId
+}
+
+/** 代改昵称：owner/admin 可改成员；owner 的昵称只有本人能改 */
+function canRename(member: FamilyMember): boolean {
+  if (!canManage.value || member.member_status === 'LEFT') return false
+  if (member.member_role === 'OWNER') return isSelf(member)
+  return true
 }
 
 /** `YYYYMMDDHHMMSS` → `MM-DD HH:MM`，口径与后端库时间一致 */
@@ -197,6 +208,41 @@ async function restore(member: FamilyMember): Promise<void> {
     toast.error((error as Error).message)
   } finally {
     acting.value = ''
+  }
+}
+
+function openRename(member: FamilyMember): void {
+  renameTarget.value = member
+  renameValue.value = member.nick_name || ''
+}
+
+async function submitRename(): Promise<void> {
+  const target = renameTarget.value
+  if (!target) return
+  const value = renameValue.value.trim()
+  if (!value) {
+    toast.warn('请填写昵称')
+    return
+  }
+  if (value.length > 20) {
+    toast.warn('昵称最多 20 字')
+    return
+  }
+  renaming.value = true
+  try {
+    await api.patch<FamilyMember>(
+      `/families/${familyCode.value}/members/${target.login_id}`,
+      { nick_name: value }
+    )
+    toast.success(`${target.nick_name || target.login_id} 的昵称已改为「${value}」`)
+    renameTarget.value = null
+    // 改的是自己：顶部用户名与全局昵称一起刷新
+    if (isSelf(target)) await auth.refresh()
+    await load()
+  } catch (error) {
+    toast.error((error as Error).message)
+  } finally {
+    renaming.value = false
   }
 }
 
@@ -318,6 +364,16 @@ async function confirmPending(): Promise<void> {
 
               <!-- 操作区 -->
               <div class="flex w-full shrink-0 flex-wrap items-center gap-1.5 sm:w-auto">
+                <button
+                  v-if="canRename(member)"
+                  type="button"
+                  class="btn-ghost flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px]"
+                  :disabled="acting === member.login_id"
+                  @click="openRename(member)"
+                >
+                  <Pencil class="h-3 w-3" />
+                  改昵称
+                </button>
                 <template v-if="canManage && member.member_role !== 'OWNER'">
                   <template v-if="member.member_status === 'ACTIVE'">
                     <button
@@ -420,6 +476,7 @@ async function confirmPending(): Promise<void> {
 
           <p class="mt-3 text-[11px] leading-relaxed text-ink-300/55">
             家长（owner）全局唯一，不能被停用或移出，只能先转让；移出后原记录保留为「已退出」，可以再恢复。
+            昵称可以由家长/管理员代改（家长本人的昵称需自己改）。
           </p>
         </section>
 
@@ -478,11 +535,53 @@ async function confirmPending(): Promise<void> {
             <p class="text-xs font-medium text-cream-100">角色说明</p>
             <ul class="mt-2 space-y-1.5 text-[11px] leading-relaxed text-ink-300/70">
               <li>家长：唯一，可转让、可管理全部成员与家庭设置</li>
-              <li>管理员：可添加/移出成员、改角色，不能转让家长</li>
+              <li>管理员：可添加/移出成员、改角色与昵称，不能转让家长</li>
               <li>成员：可开桌、看战绩、自己退出家庭</li>
             </ul>
           </section>
         </aside>
+      </div>
+
+      <!-- 改昵称 -->
+      <div
+        v-if="renameTarget"
+        class="fixed inset-0 z-[70] flex items-center justify-center bg-felt-950/88 px-4 backdrop-blur-sm"
+        @click.self="renameTarget = null"
+      >
+        <div class="glass w-full max-w-sm rounded-2xl p-5">
+          <p class="flex items-center gap-2 text-sm font-medium text-cream-100">
+            <Pencil class="h-4 w-4 text-gold-300" />
+            修改昵称
+          </p>
+          <p class="mt-2 text-xs leading-relaxed text-ink-300/75">
+            正在为 <span class="font-mono">{{ renameTarget.login_id }}</span> 设置昵称，牌桌、聊天与战绩都会显示新昵称。
+          </p>
+          <input
+            v-model="renameValue"
+            class="field mt-3"
+            maxlength="20"
+            placeholder="1–20 字"
+            @keyup.enter="submitRename"
+          />
+          <div class="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              class="btn-ghost rounded-lg px-4 py-2 text-sm"
+              @click="renameTarget = null"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              class="btn-gold flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold"
+              :disabled="renaming"
+              @click="submitRename"
+            >
+              <Loader2 v-if="renaming" class="h-4 w-4 animate-spin" />
+              保存
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- 危险操作二次确认 -->

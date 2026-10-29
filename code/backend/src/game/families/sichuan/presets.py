@@ -22,7 +22,7 @@ def preset_configs() -> dict[str, dict]:
         fan_cap=8,
         allow_chow=False,
         patterns={"standard": True, "seven_pairs": True, "long_seven_pairs": True},
-        turn_timeout=TurnTimeout(enabled=True, seconds=15),
+        turn_timeout=TurnTimeout(enabled=False, seconds=0),
         kong_score=KongScore(enabled=True, exposed=1, hidden=2, added=1),
         ting_hint=ToggleValue(enabled=True),
         draw_penalty=ToggleValue(enabled=False, value=0),

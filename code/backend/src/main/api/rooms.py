@@ -108,9 +108,8 @@ async def close_room(
     row = await run_in_threadpool(roomService.closeRoom, user.login_id, room_id)
     actor = room_manager.get(row["room_code"])
     if actor is not None:
-        # 先把"观战目标已失效"广播出去，再销毁演员
-        await actor.close_spectate()
-        room_manager.remove(row["room_code"])
+        # 广播 room_closed（牌桌上的人收起连接回大厅）→ 释放观战 → 销毁演员
+        await actor.shutdown(user.login_id)
     return RoomOut(**{**row, "player_count": 0, "spectator_count": 0})
 
 

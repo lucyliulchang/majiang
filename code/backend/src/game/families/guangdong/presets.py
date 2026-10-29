@@ -23,7 +23,7 @@ def preset_configs() -> dict[str, dict]:
         fan_mode="linear",
         fan_cap=GUANGDONG_DEFAULT_FAN_CAP,
         allow_chow=True,
-        turn_timeout=TurnTimeout(enabled=True, seconds=15),
+        turn_timeout=TurnTimeout(enabled=False, seconds=0),
         kong_score=KongScore(enabled=True, exposed=1, hidden=2, added=1),
         ting_hint=ToggleValue(enabled=True),
         draw_penalty=ToggleValue(enabled=False, value=0),

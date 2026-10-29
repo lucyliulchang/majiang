@@ -66,11 +66,26 @@ def test_outsider_can_join_by_invite_code(monkeypatch):
     check = roomService.getRoomByCode(OUTSIDER, "428915")
     assert check["room_code"] == "428915"
     assert check["can_join"] is True
+    # S10：外家庭成员凭码可以查房，但进桌要房主在牌桌上确认
+    assert check["needs_approval"] is True
 
     meta = roomService.roomMetaByCode(OUTSIDER, "428915")
     assert meta["room_id"] == ROOM_ROW["recID"]
     assert meta["family_code"] == FAMILY_CODE
     assert meta["family_name"] == "廉家"
+    assert meta["is_member"] is False
+
+
+def test_member_enters_without_approval(monkeypatch):
+    _patch(
+        monkeypatch,
+        family=FAMILY_ROW,
+        member={"memberRole": "MEMBER", "memberStatus": "ACTIVE"},
+    )
+
+    check = roomService.getRoomByCode("13800000002", "428915")
+    assert check["needs_approval"] is False
+    assert roomService.roomMetaByCode("13800000002", "428915")["is_member"] is True
 
 
 def test_member_role_is_still_resolved(monkeypatch):

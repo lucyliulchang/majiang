@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Check, ChevronDown, Copy, DoorOpen, Palette, Play, ScrollText, Volume2, VolumeX, Wifi, WifiOff } from 'lucide-vue-next'
+import { Check, ChevronDown, Copy, DoorOpen, Flag, Palette, Play, ScrollText, Volume2, VolumeX, Wifi, WifiOff } from 'lucide-vue-next'
 
 import { audioManager, audioState } from '../../audio/audioManager'
 import { setChatSound, setSoundEnabled, setSoundVolume, soundPrefs } from '../../audio/soundPrefs'
@@ -22,9 +22,11 @@ const props = defineProps<{
   /** 本局局风 0 东 / 1 南 / 2 西 / 3 北（04 §9.5 的 round_wind） */
   roundWind?: number | null
   dealerName?: string | null
+  /** 开桌的人且牌局进行中时，顶栏多一个「结束牌局」入口（提前收场） */
+  canEndGame?: boolean
 }>()
 
-const emit = defineEmits<{ exit: []; copy: [] }>()
+const emit = defineEmits<{ exit: []; copy: []; endGame: [] }>()
 
 const open = ref(false)
 const skins = useSkinsStore()
@@ -348,6 +350,18 @@ const modeText = computed(() =>
           </div>
         </transition>
       </div>
+
+      <!-- 开桌的人：不必等打满局数，随时可以结束本场 -->
+      <button
+        v-if="canEndGame"
+        type="button"
+        class="flex items-center gap-1 rounded-lg border border-vermilion-500/35 bg-vermilion-500/10 px-2.5 py-1 text-vermilion-400 transition hover:border-vermilion-500/60 hover:bg-vermilion-500/20"
+        aria-label="结束本场牌局"
+        @click="emit('endGame')"
+      >
+        <Flag class="h-3.5 w-3.5" />
+        <span class="hidden sm:inline">结束牌局</span>
+      </button>
 
       <button type="button" class="btn-ghost flex items-center gap-1 rounded-lg px-2.5 py-1" @click="emit('exit')">
         <DoorOpen class="h-3.5 w-3.5" />

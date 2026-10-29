@@ -82,6 +82,11 @@ export function openSocket(code: string): void {
       onMessage?.('error', { code: 'UNAUTHORIZED', message: '登录已失效，请重新登录' })
       return
     }
+    // 4003 = 服务端明确拒绝（房主没同意进桌、账号停用等）：重连也不会通过，别再刷
+    if (event.code === 4003) {
+      closedByUser = true
+      return
+    }
     scheduleReconnect()
   }
 

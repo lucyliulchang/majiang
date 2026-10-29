@@ -392,6 +392,10 @@ def syncUserBasic(
             if value == "" or value is None:
                 # updateUserBasic 对空值一律跳过，这里提前过滤，避免误判为「有变化」
                 continue
+            if column == "nickName" and str(current.get("nickName") or "").strip():
+                # 昵称以本地为准：owner/admin 可在「家庭成员」里代改成员昵称，
+                # 账号服务回包的昵称只在首次建档时落地，不能把本地改过的值覆盖回去
+                continue
             if str(current.get(column) or "") != str(value):
                 diff[column] = value
         if not diff:
@@ -468,6 +472,30 @@ def ensureUserBasic(loginID: str, operatorLoginID: str = "") -> str:
     }
     mysqlCommon.insertUserBasic(loginID, dataSet)
     return "inserted"
+
+
+def updateNickName(loginID: str, nickName: str, operatorLoginID: str = "") -> bool:
+    """本地改昵称（家庭 owner/admin 代改成员昵称）：只写 `USER_BASIC.nickName`。
+
+    为什么不去账号服务改：acis 的 A2A0 需要**目标用户自己的会话**，管理员无法代改。
+    因此昵称以本地档案为准（`syncUserBasic` 不再用 acis 回包覆盖已有的昵称）。
+    出参：True 写入成功；False 账号无档案或写库失败（调用方按 500 处理）。
+    """
+    loginID = normalizeLoginID(loginID)
+    if not loginID or not nickName:
+        return False
+    rows = mysqlCommon.queryUserBasic(loginID, mode="full")
+    if len(rows) != 1:
+        return False
+    affected = mysqlCommon.updateUserBasic(
+        loginID,
+        {
+            "nickName": nickName,
+            "modifyID": operatorLoginID or loginID,
+            "modifyYMDHMS": misc.getTime(),
+        },
+    )
+    return affected > 0
 
 
 def publicUser(row: dict, systemRole: str) -> dict:

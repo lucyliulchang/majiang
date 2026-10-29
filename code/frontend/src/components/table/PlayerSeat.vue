@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { Crown, Eye, WifiOff } from 'lucide-vue-next'
 
 import Tile from './Tile.vue'
-import type { SeatView } from '../../types'
+import type { MeldView, SeatView } from '../../types'
 
 const props = withDefaults(
   defineProps<{
@@ -20,20 +20,28 @@ const total = computed(() => props.seat.total_score)
 const roundScore = computed(() => props.seat.round_score)
 const hiddenCount = computed(() => props.seat.hand_count)
 const backs = computed(() => Math.min(hiddenCount.value, 14))
+
+/** 吃的这副里哪一张是别人打出来的（后端 claim_tile）；其余副露整组同牌，不标 */
+function claimIndex(meld: MeldView): number {
+  if (meld.kind !== 'chow') return -1
+  const claim = meld.claim_tile
+  if (claim === null || claim === undefined) return -1
+  return meld.tiles.indexOf(claim)
+}
 </script>
 
 <template>
   <div
-    class="relative flex items-center gap-3 rounded-xl border px-3 py-2 transition-all duration-300"
-    :class="
-      isTurn
-        ? 'border-gold-400/60 bg-gold-400/[0.07] animate-breathe'
-        : 'border-cream-100/10 bg-felt-950/35'
-    "
+    class="relative flex items-center rounded-xl border transition-all duration-300"
+    :class="[
+      compact ? 'gap-2 px-2.5 py-1.5' : 'gap-3 px-3 py-2',
+      isTurn ? 'border-gold-400/60 bg-gold-400/[0.07] animate-breathe' : 'border-cream-100/10 bg-felt-950/35'
+    ]"
   >
     <div class="relative">
       <span
-        class="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-felt-950"
+        class="flex items-center justify-center rounded-full font-semibold text-felt-950"
+        :class="compact ? 'h-8 w-8 text-xs' : 'h-10 w-10 text-sm'"
         :style="{ backgroundColor: seat.color }"
       >
         {{ seat.display_name.slice(0, 1) }}
@@ -48,7 +56,7 @@ const backs = computed(() => Math.min(hiddenCount.value, 14))
     </div>
 
     <div class="min-w-0">
-      <p class="flex items-center gap-1 truncate text-sm text-cream-100">
+      <p class="flex items-center gap-1 truncate text-cream-100" :class="compact ? 'text-xs' : 'text-sm'">
         {{ seat.display_name }}
         <Crown v-if="seat.is_host" class="h-3 w-3 text-gold-300" />
         <WifiOff v-if="!seat.connected" class="h-3 w-3 text-vermilion-400" />
@@ -82,7 +90,13 @@ const backs = computed(() => Math.min(hiddenCount.value, 14))
           class="flex items-center gap-[1px] rounded border border-gold-400/20 bg-felt-900/60 px-1 py-0.5"
         >
           <template v-if="meld.tiles.length">
-            <Tile v-for="(tile, tileIndex) in meld.tiles" :key="tileIndex" :tile="tile" size="xs" />
+            <Tile
+              v-for="(tile, tileIndex) in meld.tiles"
+              :key="tileIndex"
+              :tile="tile"
+              size="xs"
+              :mark="tileIndex === claimIndex(meld)"
+            />
           </template>
           <template v-else>
             <Tile :tile="0" size="xs" face-down />

@@ -6,7 +6,7 @@
  * - 同一套字段名跨族复用（`turn_timeout` / `kong_score` / `ting_hint` / `draw_penalty` / `pause`）；
  * - 族扩展字段（柏氏 min_fan_to_win / 倍数 / 包牌，四川 lack_suit_required）只在配置里真有该键时出现。
  */
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { Clock, Coins, Layers, Lightbulb, PauseCircle, Sparkles, Scale } from 'lucide-vue-next'
 
 import SwitchField from './SwitchField.vue'
@@ -16,6 +16,15 @@ const props = defineProps<{ config: RuleConfig; capability?: Record<string, any>
 
 const cfg = computed(() => props.config as unknown as Record<string, any>)
 const cap = computed<Record<string, any>>(() => props.capability || {})
+
+// 默认不限时（seconds=0）；一旦打开限时，先把秒数补到合法区间，避免提交被后端拒
+watch(
+  () => props.config?.turn_timeout?.enabled,
+  (enabled) => {
+    const timeout = cfg.value.turn_timeout
+    if (enabled && timeout && (!timeout.seconds || timeout.seconds < 10)) timeout.seconds = 15
+  }
+)
 
 const PATTERN_META: Record<string, { title: string; desc: string }> = {
   standard: { title: '标准胡', desc: '4 面子 + 1 将，最通用的胡法' },
@@ -128,9 +137,11 @@ function patternActive(id: string): boolean {
           </div>
         </label>
 
-        <label v-if="hasKey('claim_window_seconds')" class="block">
+        <!-- 只在开了「出牌限时」时才有意义：不限时则出牌与吃碰杠胡响应都不计时 -->
+        <label v-if="hasKey('claim_window_seconds') && switchOn('turn_timeout')" class="block">
           <span class="mb-1 block text-xs text-ink-300/80">碰杠胡询问窗口（秒）</span>
           <input v-model.number="config.claim_window_seconds" class="field" type="number" min="3" max="30" />
+          <span class="mt-1 block text-[11px] text-ink-300/55">仅开启出牌限时时生效；关闭限时后吃碰杠胡不限时、不自动过</span>
         </label>
 
         <div class="block">
@@ -224,12 +235,12 @@ function patternActive(id: string): boolean {
         v-if="switchOn('turn_timeout')"
         v-model:enabled="config.turn_timeout.enabled"
         label="出牌限时"
-        description="打开后轮到谁都有倒计时，超时系统自动出牌；关闭就无限等"
+        description="打开后出牌有倒计时（超时自动出牌），吃碰杠胡的询问也按下面的窗口计时；关闭即 0 秒，全部不限时、不会自动过"
         :icon="Clock"
       >
         <template #default="{ disabled }">
           <label class="block">
-            <span class="mb-1 block text-xs text-ink-300/80">每步限时 {{ config.turn_timeout.seconds }} 秒</span>
+            <span class="mb-1 block text-xs text-ink-300/80">每步限时 {{ config.turn_timeout.seconds || 15 }} 秒</span>
             <input
               v-model.number="config.turn_timeout.seconds"
               class="field"

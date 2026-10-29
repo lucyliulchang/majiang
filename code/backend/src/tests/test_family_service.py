@@ -165,6 +165,9 @@ _DDL = (
         roleName TEXT,
         avatarID TEXT,
         activeFlag TEXT,
+        regYMDHMS TEXT,
+        modifyID TEXT,
+        modifyYMDHMS TEXT,
         delFlag TEXT)""",
 )
 
@@ -430,6 +433,89 @@ def test_admin_can_add_and_disable_member(client, db):
     resp = client.get(f"/api/families/{FAMILY_CODE}", headers=headers(MEMBER))
     assert resp.status_code == 403
     assert resp.json()["code"] == "NOT_FAMILY_MEMBER"
+
+
+# ---------------------------------------------------------------- 代改昵称
+
+
+def test_admin_can_rename_member(client, db):
+    create_family(client)
+    add_member(client, OWNER, ADMIN, "ADMIN")
+    add_member(client, OWNER, MEMBER)
+
+    resp = client.patch(
+        f"/api/families/{FAMILY_CODE}/members/{MEMBER}",
+        json={"nick_name": "小舅妈"},
+        headers=headers(ADMIN),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["nick_name"] == "小舅妈"
+    # 只改昵称：角色与状态保持原样
+    assert resp.json()["member_role"] == "MEMBER"
+    assert resp.json()["member_status"] == "ACTIVE"
+
+    rows = db.rows("SELECT nickName, modifyID FROM USER_BASIC WHERE loginID = ?", (MEMBER,))
+    assert rows[0]["nickName"] == "小舅妈"
+    assert rows[0]["modifyID"] == ADMIN
+
+    resp = client.get(f"/api/families/{FAMILY_CODE}/members", headers=headers(OWNER))
+    names = {item["login_id"]: item["nick_name"] for item in resp.json()}
+    assert names[MEMBER] == "小舅妈"
+
+
+def test_rename_member_permissions_and_validation(client, db):
+    create_family(client)
+    add_member(client, OWNER, ADMIN, "ADMIN")
+    add_member(client, OWNER, MEMBER)
+
+    # 普通成员不能改别人的昵称
+    resp = client.patch(
+        f"/api/families/{FAMILY_CODE}/members/{ADMIN}",
+        json={"nick_name": "乱改"},
+        headers=headers(MEMBER),
+    )
+    assert resp.status_code == 403
+    assert resp.json()["code"] == "NOT_FAMILY_ADMIN"
+
+    # 管理员不能改 owner 的昵称（owner 只能改自己的）
+    resp = client.patch(
+        f"/api/families/{FAMILY_CODE}/members/{OWNER}",
+        json={"nick_name": "乱改"},
+        headers=headers(ADMIN),
+    )
+    assert resp.status_code == 403
+    assert resp.json()["code"] == "NOT_FAMILY_ADMIN"
+
+    # owner 可以改自己的昵称
+    resp = client.patch(
+        f"/api/families/{FAMILY_CODE}/members/{OWNER}",
+        json={"nick_name": "家主"},
+        headers=headers(OWNER),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["nick_name"] == "家主"
+
+    # 空昵称 / 超长昵称
+    for payload, code in (
+        ({"nick_name": "   "}, "NICK_NAME_REQUIRED"),
+        ({"nick_name": "名" * 21}, "NICK_NAME_TOO_LONG"),
+    ):
+        resp = client.patch(
+            f"/api/families/{FAMILY_CODE}/members/{MEMBER}",
+            json=payload,
+            headers=headers(OWNER),
+        )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == code
+
+    # 昵称不能与「移出」「转让」混在同一次请求里
+    resp = client.patch(
+        f"/api/families/{FAMILY_CODE}/members/{MEMBER}",
+        json={"nick_name": "小舅", "member_status": "LEFT"},
+        headers=headers(OWNER),
+    )
+    assert resp.status_code == 400
+    assert resp.json()["code"] == "MEMBER_UPDATE_CONFLICT"
 
 
 # ---------------------------------------------------------------- owner 保护与转让

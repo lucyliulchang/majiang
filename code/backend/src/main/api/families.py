@@ -132,7 +132,8 @@ def update_member(
     context: FamilyContext = Depends(require_family_admin),
     user: CurrentUser = Depends(current_user),
 ) -> MemberOut:
-    """更新成员：owner/admin；`member_role=OWNER` 即转让（同一事务，owner 唯一）。"""
+    """更新成员：owner/admin；`member_role=OWNER` 即转让（同一事务，owner 唯一）；
+    `nick_name` 为 owner/admin 代改成员昵称。"""
     return MemberOut(
         **familyService.updateMember(
             user.login_id,
@@ -140,6 +141,7 @@ def update_member(
             login_id,
             memberRole=payload.member_role,
             memberStatus=payload.member_status,
+            nickName=payload.nick_name,
             clientIP=_clientIP(request),
             operatorIsSystemAdmin=user.is_admin,
         )

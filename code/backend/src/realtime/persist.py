@@ -19,6 +19,7 @@ logger = get_logger("mahjong.persist")
 
 GAME_PLAYING = "PLAYING"
 GAME_FINISHED = "FINISHED"
+GAME_ABORTED = "ABORTED"
 
 
 class PersistError(BizError):
@@ -110,6 +111,8 @@ def save_round(gameID: int, familyID: int, settled) -> None:
         "scoreDeltaJson": getattr(settled, "score_delta", []) or [],
         # 付款方分配（S7：柏氏包牌独付、四川血战逐家赔付）；无分配时留空
         "payerJson": list(getattr(settled, "payer_allocation", []) or []) or None,
+        # 终局四家手牌与副露（结算回放用，07 番种核对可复算）
+        "finalHandsJson": list(getattr(settled, "final_hands", []) or []) or None,
         "finishedYMDHMS": misc.getTime(),
     }
     scoreDelta = list(getattr(settled, "score_delta", []) or [])
@@ -134,6 +137,28 @@ def close_game(gameID: int) -> None:
     affected = mysqlCommon.update_mj_game_status(gameID, GAME_FINISHED)
     if affected < 0:
         raise _writeFailed("结束场次")
+
+
+def abort_game(gameID: int) -> None:
+    """房主提前收场：ABORTED + endedYMDHMS。
+
+    已结算的局与累计积分都留在 `mj_game_round` / `mj_game_player` 里，
+    只有「没打完的这最后一局」不存在——战绩页显示「中断」，与进程重启口径一致。
+    """
+    if not gameID:
+        return
+    affected = mysqlCommon.update_mj_game_status(gameID, GAME_ABORTED)
+    if affected < 0:
+        raise _writeFailed("结束场次")
+
+
+def close_room(roomID: int, operatorLoginID: str = "") -> None:
+    """关房：房间从大厅列表消失（只对 OPEN 生效，重复关闭幂等）。"""
+    if not roomID:
+        return
+    affected = mysqlCommon.update_mj_room_close(roomID, operatorLoginID)
+    if affected < 0:
+        raise _writeFailed("关闭房间")
 
 
 def save_message(

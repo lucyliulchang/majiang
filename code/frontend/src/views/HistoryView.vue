@@ -4,6 +4,7 @@ import { CalendarClock, ChartLine, Loader2, Trophy, X } from 'lucide-vue-next'
 
 import AppHeader from '../components/AppHeader.vue'
 import Sparkline from '../components/Sparkline.vue'
+import Tile from '../components/table/Tile.vue'
 import { api } from '../api/http'
 import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
@@ -317,6 +318,35 @@ async function openDetail(id: number): Promise<void> {
                 >
                   {{ item.name }} +{{ item.fan * item.count }}
                 </span>
+              </div>
+              <div v-if="round.final_hands?.length" class="mt-1.5 space-y-1 rounded-lg bg-felt-950/40 px-2 py-1.5">
+                <p class="text-[10px] text-ink-300/60">终局手牌（点炮/抢杠的胡张已并入赢家手牌）</p>
+                <div
+                  v-for="hand in round.final_hands"
+                  :key="hand.seat"
+                  class="flex flex-wrap items-center gap-0.5"
+                >
+                  <span
+                    class="w-14 shrink-0 truncate text-[10px]"
+                    :class="hand.is_winner ? 'text-gold-300' : 'text-ink-300/70'"
+                  >
+                    {{ hand.display_name }}
+                  </span>
+                  <Tile v-for="(tile, tileIndex) in hand.concealed" :key="`c-${tileIndex}`" :tile="tile" size="xs" />
+                  <span
+                    v-for="(meld, meldIndex) in hand.melds"
+                    :key="`m-${meldIndex}`"
+                    class="ml-1 flex items-center gap-0.5"
+                  >
+                    <Tile
+                      v-for="(tile, meldTileIndex) in meld.tiles"
+                      :key="`mt-${meldIndex}-${meldTileIndex}`"
+                      :tile="tile"
+                      size="xs"
+                      :mark="meld.claim_tile === tile"
+                    />
+                  </span>
+                </div>
               </div>
               <div class="mt-1.5 flex flex-wrap gap-2 text-[11px]">
                 <span

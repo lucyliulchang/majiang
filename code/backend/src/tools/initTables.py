@@ -19,9 +19,9 @@
 #   python tools/initTables.py --env test_server --test --seed
 #   python tools/initTables.py --env local --seed
 
-_VERSION = "20261027"
-SCHEMA_VERSION_CODE = "20261027_01"
-SCHEMA_VERSION_DESC = "S2 初始表结构: USER_BASIC + 14 张 mj_* + 20 条二级索引"
+_VERSION = "20261029"
+SCHEMA_VERSION_CODE = "20261029_02"
+SCHEMA_VERSION_DESC = "mj_game_round.finalHandsJson（终局四家手牌+副露留痕，供结算回放核对番种）"
 
 import argparse
 import os

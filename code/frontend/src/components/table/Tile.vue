@@ -2,17 +2,19 @@
 import { computed, ref, watch } from 'vue'
 
 import { useSkinsStore } from '../../stores/skins'
-import { barCount, dotSlots, tileGlyph, tileKey, tileName, tileRank, tileSuit } from '../../utils/tile'
+import { barCount, dotSlots, localTileArt, tileGlyph, tileKey, tileName, tileRank, tileSuit } from '../../utils/tile'
 
 const props = withDefaults(
   defineProps<{
     tile: number
-    size?: 'xs' | 'sm' | 'md' | 'lg'
+    size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'
     faceDown?: boolean
     selected?: boolean
     highlight?: boolean
     dim?: boolean
     idle?: boolean
+    /** 标注「这张来自别人打出的牌」（吃/碰/明杠的副露用） */
+    mark?: boolean
     /** 首屏手牌用 eager，其余交给浏览器懒加载（05 §6.3） */
     eager?: boolean
     /** 指定皮肤（皮肤管理页的实时预览用；不影响全局当前皮肤） */
@@ -25,16 +27,22 @@ const props = withDefaults(
     highlight: false,
     dim: false,
     idle: false,
+    mark: false,
     eager: false,
     skinCode: ''
   }
 )
 
+/**
+ * 牌身尺寸：宽高比对齐内置矢量牌面的 viewBox 19:26（≈0.73），
+ * 这样 `<img>` 用 object-contain 铺满时不会出现上下留白，牌面也不会被拉伸。
+ */
 const SIZES = {
-  xs: { box: 'w-[17px] h-[25px] rounded-[3px]', pad: 'p-[1px]', dot: 'w-[2px] h-[2px]', main: 'text-[9px]', sub: 'text-[6px]', bar: 'w-[1.5px]', gap: 'gap-[1px]' },
-  sm: { box: 'w-[24px] h-[36px] rounded-[4px]', pad: 'p-[2px]', dot: 'w-[3px] h-[3px]', main: 'text-[11px]', sub: 'text-[7px]', bar: 'w-[2px]', gap: 'gap-[2px]' },
-  md: { box: 'w-[32px] h-[48px] rounded-[5px]', pad: 'p-[3px]', dot: 'w-[4px] h-[4px]', main: 'text-[15px]', sub: 'text-[9px]', bar: 'w-[2.5px]', gap: 'gap-[2px]' },
-  lg: { box: 'w-[42px] h-[62px] rounded-[6px]', pad: 'p-[4px]', dot: 'w-[6px] h-[6px]', main: 'text-[20px]', sub: 'text-[11px]', bar: 'w-[3px]', gap: 'gap-[3px]' }
+  xs: { box: 'w-[17px] h-[23px] rounded-[2px]', pad: 'p-[1px]', dot: 'w-[2px] h-[2px]', main: 'text-[9px]', sub: 'text-[6px]', bar: 'w-[1.5px]', gap: 'gap-[1px]' },
+  sm: { box: 'w-[24px] h-[33px] rounded-[3px]', pad: 'p-[2px]', dot: 'w-[3px] h-[3px]', main: 'text-[11px]', sub: 'text-[7px]', bar: 'w-[2px]', gap: 'gap-[2px]' },
+  md: { box: 'w-[32px] h-[44px] rounded-[4px]', pad: 'p-[3px]', dot: 'w-[4px] h-[4px]', main: 'text-[15px]', sub: 'text-[9px]', bar: 'w-[2.5px]', gap: 'gap-[2px]' },
+  lg: { box: 'w-[42px] h-[57px] rounded-[5px]', pad: 'p-[4px]', dot: 'w-[6px] h-[6px]', main: 'text-[20px]', sub: 'text-[11px]', bar: 'w-[3px]', gap: 'gap-[3px]' },
+  xl: { box: 'w-[54px] h-[74px] rounded-[6px]', pad: 'p-[5px]', dot: 'w-[8px] h-[8px]', main: 'text-[26px]', sub: 'text-[14px]', bar: 'w-[4px]', gap: 'gap-[4px]' }
 }
 
 const skins = useSkinsStore()
@@ -55,17 +63,27 @@ const assetKey = computed(() => (props.faceDown ? 'back' : tileKey(props.tile)))
 const previewSkin = computed(() =>
   props.skinCode ? skins.skins.find((item) => item.skin_code === props.skinCode) ?? null : null
 )
-const imageUrl = computed(() =>
+/** 当前皮肤为这张牌提供的图片（没上传就是空串） */
+const skinArt = computed(() =>
   previewSkin.value ? previewSkin.value.assets[assetKey.value] || '' : skins.assetOf(assetKey.value)
 )
-/** 单张加载失败只影响这一张：该张回退 CSS，不弹错误、不阻塞牌桌 */
+/**
+ * 牌面图三级回退：皮肤图 → 内置矢量牌面（`public/tiles`）→ 纯 CSS。
+ * 单张加载失败只影响这一张，不弹错误、不阻塞牌桌（05 §6.3）。
+ */
 const brokenUrl = ref('')
 
-watch(imageUrl, () => {
+const imageUrl = computed(() => {
+  const local = localTileArt(assetKey.value)
+  const candidates = [skinArt.value, local]
+  return candidates.find((url) => url && url !== brokenUrl.value) ?? ''
+})
+
+watch(assetKey, () => {
   brokenUrl.value = ''
 })
 
-const showImage = computed(() => Boolean(imageUrl.value) && brokenUrl.value !== imageUrl.value)
+const showImage = computed(() => Boolean(imageUrl.value))
 const altText = computed(() => (props.faceDown ? '' : tileName(props.tile)))
 </script>
 
@@ -75,15 +93,22 @@ const altText = computed(() => (props.faceDown ? '' : tileName(props.tile)))
     class="relative select-none transition-all duration-150"
     :class="[
       size.box,
-      faceDown ? 'overflow-hidden' : 'bg-gradient-to-b from-cream-50 to-cream-200',
+      !faceDown && !showImage && 'overflow-hidden bg-gradient-to-b from-cream-50 to-cream-200',
       !faceDown && 'shadow-tile',
-      selected ? '-translate-y-2 shadow-gold' : '',
+      selected ? '-translate-y-2 shadow-gold' : mark ? '-translate-y-1 ring-1 ring-vermilion-400/85' : '',
       highlight && !selected ? 'ring-1 ring-gold-400/70' : '',
       dim ? 'opacity-45' : ''
     ]"
-    :style="faceDown ? { background: 'linear-gradient(150deg,#1a5c46,#0f3d2e)' } : {}"
+    :style="faceDown && !showImage ? { background: 'linear-gradient(150deg,#1a5c46,#0f3d2e)' } : {}"
   >
-    <!-- 皮肤图片优先：object-fit contain 铺满容器，尺寸仍由 CSS 决定（05 §6.3） -->
+    <!-- 副露标记：这一张来自别家打出的牌（吃/碰/明杠） -->
+    <span
+      v-if="mark && !faceDown"
+      class="pointer-events-none absolute -top-[3px] left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-vermilion-500 ring-1 ring-cream-50/70"
+      aria-hidden="true"
+    />
+
+    <!-- 牌面图：皮肤图优先，其次内置矢量牌面（public/tiles）；object-contain 铺满，尺寸仍由 CSS 决定（05 §6.3） -->
     <img
       v-if="showImage"
       :src="imageUrl"

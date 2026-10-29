@@ -5,13 +5,22 @@ import { closeSocket, openSocket, sendMessage, setMessageHandler, setStatusHandl
 import { notifyConnectionRestored, preloadSounds, stopAll } from '../audio/audioManager'
 import { handleSoundEvent, handleSoundMessage, resetGameSounds } from '../audio/useGameSounds'
 import { useToast } from '../composables/useToast'
-import type { ChatMessage, LegalAction, SeatView, Snapshot, SpectateView } from '../types'
+import type { ChatMessage, JoinRequest, LegalAction, SeatView, Snapshot, SpectateView } from '../types'
 import { tileName, tilesName } from '../utils/tile'
 
 export interface Banner {
   id: number
   text: string
   kind: 'info' | 'action' | 'win'
+}
+
+/** 整场结束（打满局数或房主提前结束）的广播载荷 */
+export interface GameFinished {
+  scores: { seat: number; name: string; total: number }[]
+  /** true = 房主提前收场，未结算的这一局作废 */
+  aborted?: boolean
+  ended_by_seat?: number | null
+  ended_by_name?: string | null
 }
 
 export const useGameStore = defineStore('game', () => {
@@ -23,8 +32,17 @@ export const useGameStore = defineStore('game', () => {
   const connectionDetail = ref('')
   const roomCode = ref('')
   const banner = ref<Banner | null>(null)
-  const finished = ref<{ scores: { seat: number; name: string; total: number }[] } | null>(null)
+  const finished = ref<GameFinished | null>(null)
+  /** 房主收摊：房间已在服务端关闭，前端不再重连、也不再显示牌桌 */
+  const roomClosed = ref(false)
   const busy = ref(false)
+  /** S10：非本家庭成员凭码进桌 —— 已申请、等房主在牌桌上确认 */
+  const joinPending = ref(false)
+  const joinPendingInfo = ref<{ room_name?: string; family_name?: string; message?: string } | null>(null)
+  /** 房主没同意（或被关房）：显示原因，玩家自己回大厅 */
+  const joinDenied = ref('')
+  /** 房主专属：待确认的进桌申请 */
+  const joinRequests = ref<JoinRequest[]>([])
 
   let bannerSeq = 0
   let bannerTimer: number | undefined
@@ -134,7 +152,16 @@ export const useGameStore = defineStore('game', () => {
         }
         break
       case 'event.game_finished':
-        finished.value = data
+        finished.value = data as GameFinished
+        break
+      case 'event.seats_drawn':
+        // 新一场开桌：收起上一场的整场结算层
+        finished.value = null
+        break
+      case 'event.room_closed':
+        // 房主结束了牌局并关房：断掉连接（不重连），停在结算层由玩家自己回大厅
+        roomClosed.value = true
+        closeSocket()
         break
       case 'event.spectate_changed':
         // 目标离座：横幅消失 + 提示重新选择（快照随后会把视角重置为未选择）
@@ -159,14 +186,34 @@ export const useGameStore = defineStore('game', () => {
     handleSoundMessage(type, data)
     if (type === 'state.snapshot') {
       snapshot.value = data as Snapshot
+      joinRequests.value = (data.join_requests || []) as JoinRequest[]
       if (data.phase !== 'settled') finished.value = finished.value
       return
     }
     if (type === 'room.welcome') {
       roomCode.value = data.room?.room_code || data.room?.code || roomCode.value
       chat.value = (data.chat || []) as ChatMessage[]
+      // 房主同意后服务端补发 welcome：收起等待遮罩
+      joinPending.value = false
+      joinPendingInfo.value = null
+      joinDenied.value = ''
       // 进桌即预加载 15 个 SFX（Promise.allSettled，单个失败不影响其他）
       void preloadSounds()
+      return
+    }
+    if (type === 'room.join_pending') {
+      // 非本家庭成员凭码进桌：先等着，房主在牌桌上点「同意」后才收 welcome
+      joinPending.value = true
+      joinPendingInfo.value = data
+      return
+    }
+    if (type === 'room.join_denied') {
+      joinPending.value = false
+      joinPendingInfo.value = null
+      joinRequests.value = []
+      joinDenied.value = data?.message || '房主没有同意这次进桌'
+      // 服务端不再推房态，客户端主动断开避免无限重连
+      closeSocket()
       return
     }
     if (type === 'chat.message') {
@@ -191,6 +238,11 @@ export const useGameStore = defineStore('game', () => {
     snapshot.value = null
     chat.value = []
     finished.value = null
+    roomClosed.value = false
+    joinPending.value = false
+    joinPendingInfo.value = null
+    joinDenied.value = ''
+    joinRequests.value = []
     // 进新桌：清空上一桌的 settled 去重与限流状态
     resetGameSounds()
     let everConnected = false
@@ -219,6 +271,19 @@ export const useGameStore = defineStore('game', () => {
     chat.value = []
     roomCode.value = ''
     connected.value = false
+    joinPending.value = false
+    joinPendingInfo.value = null
+    joinDenied.value = ''
+    joinRequests.value = []
+  }
+
+  /** 房主确认/拒绝「非本家庭成员凭码进桌」的申请（S10） */
+  function approveJoin(loginId: string, allow: boolean): void {
+    send('room.approve', { login_id: loginId, allow })
+  }
+
+  function dismissJoinDenied(): void {
+    joinDenied.value = ''
   }
 
   function send(type: string, data: Record<string, unknown> = {}): void {
@@ -229,13 +294,19 @@ export const useGameStore = defineStore('game', () => {
     send('seat.ready', {})
   }
 
-  function startGame(): void {
-    send('game.start', {})
+  /** 开局：房主可顺带定本场出牌限时（0 秒 = 不限时） */
+  function startGame(turnTimeout?: { enabled: boolean; seconds: number } | null): void {
+    send('game.start', turnTimeout ? { turn_timeout: turnTimeout } : {})
   }
 
   function nextRound(): void {
     finished.value = null
     send('game.next', {})
+  }
+
+  /** 开桌的人提前结束本场（已打完的局保留，未结算的一局作废，房间随即关闭） */
+  function endGame(): void {
+    send('game.finish', {})
   }
 
   function discard(tile: number): void {
@@ -274,7 +345,14 @@ export const useGameStore = defineStore('game', () => {
     roomCode,
     banner,
     finished,
+    roomClosed,
     busy,
+    joinPending,
+    joinPendingInfo,
+    joinDenied,
+    joinRequests,
+    approveJoin,
+    dismissJoinDenied,
     seats,
     selfSeat,
     mySeatView,
@@ -303,6 +381,7 @@ export const useGameStore = defineStore('game', () => {
     toggleReady,
     startGame,
     nextRound,
+    endGame,
     discard,
     act,
     pass,

@@ -7,6 +7,35 @@
 from game.tiles import tiles_from_counts
 
 
+def _room_view(actor) -> dict:
+    """`room` 段（欢迎包与快照共用，04 §9.5 字段）。"""
+    return {
+        "room_code": actor.code,
+        "room_name": actor.name,
+        "host_login_id": actor.host_login_id,
+        "family_code": actor.family_code,
+        "family_name": actor.family_name,
+        "rule_name": actor.rule_name,
+        "rule_family_code": actor.rule_family_code,
+        "rule_brief": actor.rule.brief(),
+        "spectator_count": actor.spectator_count(),
+        "spectate_seat_viewer_counts": actor.spectator_counts(),
+        # 兼容旧前端的别名（S6 前端切到上名字段后删除）
+        "code": actor.code,
+        "name": actor.name,
+    }
+
+
+def welcome_payload(actor, login_id: str, slot, chat: list[dict]) -> dict:
+    """`room.welcome`（04 §9.1）：首次握手与房主批准访客进桌时共用同一份结构。"""
+    return {
+        "room": _room_view(actor),
+        "self_seat": slot.seat if slot is not None else None,
+        "spectate": actor.spectate_of(login_id),
+        "chat": chat,
+    }
+
+
 def _seat_view(actor, seat: int, look_seat: int | None, spectator_counts: list[int]) -> dict | None:
     slot = actor.slots[seat]
     if slot is None:
@@ -57,24 +86,13 @@ def build_snapshot(actor, viewer_seat: int | None, viewer_login_id: str = "") ->
     look_seat = viewer_seat if viewer_seat is not None else spectate_seat
 
     payload = {
-        "room": {
-            # 04 §9.5 字段
-            "room_code": actor.code,
-            "room_name": actor.name,
-            "host_login_id": actor.host_login_id,
-            "family_code": actor.family_code,
-            "family_name": actor.family_name,
-            "rule_name": actor.rule_name,
-            "rule_family_code": actor.rule_family_code,
-            "rule_brief": rule.brief(),
-            "spectator_count": actor.spectator_count(),
-            "spectate_seat_viewer_counts": spectator_counts,
-            # 兼容旧前端的别名（S6 前端切到上名字段后删除）
-            "code": actor.code,
-            "name": actor.name,
-        },
+        "room": _room_view(actor),
         "self_seat": viewer_seat,
         "spectate": spectate,
+        # 房主专属：非本家庭成员凭码申请进桌，等房主在牌桌上确认（S10）
+        "join_requests": (
+            actor.pending_requests() if viewer_login_id == actor.host_login_id else []
+        ),
         "seats": [_seat_view(actor, seat, look_seat, spectator_counts) for seat in range(4)],
         "status": actor.status,
         "round_no": engine.round_no if engine else 0,
@@ -136,6 +154,7 @@ def build_snapshot(actor, viewer_seat: int | None, viewer_login_id: str = "") ->
 
     if engine.phase == "discard" and getattr(rule.turn_timeout, "enabled", False):
         payload["deadline"] = actor.turn_deadline
-    if engine.phase == "claim":
+    # 响应窗口：默认不限时（`claim_deadline=None`），只有开了限时才下发倒计时
+    if engine.phase == "claim" and actor.claim_deadline is not None:
         payload["claim_deadline"] = actor.claim_deadline
     return payload

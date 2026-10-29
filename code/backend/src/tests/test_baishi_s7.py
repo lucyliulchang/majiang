@@ -97,8 +97,8 @@ def fake_breakdown(fan_total: int, rule=None) -> ScoreBreakdown:
 
 
 def test_baishi_fan_table_matches_07_section_5():
-    assert len(RULE.fan_table) == 31
-    assert len(FAN_TABLE) == 31
+    assert len(RULE.fan_table) == 32
+    assert len(FAN_TABLE) == 32
     for fan_id, name, fan, group, _counting in FAN_TABLE:
         item = RULE.fan_of(fan_id)
         assert item is not None, fan_id
@@ -575,7 +575,9 @@ def test_case22_quan_zi_is_101(hand):
     assert ids["quan_zi"] == 100
     assert ids["jiang_pai"] == 1
     assert "dui_dui_hu" not in ids
-    assert breakdown.fan_total == 101
+    # v1.8：中碰 + 发碰 另计箭刻 2（07 §6.10），故 100 + 将牌 1 + 箭刻 2 = 103
+    assert ids["jian_ke"] == 2
+    assert breakdown.fan_total == 103
 
 
 def test_case22b_quan_zi_plus_si_an_ke(hand):
@@ -585,7 +587,9 @@ def test_case22b_quan_zi_plus_si_an_ke(hand):
     assert ids["si_an_ke"] == 20
     assert ids["quan_zi"] + ids["si_an_ke"] == 120
     assert ids["men_qian"] == 1
-    assert breakdown.fan_total == 122  # 100 + 20 + 将 1 + 门清 1
+    # v1.8：中刻另计箭刻 1（07 §6.10）→ 100 + 20 + 将 1 + 门清 1 + 箭刻 1 = 123
+    assert ids["jian_ke"] == 1
+    assert breakdown.fan_total == 123
 
 
 def test_case22c_quan_zi_seven_pairs(hand):
@@ -653,6 +657,70 @@ def test_case27_wind_pair_is_not_ke(hand):
     assert "men_feng_ke" not in ids
     assert "quan_feng_ke" not in ids
     assert ids["jiang_pai"] == 1
+
+
+# ---------------------------------------------------------------- 13.31 箭刻
+
+
+def test_case31_jian_ke_per_dragon(hand):
+    # 中碰 + 发碰 + 白明杠 → 每种箭牌 1 番，杠按刻子计 → 箭刻 3
+    melds = [pong(31), pong(32), kong(33, "kong_exposed")]
+    breakdown = _eval(ctx_of(hand, "123m5p5p", win_tile=4, melds=melds))
+    ids = ids_of(breakdown)
+    assert ids["jian_ke"] == 3
+    assert ids["jiang_pai"] == 1
+
+    # 中碰 + 发碰 + 白作将 → 箭刻 2；箭牌作将不算刻子（只计将牌 1）
+    melds2 = [pong(31), pong(32)]
+    two = ids_of(_eval(ctx_of(hand, "123m456p7z7z", win_tile=33, melds=melds2)))
+    assert two["jian_ke"] == 2
+    assert two["jiang_pai"] == 1
+
+
+def test_case31b_jian_ke_single_and_seven_pairs(hand):
+    # 单发刻（手牌三张）+ 中中作将 → 箭刻 1，中作将不算刻子
+    ids = ids_of(_eval(ctx_of(hand, "6z6z6z123m456p789s5z5z", win_tile=31)))
+    assert ids["jian_ke"] == 1
+    assert ids["jiang_pai"] == 1
+    assert ids["du_ying"] == 1
+
+    # 七小对结构里没有刻子 → 不判箭刻
+    pairs = ids_of(_eval(ctx_of(hand, "1z1z2z2z3z3z4z4z5z5z6z6z7z7z", win_tile=33)))
+    assert pairs["quan_zi_qi_dui"] == 120
+    assert "jian_ke" not in pairs
+
+
+def test_case31c_jian_ke_stacks_with_quan_zi_and_anke(hand):
+    # 全文字（中/发/白/北 四刻 + 南将）：100 + 四暗刻 20 + 箭刻 3 + 将牌 1 + 门清 1 + 独赢 1
+    breakdown = _eval(ctx_of(hand, "5z5z5z6z6z6z7z7z7z4z4z4z2z2z", win_tile=28))
+    ids = ids_of(breakdown)
+    assert ids["jian_ke"] == 3
+    assert ids["quan_zi"] == 100
+    assert ids["si_an_ke"] == 20
+    assert breakdown.fan_total == 126, "100 全文字 + 20 四暗刻 + 3 箭刻 + 1 将牌 + 1 门清 + 1 独赢"
+
+
+# ---------------------------------------------------------------- 终局手牌留痕
+
+
+def test_final_hands_snapshot_marks_winner_and_adds_ron_tile():
+    from game.engine import final_hands_snapshot
+
+    states = seats()
+    states[0].counts = counts_from_tiles([0, 1, 2])
+    states[1].counts = counts_from_tiles([20, 21, 24, 25])
+    snapshot = final_hands_snapshot(
+        states, [{"seat": 1, "win_type": "discard", "winning_tile": 26}]
+    )
+    assert [item["seat"] for item in snapshot] == [0, 1, 2, 3]
+    # 点炮胡：胡张不在 counts 里，落库时补进赢家手牌
+    assert snapshot[1]["concealed"] == [20, 21, 24, 25, 26]
+    assert snapshot[1]["is_winner"] is True and snapshot[0]["is_winner"] is False
+    # 自摸胡：counts 已含胡张，不重复追加
+    self_draw = final_hands_snapshot(
+        states, [{"seat": 1, "win_type": "self_draw", "winning_tile": 26}]
+    )
+    assert self_draw[1]["concealed"] == [20, 21, 24, 25]
 
 
 # ---------------------------------------------------------------- 13.30 发牌

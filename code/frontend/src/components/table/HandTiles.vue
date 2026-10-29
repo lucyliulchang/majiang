@@ -46,18 +46,18 @@ function handleClick(tile: number): void {
 
 <template>
   <div class="flex items-end gap-3">
-    <div class="flex items-end gap-[3px]">
+    <div class="flex items-end gap-[4px]">
       <button
         v-for="(tile, index) in sorted.rest"
         :key="`${tile}-${index}`"
         type="button"
-        class="rounded-[5px] focus:outline-none"
-        :class="interactive ? 'cursor-pointer hover:-translate-y-1' : 'cursor-default'"
+        class="rounded-[7px] focus:outline-none"
+        :class="interactive ? 'cursor-pointer hover:-translate-y-1.5' : 'cursor-default'"
         @click="handleClick(tile)"
       >
         <Tile
           :tile="tile"
-          size="lg"
+          size="xl"
           eager
           :selected="selected === tile"
           :highlight="showHint && tenpaiSet.has(tile)"
@@ -65,16 +65,16 @@ function handleClick(tile: number): void {
       </button>
     </div>
 
-    <div v-if="sorted.drawn !== null" class="ml-2 flex items-end gap-[3px] border-l border-gold-400/25 pl-3">
+    <div v-if="sorted.drawn !== null" class="ml-2 flex items-end gap-[4px] border-l border-gold-400/25 pl-3">
       <button
         type="button"
-        class="rounded-[5px] focus:outline-none"
-        :class="interactive ? 'cursor-pointer hover:-translate-y-1' : 'cursor-default'"
+        class="rounded-[7px] focus:outline-none"
+        :class="interactive ? 'cursor-pointer hover:-translate-y-1.5' : 'cursor-default'"
         @click="handleClick(sorted.drawn as number)"
       >
         <Tile
           :tile="sorted.drawn as number"
-          size="lg"
+          size="xl"
           eager
           :selected="selected === (sorted.drawn as number)"
           :highlight="showHint && tenpaiSet.has(sorted.drawn as number)"

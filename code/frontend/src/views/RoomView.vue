@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Eye, Loader2, MessageSquare, Play, Timer, WifiOff } from 'lucide-vue-next'
+import { ArrowRight, Eye, Flag, Hand, Loader2, MessageSquare, Play, Timer, WifiOff } from 'lucide-vue-next'
 
 import ChatPanel from '../components/ChatPanel.vue'
 import ActionBar from '../components/table/ActionBar.vue'
@@ -77,6 +77,23 @@ const showResult = computed(() => {
   return dismissedRound.value !== result.round_no
 })
 
+/** 结算面板被「看看牌桌」收起后，牌桌上要留一个随时能回去的入口 */
+const resultDismissed = computed(() => {
+  const result = game.result
+  if (!result || phase.value !== 'settled') return false
+  return dismissedRound.value === result.round_no
+})
+
+function reopenResult(): void {
+  dismissedRound.value = null
+}
+
+/** 收起结算：提醒一句怎么回到结算 / 进入下一局，避免以为卡在牌桌上 */
+function dismissResult(): void {
+  dismissedRound.value = game.result?.round_no ?? null
+  toast.info('结算已收起，牌桌下方可随时点「看结算」或「下一局」')
+}
+
 const myTurnTimerVisible = computed(
   () => Boolean(game.snapshot?.deadline) && game.ruleBrief?.turn_timeout.enabled
 )
@@ -96,6 +113,31 @@ const showActionBar = computed(() => {
   const actions = game.legal
   return actions.some((item) => item.action !== 'discard')
 })
+
+// ---- 开局设置：出牌/响应限时（默认 0 秒 = 不限时；房主开局前可改）----
+const TIMEOUT_OPTIONS = [10, 15, 20, 30, 45, 60, 90, 120]
+const timeoutChoice = ref(0)
+/** 下拉选项：0 = 不限时；模板里若是个非常规值（如 18 秒）也一并列出来，避免选择框空白 */
+const timeoutOptions = computed(() => {
+  const list = [...TIMEOUT_OPTIONS]
+  const current = Number(timeoutChoice.value) || 0
+  if (current > 0 && !list.includes(current)) list.push(current)
+  return list.sort((a, b) => a - b)
+})
+watch(
+  () => [phase.value, game.ruleBrief?.turn_timeout.enabled, game.ruleBrief?.turn_timeout.seconds] as const,
+  ([currentPhase, enabled, seconds]) => {
+    // 只在等人阶段跟随规则快照，开局后不再回写（避免盖掉房主刚选的秒数）
+    if (currentPhase !== 'waiting') return
+    timeoutChoice.value = enabled ? Number(seconds ?? 0) || 15 : 0
+  },
+  { immediate: true }
+)
+
+function startGame(): void {
+  const seconds = timeoutChoice.value > 0 ? timeoutChoice.value : 0
+  game.startGame({ enabled: seconds > 0, seconds })
+}
 
 // ---- 观战（S5b）：一人一目标，未选目标只收公共牌面 ----
 const spectate = computed(() => game.spectate)
@@ -160,6 +202,15 @@ function nextRound(): void {
   game.nextRound()
 }
 
+// ---- 结束牌局（仅开桌的人）：二次确认后提前收场，已打完的局保留 ----
+const endConfirmOpen = ref(false)
+const canEndGame = computed(() => game.isHost && inGame.value)
+
+function confirmEndGame(): void {
+  endConfirmOpen.value = false
+  game.endGame()
+}
+
 function backToLobby(): void {
   game.leaveRoom()
   router.push({ name: 'lobby' })
@@ -167,6 +218,13 @@ function backToLobby(): void {
 
 const myMelds = computed(() => mySeatView.value?.melds || [])
 const hintEnabled = computed(() => Boolean(game.ruleBrief?.ting_hint))
+/** 吃牌时标出「被吃的那一张」；碰/杠整组同牌，不标 */
+function claimIndex(meld: { kind: string; tiles: number[]; claim_tile?: number | null }): number {
+  if (meld.kind !== 'chow') return -1
+  const claim = meld.claim_tile
+  if (claim === null || claim === undefined) return -1
+  return meld.tiles.indexOf(claim)
+}
 /** 庄家昵称：ScoreBoard 显示「南风局 · 第 2/4 局 · 庄家 X」 */
 const dealerName = computed(() => {
   const seat = game.snapshot?.dealer_seat
@@ -195,8 +253,10 @@ const dealerName = computed(() => {
           :round-wind="game.snapshot.round_wind ?? (game.snapshot.round_no ? game.snapshot.round_no - 1 : null)"
           :dealer-name="dealerName"
           :connected="game.connected"
+          :can-end-game="canEndGame"
           @copy="copyCode"
           @exit="exitRoom"
+          @end-game="endConfirmOpen = true"
         />
       </div>
       <div v-else class="flex items-center gap-2 text-sm text-ink-300/70">
@@ -224,10 +284,10 @@ const dealerName = computed(() => {
     <div class="flex min-h-0 flex-1">
       <!-- 牌桌：不要抬高层级，header 的 skin/sound 弹层要压在牌桌之上 -->
       <section class="relative flex min-w-0 flex-1 items-center justify-center p-3">
-        <div class="felt-panel relative flex h-full w-full max-w-[1080px] flex-col gap-2 rounded-[28px] p-3 shadow-table">
-          <!-- 顶部：对家 -->
+        <div class="felt-panel relative flex h-full w-full max-w-[1120px] flex-col gap-2 rounded-[28px] p-3 shadow-table">
+          <!-- 顶部：对家（compact：只留昵称/分数/张数，把空间让给自己的手牌） -->
           <div class="flex justify-center">
-            <div class="w-[min(100%,540px)]">
+            <div class="w-[min(100%,440px)]">
               <PlayerSeat
                 v-if="seatAt(relative.across)"
                 :seat="seatAt(relative.across)!"
@@ -243,8 +303,8 @@ const dealerName = computed(() => {
           </div>
 
           <!-- 中部：左右座位 + 牌河 -->
-          <div class="grid min-h-0 flex-1 grid-cols-[minmax(120px,180px)_1fr_minmax(120px,180px)] gap-2">
-            <div class="flex items-center justify-start">
+          <div class="grid min-h-0 flex-1 grid-cols-[minmax(96px,140px)_1fr_minmax(96px,140px)] gap-2">
+            <div class="flex flex-col items-stretch justify-center gap-2">
               <div class="w-full">
                 <PlayerSeat
                   v-if="seatAt(relative.left)"
@@ -257,6 +317,17 @@ const dealerName = computed(() => {
                   空座
                 </div>
               </div>
+
+              <!-- 左侧出牌提示：只在自己该出牌时亮，点牌即出 -->
+              <transition name="fade">
+                <div
+                  v-if="canDiscard"
+                  class="flex items-center justify-center gap-1.5 rounded-xl border border-gold-400/60 bg-gold-400/15 px-2 py-2 text-[11px] font-medium leading-tight text-gold-100 shadow-gold animate-breathe"
+                >
+                  <Hand class="h-3.5 w-3.5 shrink-0 text-gold-300" />
+                  <span>轮到你出牌</span>
+                </div>
+              </transition>
             </div>
 
             <div class="relative min-h-0 rounded-2xl border border-cream-100/[0.06] bg-felt-950/25">
@@ -286,7 +357,7 @@ const dealerName = computed(() => {
               <!-- 等待开局遮罩 -->
               <div
                 v-if="!inGame"
-                class="absolute inset-0 flex flex-col items-center justify-center gap-4 rounded-2xl bg-felt-950/70 backdrop-blur-[2px]"
+                class="absolute inset-0 flex flex-col items-center justify-center gap-3 overflow-y-auto rounded-2xl bg-felt-950/70 py-2 backdrop-blur-[2px]"
               >
                 <p class="text-sm text-cream-100">等人齐了就开始</p>
                 <div class="flex gap-1.5">
@@ -307,12 +378,31 @@ const dealerName = computed(() => {
                   >
                     {{ mySeatView?.ready ? '取消准备' : '我准备好了' }}
                   </button>
+                  <!-- 开局设置：出牌限时（默认不限时） -->
+                  <div
+                    v-if="game.isHost"
+                    class="flex items-center gap-1.5 rounded-lg border border-cream-100/12 bg-felt-950/60 px-2.5 py-1.5 text-[11px] text-ink-300/85"
+                  >
+                    <Timer class="h-3.5 w-3.5 shrink-0 text-gold-300" />
+                    <span class="whitespace-nowrap" title="选 0 秒即不限时：出牌与吃碰杠胡的响应都不计时、也不会自动「过」">
+                      限时
+                    </span>
+                    <select
+                      v-model.number="timeoutChoice"
+                      aria-label="出牌与响应限时"
+                      title="选 0 秒即不限时：出牌与吃碰杠胡的响应都不计时、也不会自动「过」"
+                      class="rounded-md border border-cream-100/15 bg-felt-900 px-1.5 py-1 text-[11px] text-cream-100"
+                    >
+                      <option :value="0">0 秒（不限时）</option>
+                      <option v-for="sec in timeoutOptions" :key="sec" :value="sec">{{ sec }} 秒</option>
+                    </select>
+                  </div>
                   <button
                     v-if="game.isHost"
                     type="button"
                     class="btn-gold flex items-center gap-2 rounded-lg px-5 py-2 text-sm font-semibold"
                     :disabled="!game.everyoneReady"
-                    @click="game.startGame()"
+                    @click="startGame"
                   >
                     <Play class="h-4 w-4" />
                     {{ game.everyoneReady ? '开始牌局' : '等所有人准备' }}
@@ -383,12 +473,18 @@ const dealerName = computed(() => {
                   :key="index"
                   class="flex items-center gap-[1px] rounded border border-gold-400/25 bg-felt-900/60 px-1 py-0.5"
                 >
-                  <Tile v-for="(tile, tileIndex) in meld.tiles" :key="tileIndex" :tile="tile" size="xs" />
+                  <Tile
+                    v-for="(tile, tileIndex) in meld.tiles"
+                    :key="tileIndex"
+                    :tile="tile"
+                    size="sm"
+                    :mark="tileIndex === claimIndex(meld)"
+                  />
                 </div>
               </div>
             </div>
 
-            <div class="flex min-h-[70px] items-end justify-center overflow-x-auto pb-1">
+            <div class="flex min-h-[92px] items-end justify-center overflow-x-auto pb-1">
               <!-- 在座玩家看自己的牌；观战者看目标（只读）；未选目标没有任何手牌 -->
               <HandTiles
                 v-if="!isSpectator || spectateTarget"
@@ -421,10 +517,33 @@ const dealerName = computed(() => {
             @pass="onPass"
           />
         </div>
+
+        <!-- 结算收起后的回看入口：「看看牌桌」不是死路，随时能回到结算并点下一局 -->
+        <div
+          v-if="resultDismissed"
+          class="pointer-events-none absolute inset-x-0 bottom-24 z-20 flex justify-center px-4"
+        >
+          <div
+            class="pointer-events-auto flex items-center gap-2 rounded-full border border-gold-400/35 bg-felt-900/90 px-2.5 py-1.5 text-xs shadow-table backdrop-blur animate-riseIn"
+          >
+            <span class="whitespace-nowrap pl-1 text-ink-300/75">第 {{ game.result?.round_no }} 局已结算</span>
+            <button type="button" class="btn-ghost rounded-full px-2.5 py-1 text-[11px]" @click="reopenResult">
+              看结算
+            </button>
+            <button
+              type="button"
+              class="btn-gold flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+              @click="nextRound"
+            >
+              {{ game.result?.is_last_round ? '查看总账' : '下一局' }}
+              <ArrowRight class="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
       </section>
 
-      <!-- 聊天 -->
-      <aside class="hidden w-[330px] shrink-0 p-3 pl-0 lg:block">
+      <!-- 聊天：窄屏收成抽屉，把宽度让给手牌；≥1280px 才常驻 -->
+      <aside class="hidden w-[300px] shrink-0 p-3 pl-0 xl:block">
         <ChatPanel
           :messages="game.chat"
           :self-login-id="auth.loginId"
@@ -434,10 +553,10 @@ const dealerName = computed(() => {
       </aside>
     </div>
 
-    <!-- 移动端聊天抽屉 -->
+    <!-- 聊天抽屉 -->
     <button
       type="button"
-      class="fixed bottom-6 right-4 z-30 flex h-12 w-12 items-center justify-center rounded-full border border-gold-400/40 bg-felt-800 text-gold-300 shadow-gold lg:hidden"
+      class="fixed bottom-6 right-4 z-30 flex h-12 w-12 items-center justify-center rounded-full border border-gold-400/40 bg-felt-800 text-gold-300 shadow-gold xl:hidden"
       aria-label="打开聊天"
       @click="chatOpen = true"
     >
@@ -446,7 +565,7 @@ const dealerName = computed(() => {
 
     <div
       v-if="chatOpen"
-      class="fixed inset-0 z-50 flex justify-end bg-felt-950/70 backdrop-blur-sm lg:hidden"
+      class="fixed inset-0 z-50 flex justify-end bg-felt-950/70 backdrop-blur-sm xl:hidden"
       @click.self="chatOpen = false"
     >
       <div class="h-full w-[86%] max-w-[360px] p-3">
@@ -490,14 +609,115 @@ const dealerName = computed(() => {
       </div>
     </div>
 
+    <!-- S10：非本家庭成员凭码进桌 —— 等房主在牌桌上确认 -->
+    <div
+      v-if="game.joinPending"
+      class="fixed inset-0 z-[75] flex items-center justify-center bg-felt-950/90 px-4 backdrop-blur-sm"
+    >
+      <div class="w-full max-w-sm animate-riseIn rounded-2xl border border-gold-400/30 bg-felt-900/95 p-5 text-center shadow-table">
+        <Loader2 class="mx-auto h-6 w-6 animate-spin text-gold-300" />
+        <h2 class="mt-3 text-base font-semibold text-cream-100">等房主确认进桌</h2>
+        <p class="mt-2 text-xs leading-relaxed text-ink-300/80">
+          这是「{{ game.joinPendingInfo?.family_name || '别人家' }}」的牌桌<span
+            v-if="game.joinPendingInfo?.room_name"
+          >「{{ game.joinPendingInfo.room_name }}」</span>。
+          进桌申请已经发给房主，同意后会自动进来；房主不在牌桌上时可能等不到，可以先回大厅稍后再试。
+        </p>
+        <button type="button" class="btn-ghost mt-4 rounded-lg px-4 py-2 text-sm" @click="exitRoom">
+          先回大厅
+        </button>
+      </div>
+    </div>
+
+    <!-- 房主没同意 / 房间已关 -->
+    <div
+      v-if="game.joinDenied"
+      class="fixed inset-0 z-[75] flex items-center justify-center bg-felt-950/90 px-4 backdrop-blur-sm"
+    >
+      <div class="w-full max-w-sm animate-riseIn rounded-2xl border border-vermilion-500/35 bg-felt-900/95 p-5 text-center shadow-table">
+        <h2 class="text-base font-semibold text-cream-100">进不了这桌</h2>
+        <p class="mt-2 text-xs leading-relaxed text-ink-300/80">{{ game.joinDenied }}</p>
+        <button type="button" class="btn-gold mt-4 rounded-lg px-4 py-2 text-sm font-semibold" @click="exitRoom">
+          回大厅
+        </button>
+      </div>
+    </div>
+
+    <!-- 房主：非本家庭访客的进桌申请（只有房主收得到） -->
+    <div
+      v-if="game.joinRequests.length"
+      class="fixed inset-0 z-[72] flex items-center justify-center bg-felt-950/85 px-4 backdrop-blur-sm"
+    >
+      <div class="w-full max-w-sm animate-riseIn rounded-2xl border border-gold-400/35 bg-felt-900/95 p-5 shadow-table">
+        <h2 class="text-base font-semibold text-cream-100">有人想进这桌</h2>
+        <p class="mt-1 text-[11px] leading-relaxed text-ink-300/65">
+          这几位不是本家庭成员，凭邀请码过来，得你点头才能进桌。
+        </p>
+        <div class="mt-3 space-y-2">
+          <div
+            v-for="req in game.joinRequests"
+            :key="req.login_id"
+            class="flex items-center gap-2 rounded-xl border border-cream-100/12 bg-cream-100/[0.03] px-3 py-2"
+          >
+            <span class="min-w-0 flex-1 truncate text-sm text-cream-100">{{ req.display_name }}</span>
+            <button
+              type="button"
+              class="btn-ghost rounded-lg px-2.5 py-1 text-[11px]"
+              @click="game.approveJoin(req.login_id, false)"
+            >
+              拒绝
+            </button>
+            <button
+              type="button"
+              class="btn-gold rounded-lg px-2.5 py-1 text-[11px] font-semibold"
+              @click="game.approveJoin(req.login_id, true)"
+            >
+              同意进桌
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <ResultModal
       v-if="showResult && game.result"
       :result="game.result"
       :seats="seats"
       :self-seat="selfSeat"
-      @close="dismissedRound = game.result?.round_no ?? null"
+      :base-score="game.ruleBrief?.base_score ?? 1"
+      :dealer-seat="game.snapshot?.dealer_seat ?? null"
+      @close="dismissResult"
       @next="nextRound"
     />
+
+    <!-- 结束牌局确认：只有开桌的人能触发 -->
+    <div
+      v-if="endConfirmOpen"
+      class="fixed inset-0 z-[70] flex items-center justify-center bg-felt-950/85 px-4 backdrop-blur-sm"
+      @click.self="endConfirmOpen = false"
+    >
+      <div class="w-full max-w-sm animate-riseIn rounded-2xl border border-vermilion-500/35 bg-felt-900/95 p-5 text-center shadow-table">
+        <p class="text-[11px] tracking-[0.3em] text-vermilion-400/80">END GAME</p>
+        <h2 class="mt-1.5 text-lg font-semibold text-cream-100">结束本场牌局？</h2>
+        <p class="mt-2 text-left text-xs leading-relaxed text-ink-300/80">
+          已经打完的局和积分都会保留；正在进行的这一局直接作废，不计分。
+          全桌会立刻看到本场结算，这桌随即关闭、不再留在大厅里。
+        </p>
+        <div class="mt-5 flex justify-center gap-2">
+          <button type="button" class="btn-ghost rounded-lg px-4 py-2 text-sm" @click="endConfirmOpen = false">
+            再打一会
+          </button>
+          <button
+            type="button"
+            class="flex items-center gap-1.5 rounded-lg bg-vermilion-500 px-4 py-2 text-sm font-semibold text-cream-50 transition hover:bg-vermilion-400"
+            @click="confirmEndGame"
+          >
+            <Flag class="h-4 w-4" />
+            结束牌局
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- 整场结束 -->
     <div
@@ -506,7 +726,15 @@ const dealerName = computed(() => {
     >
       <div class="w-full max-w-md animate-riseIn rounded-2xl border border-gold-400/30 bg-felt-900/95 p-6 text-center">
         <p class="text-[11px] tracking-[0.3em] text-gold-400/70">GAME OVER</p>
-        <h2 class="mt-2 text-xl font-semibold text-cream-100">这场打完了</h2>
+        <h2 class="mt-2 text-xl font-semibold text-cream-100">
+          {{ game.finished.aborted ? '本场提前结束' : '这场打完了' }}
+        </h2>
+        <p v-if="game.finished.aborted" class="mt-1 text-xs text-ink-300/70">
+          {{ game.finished.ended_by_name ? `${game.finished.ended_by_name} 结束了牌局` : '已结束' }} · 未打完的一局不计分
+        </p>
+        <p v-if="game.roomClosed" class="mt-1 text-[11px] text-ink-300/55">
+          这桌已经关闭，回大厅可以再开一桌
+        </p>
         <div class="mt-4 space-y-1.5">
           <div
             v-for="entry in game.finished.scores"
@@ -525,14 +753,21 @@ const dealerName = computed(() => {
       </div>
     </div>
 
-    <!-- 提醒：不限时 -->
+    <!-- 房间已被房主关闭，但本人没赶上结算广播：只留一条回大厅的路 -->
     <div
-      v-if="inGame && game.ruleBrief && !game.ruleBrief.turn_timeout.enabled"
-      class="pointer-events-none fixed bottom-2 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-cream-100/10 bg-felt-950/80 px-3 py-1 text-[11px] text-ink-300/60"
+      v-if="game.roomClosed && !game.finished"
+      class="fixed inset-0 z-[66] flex items-center justify-center bg-felt-950/88 px-4 backdrop-blur"
     >
-      <Timer class="h-3 w-3" />
-      本局不限时，慢慢打
+      <div class="w-full max-w-sm animate-riseIn rounded-2xl border border-gold-400/25 bg-felt-900/95 p-6 text-center">
+        <p class="text-[11px] tracking-[0.3em] text-gold-400/70">ROOM CLOSED</p>
+        <h2 class="mt-2 text-lg font-semibold text-cream-100">这桌已经结束了</h2>
+        <p class="mt-2 text-xs leading-relaxed text-ink-300/70">房主结束了本场牌局，回大厅可以再开一桌。</p>
+        <button type="button" class="btn-gold mt-5 w-full rounded-lg py-2.5 text-sm font-semibold" @click="backToLobby">
+          回到大厅
+        </button>
+      </div>
     </div>
+
   </div>
 </template>
 

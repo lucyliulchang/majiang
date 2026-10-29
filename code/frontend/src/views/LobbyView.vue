@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { BookOpen, History, Palette, Plus, Sparkles, Trophy, Users } from 'lucide-vue-next'
+import { BookOpen, History, Palette, Plus, Sparkles, Trophy, Users, X } from 'lucide-vue-next'
 
 import AppHeader from '../components/AppHeader.vue'
 import CreateRoomDialog from '../components/CreateRoomDialog.vue'
@@ -149,6 +149,10 @@ async function join(): Promise<void> {
     if (!info.can_join) {
       toast.info(`座位已满，将以观战身份进入（可围观 ${info.spectate.limit_per_seat * 4} 人）`)
     }
+    if (info.needs_approval) {
+      // 不是本家庭的牌桌：先进等候页，房主在牌桌上点头后才真正进桌（S10）
+      toast.info('这是别人家的牌桌，进桌要等房主同意')
+    }
     router.push({ name: 'room', params: { code: info.room_code } })
   } catch (error) {
     codeError.value = (error as Error).message
@@ -166,6 +170,29 @@ function onCreated(room: RoomInfo): void {
 
 function enterRoom(room: RoomInfo): void {
   router.push({ name: 'room', params: { code: room.room_code } })
+}
+
+// ---- 收桌：房主可以不进屋，直接在大厅关掉自己开的桌（列表只列 OPEN）----
+const closingId = ref<number | null>(null)
+const closing = ref(false)
+
+function askClose(room: RoomInfo): void {
+  closingId.value = closingId.value === room.id ? null : room.id
+}
+
+async function doClose(room: RoomInfo): Promise<void> {
+  if (closing.value) return
+  closing.value = true
+  try {
+    await api.post<RoomInfo>(`/rooms/${room.id}/close`, {})
+    rooms.value = rooms.value.filter((item) => item.id !== room.id)
+    closingId.value = null
+    toast.success(`已关闭「${room.room_name}」`)
+  } catch (error) {
+    toast.error((error as Error).message)
+  } finally {
+    closing.value = false
+  }
 }
 
 const quickLinks = computed(() => {
@@ -232,8 +259,8 @@ const quickLinks = computed(() => {
         <section class="glass rounded-2xl p-4 sm:p-5">
           <div class="mb-4 flex items-center gap-2">
             <Trophy class="h-4 w-4 text-gold-300" />
-            <h2 class="text-sm font-medium text-cream-100">我开的牌桌</h2>
-            <span class="text-[11px] text-ink-300/60">点开就能接着打</span>
+            <h2 class="text-sm font-medium text-cream-100">家里的牌桌</h2>
+            <span class="text-[11px] text-ink-300/60">本家庭进行中的桌，点开就能接着打</span>
           </div>
 
           <p v-if="loading" class="py-10 text-center text-sm text-ink-300/60">加载中…</p>
@@ -251,17 +278,32 @@ const quickLinks = computed(() => {
           </div>
 
           <div v-else class="grid gap-2.5 sm:grid-cols-2">
-            <button
+            <div
               v-for="room in rooms"
               :key="room.id"
-              type="button"
-              class="group rounded-xl border border-cream-100/12 bg-cream-100/[0.03] p-3.5 text-left transition hover:border-gold-400/40 hover:bg-gold-400/[0.06]"
+              class="group cursor-pointer rounded-xl border border-cream-100/12 bg-cream-100/[0.03] p-3.5 text-left transition hover:border-gold-400/40 hover:bg-gold-400/[0.06]"
+              role="button"
+              tabindex="0"
               @click="enterRoom(room)"
+              @keydown.enter="enterRoom(room)"
             >
               <div class="flex items-start justify-between gap-2">
                 <span class="truncate text-sm font-medium text-cream-100">{{ room.room_name }}</span>
-                <span class="shrink-0 rounded bg-felt-950/60 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.16em] text-gold-300">
-                  {{ room.room_code }}
+                <span class="flex shrink-0 items-center gap-1">
+                  <span class="rounded bg-felt-950/60 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.16em] text-gold-300">
+                    {{ room.room_code }}
+                  </span>
+                  <!-- 房主可以在大厅直接收桌，不必先进屋 -->
+                  <button
+                    v-if="room.host_login_id === auth.loginId"
+                    type="button"
+                    class="flex h-5 w-5 items-center justify-center rounded text-ink-300/45 transition hover:bg-vermilion-500/20 hover:text-vermilion-400"
+                    :aria-label="`关闭牌桌 ${room.room_name}`"
+                    title="关闭这桌（大厅不再显示）"
+                    @click.stop="askClose(room)"
+                  >
+                    <X class="h-3.5 w-3.5" />
+                  </button>
                 </span>
               </div>
               <p class="mt-1.5 flex items-center gap-1.5 text-[11px] text-ink-300/70">
@@ -273,7 +315,26 @@ const quickLinks = computed(() => {
                 <span v-if="room.spectator_count">· {{ room.spectator_count }} 人围观</span>
                 <span>{{ room.status === 'OPEN' ? '等待开局' : '已关闭' }}</span>
               </div>
-            </button>
+
+              <div
+                v-if="closingId === room.id"
+                class="mt-2 flex items-center gap-2 rounded-lg border border-vermilion-500/30 bg-vermilion-500/10 px-2 py-1.5 text-[11px]"
+                @click.stop
+              >
+                <span class="text-cream-100">关闭这桌？大厅不再显示</span>
+                <button
+                  type="button"
+                  class="ml-auto shrink-0 rounded bg-vermilion-500 px-2 py-0.5 font-semibold text-cream-50 transition hover:bg-vermilion-400 disabled:opacity-60"
+                  :disabled="closing"
+                  @click.stop="doClose(room)"
+                >
+                  关闭
+                </button>
+                <button type="button" class="shrink-0 rounded px-2 py-0.5 text-ink-300/70" @click.stop="closingId = null">
+                  取消
+                </button>
+              </div>
+            </div>
           </div>
         </section>
 

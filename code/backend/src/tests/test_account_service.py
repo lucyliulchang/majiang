@@ -233,6 +233,24 @@ def test_second_login_without_changes_skips_update(fakeMysql, fakeAcis, client):
     assert fakeMysql.updates == []
 
 
+def test_local_nickname_survives_login_sync(fakeMysql, fakeAcis, client):
+    """昵称以本地为准：家庭管理员代改后，登录同步不得把 acis 回包写回去。"""
+    fakeAcis.users[LOGIN_ID] = accountService.hashPasswd(PASSWD, LOGIN_ID)
+    assert client.post("/api/auth/login", json={"login_id": LOGIN_ID, "passwd": PASSWD}).status_code == 200
+    assert fakeMysql.rows[LOGIN_ID]["nickName"] == "爸爸"
+
+    assert accountService.updateNickName(LOGIN_ID, "小舅", operatorLoginID="13900000000") is True
+    assert fakeMysql.rows[LOGIN_ID]["nickName"] == "小舅"
+    assert fakeMysql.rows[LOGIN_ID]["modifyID"] == "13900000000"
+    fakeMysql.updates.clear()
+
+    resp = client.post("/api/auth/login", json={"login_id": LOGIN_ID, "passwd": PASSWD})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["user"]["nick_name"] == "小舅"
+    assert fakeMysql.rows[LOGIN_ID]["nickName"] == "小舅"
+    assert fakeMysql.updates == []
+
+
 def test_wrong_passwd_is_account_auth_failed(fakeMysql, fakeAcis, client):
     fakeAcis.users[LOGIN_ID] = accountService.hashPasswd(PASSWD, LOGIN_ID)
 

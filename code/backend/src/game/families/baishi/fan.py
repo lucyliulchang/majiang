@@ -13,6 +13,7 @@
 - `青龙`/`混龙` 命中 ⇒ 其组成顺子不再参与 连6/老少谱/一般高/姊妹花/三姊妹；
 - `三暗刻`/`四暗刻` 自成 `anke` 组，只与彼此互斥，可与对对胡累加；
 - 风刻（门风刻/圈风刻）不占任何组，可与任意番种累加，可叠加至 +2；
+- 箭刻（中/发/白）每种一个刻子或杠各计 1 番，最多 3 番，不占任何组，可与任意番种累加；
 - 十三幺不判独赢；七小对不判将牌（全文字七对例外，可叠独赢）。
 """
 
@@ -29,7 +30,7 @@ from game.tiles import TILE_KINDS, is_honor, is_suit, rank_of, suit_of, tile_nam
 if TYPE_CHECKING:
     from game.families.baishi.config import RuleConfig
 
-#: 07 §5 的 31 项番表（id → 名称、番值、互斥组、是否计数）
+#: 07 §5 的 32 项番表（id → 名称、番值、互斥组、是否计数）
 FAN_TABLE: tuple[tuple[str, str, int, str | None, bool], ...] = (
     ("ping_hu", "平胡", 1, "structure", False),
     ("men_qian", "门清", 1, "first", False),
@@ -62,6 +63,7 @@ FAN_TABLE: tuple[tuple[str, str, int, str | None, bool], ...] = (
     ("hai_di_lao_yue", "海底捞月", 100, None, False),
     ("men_feng_ke", "门风刻", 1, None, False),
     ("quan_feng_ke", "圈风刻", 1, None, False),
+    ("jian_ke", "箭刻", 1, None, True),
 )
 
 FAN_VALUES: dict[str, int] = {fid: fan for fid, _name, fan, _grp, _cnt in FAN_TABLE}
@@ -70,8 +72,8 @@ FAN_NAMES: dict[str, str] = {fid: name for fid, name, _fan, _grp, _cnt in FAN_TA
 #: 番表的默认行（供 config 直接构造 `FanItem`）
 FAN_DEFAULTS = FAN_TABLE
 
-#: 一般高 / 姊妹花 / 老少谱 / 连6 为计数型番种（同 id 按「组」各计一次）
-STACKABLE_FANS = frozenset({"yi_ban_gao", "zi_mei_hua", "lao_shao_fu", "lian_liu"})
+#: 一般高 / 姊妹花 / 老少谱 / 连6 / 箭刻 为计数型番种（同 id 按「组」各计一次）
+STACKABLE_FANS = frozenset({"yi_ban_gao", "zi_mei_hua", "lao_shao_fu", "lian_liu", "jian_ke"})
 
 #: 会抑制「缺门」的互斥组（07 §5 双向抑制）
 QUE_MEN_SUPPRESSORS = frozenset({"flush", "quan"})
@@ -322,6 +324,13 @@ def wind_ke_hits(sets: list[SetInfo], seat_wind: int, round_wind: int) -> list[F
     return hits
 
 
+def jian_ke_hits(sets: list[SetInfo]) -> list[FanHit]:
+    """箭刻（07 §6.10）：中/发/白 每种一个刻子或杠各 1 番，最多 3 番；将牌不算刻子。"""
+    pongs = {item.tile for item in sets if item.kind == "pong"}
+    count = sum(1 for tile in DRAGON_SET if tile in pongs)
+    return [FanHit("jian_ke", count)] if count else []
+
+
 def jiang_pai_hit(pair: int) -> list[FanHit]:
     """将牌：2/5/8/1/9 或任意字牌（0-based rank ∈ {0,1,4,7,8}）（07 §6.7）。"""
     if is_honor(pair) or rank_of(pair) in (0, 1, 4, 7, 8):
@@ -501,6 +510,7 @@ def shape_fans(ctx: HandContext, shape: HandShape) -> list[FanHit]:
     hits.extend(jiang_pai_hit(shape.pair))
     hits.extend(du_ying_hit(forms))
     hits.extend(wind_ke_hits(shape.sets, ctx.seat_wind, ctx.round_wind))
+    hits.extend(jian_ke_hits(shape.sets))
     hits.extend(situational_hits(ctx))
     if not (flush or quan):
         suits, _honors = _suit_profile(ctx)
@@ -640,6 +650,7 @@ __all__ = [
     "is_all_terminals",
     "is_seven_pairs",
     "is_thirteen_orphans",
+    "jian_ke_hits",
     "jiang_pai_hit",
     "main_suit_of",
     "seven_pairs_fans",

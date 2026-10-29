@@ -44,6 +44,8 @@ class RoomJoinCheck(BaseModel):
     status: str
     player_count: int = 0
     can_join: bool = True
+    # 非本家庭成员凭码进桌：交由牌桌上的房主二次确认，前端据此提示「要等房主同意」
+    needs_approval: bool = False
     spectate: SpectateOut = Field(default_factory=SpectateOut)
 
 

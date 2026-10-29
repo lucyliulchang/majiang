@@ -154,6 +154,62 @@ async def test_non_host_cannot_start(s5_env):
         actor._clear_timers()
 
 
+async def test_host_can_end_game_early(s5_env):
+    """开桌的人可以提前收场：已打完的局保留，未结算的一局作废，这桌随即关房。"""
+    actor, sockets = build_actor(s5_env)
+    owner = s5_env["owner"]
+    try:
+        for loginID in s5_env["members"]:
+            await actor.handle(loginID, {"type": "seat.ready", "data": {}})
+        await actor.handle(owner, {"type": "game.start", "data": {}})
+        gameID = actor.game_id
+        assert gameID
+        ownerSeat = actor.seat_of_login(owner)
+
+        await actor.handle(owner, {"type": "game.finish", "data": {}})
+
+        finished = sockets[owner].last("event.game_finished")
+        assert finished is not None
+        assert finished["data"]["aborted"] is True
+        assert finished["data"]["ended_by_seat"] == ownerSeat
+        assert len(finished["data"]["scores"]) == 4
+
+        # 房态清空：不会留着半局没人能动的牌
+        assert actor.status == "waiting"
+        assert actor.engine is None
+        assert all(not slot.ready for slot in actor.slots if slot)
+
+        # 收摊关房：广播 room_closed，演员标记关闭（WS 循环据此退出）
+        assert sockets[owner].last("event.room_closed") is not None
+        assert actor.closed is True
+
+        # 落库口径：场次中断（与进程重启一致），房间 CLOSED（大厅列表只列 OPEN）
+        assert mysqlCommon.query_mj_game_by_id(gameID)["gameStatus"] == "ABORTED"
+        assert mysqlCommon.query_mj_room_by_id(actor.room_id)["roomStatus"] == "CLOSED"
+    finally:
+        actor._clear_timers()
+        # 同一房间是 s5_env 的共享夹具，恢复 OPEN 免得影响后续用例
+        mysqlCommon.update_mj_room(mysqlCommon.MJ_ROOM_TABLE, actor.room_id, {"roomStatus": "OPEN"})
+
+
+async def test_non_host_cannot_end_game(s5_env):
+    actor, sockets = build_actor(s5_env)
+    owner = s5_env["owner"]
+    guest = s5_env["members"][1]
+    try:
+        for loginID in s5_env["members"]:
+            await actor.handle(loginID, {"type": "seat.ready", "data": {}})
+        await actor.handle(owner, {"type": "game.start", "data": {}})
+        await actor.handle(guest, {"type": "game.finish", "data": {}})
+        error = sockets[guest].last("error")
+        assert error is not None
+        assert error["data"]["code"] == "NOT_HOST"
+        assert actor.engine is not None
+        assert actor.status == "playing"
+    finally:
+        actor._clear_timers()
+
+
 async def test_start_requires_all_ready(s5_env):
     actor, sockets = build_actor(s5_env)
     owner = s5_env["owner"]

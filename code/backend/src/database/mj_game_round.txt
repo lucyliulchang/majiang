@@ -13,6 +13,7 @@ fanRaw INT NOT NULL DEFAULT 0 COMMENT '封顶前番数 不封顶时等于fanTota
 fanTotal INT NOT NULL DEFAULT 0 COMMENT '总番 封顶后'
 scoreDeltaJson JSON NULL COMMENT '四家分差 顺序为座位0到3'
 payerJson JSON NULL COMMENT '付款方明细 含包牌者与被包家 见03规则族设计'
+finalHandsJson JSON NULL COMMENT '终局四家手牌与副露 含胡张 用于结算回放核对'
 finishedYMDHMS VARCHAR(16) NOT NULL COMMENT '结算时间'
 label VARCHAR(32) COMMENT 'label'
 memo VARCHAR(200) COMMENT 'memo'

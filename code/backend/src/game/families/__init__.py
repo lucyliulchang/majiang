@@ -4,7 +4,7 @@
 注册表在导入期自检 capability：patterns 已注册、tile_set 可建墙、必备字段齐全。
 
 S6 接入：`generic`（等价迁移基线）、`guangdong`（复用通用骨架）。
-S7 接入：`sichuan`（108 张 / 禁吃 / 缺一门 / 多赢家）、`baishi`（31 项番表 / 包牌 /
+S7 接入：`sichuan`（108 张 / 禁吃 / 缺一门 / 多赢家）、`baishi`（32 项番表 / 包牌 /
 倍数 / 暂停，`ready` 由 07 §13 自检结果决定）。
 """
 

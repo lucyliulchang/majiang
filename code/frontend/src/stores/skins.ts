@@ -4,7 +4,7 @@
  * 关键约定：
  * 1. 清单一次性拉取后内存缓存，带 `If-None-Match` 协商（304 沿用缓存）；
  * 2. **切换皮肤只换 `assetMap`，不重新拉清单、不刷新牌桌**（05 §6.4）；
- * 3. 缺图不报错：`assetOf()` 返回空串，Tile 回退 CSS（05 §6.3）；
+ * 3. 缺图不报错：`assetOf()` 返回空串，Tile 回退内置矢量牌面（再不行才回退 CSS，05 §6.3）；
  * 4. 家庭切换后清单必须失效，否则会串数据。
  */
 import { defineStore } from 'pinia'
@@ -34,7 +34,7 @@ export const useSkinsStore = defineStore('skins', () => {
   const activeSkin = computed<SkinInfo | null>(
     () => enabledSkins.value.find((item) => item.skin_code === activeCode.value) ?? null
   )
-  /** 当前生效的 tile_key → URL 映射；空对象即全部回退 CSS */
+  /** 当前生效的 tile_key → URL 映射；空对象即全部使用内置矢量牌面 */
   const assetMap = computed<Record<string, string>>(
     () => activeSkin.value?.assets ?? {}
   )

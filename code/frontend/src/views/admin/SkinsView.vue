@@ -140,7 +140,7 @@ async function confirmDanger(): Promise<void> {
             皮肤管理
           </h1>
           <p class="mt-1 text-sm text-ink-300/80">
-            {{ auth.currentFamilyName }} · 34 张牌面 + 牌背共 35 张，齐了才能发布；缺一张只会让那一张回退 CSS。
+            {{ auth.currentFamilyName }} · 34 张牌面 + 牌背共 35 张，齐了才能发布；缺一张只会让那一张回退内置矢量牌面。
           </p>
         </div>
         <button

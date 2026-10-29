@@ -21,7 +21,7 @@ from game.engine import EngineError, GameEngine, SeatState, draw_seats
 from game.families import registry
 from game.tiles import tile_name
 from realtime import persist
-from realtime.snapshot import build_snapshot
+from realtime.snapshot import build_snapshot, welcome_payload
 from schemas.rule import RuleConfig
 from schemas.ws import make_message
 
@@ -97,6 +97,8 @@ class RoomActor:
         self.conns: dict[str, list[object]] = {}
         self.lock = asyncio.Lock()
         self.status = "waiting"
+        # 房主收摊后为 True：WS 循环据此结束，避免连接挂在已销毁的演员上
+        self.closed = False
         self.engine: GameEngine | None = None
         self.game_id: int | None = None
         self.last_result: dict | None = None
@@ -118,6 +120,12 @@ class RoomActor:
         # 观战：loginID → 目标绑定；按 loginID 计数，多标签页只占 1 个名额
         self.spectators: dict[str, SpectateBinding] = {}
         self._spectate_tasks: dict[str, asyncio.Task] = {}
+
+        # 非本家庭成员凭码进桌（S10）：先挂起等房主确认，批准前不分配座位、不推送房态。
+        # 批准状态按 loginID 记住（同一房间内多标签页/重连不再重复申请）；
+        # 拒绝只作用于本次申请——重进会重新提交，房主误点也能改主意。
+        self.approved: set[str] = set()
+        self.pending: dict[str, dict] = {}
 
     # ---------------------------------------------------------------- 座位与连接
     def slot_of_login(self, login_id: str) -> PlayerSlot | None:
@@ -210,6 +218,104 @@ class RoomActor:
         self.slots[seat] = slot
         return slot
 
+    # ---------------------------------------------------------------- 访客待确认（S10）
+    def needs_approval(self, login_id: str, is_member: bool) -> bool:
+        """非本家庭成员凭码进桌：房主同意前只挂着等，不给座位、不进推送列表。"""
+        if is_member or login_id == self.host_login_id:
+            return False
+        return login_id not in self.approved
+
+    def add_pending(self, login_id: str, display_name: str, color: str, ws: object) -> None:
+        item = self.pending.get(login_id)
+        if item is None:
+            item = {
+                "login_id": login_id,
+                "display_name": display_name,
+                "color": color,
+                "requested_at": time.time(),
+                "conns": [],
+            }
+            self.pending[login_id] = item
+        if ws not in item["conns"]:
+            item["conns"].append(ws)
+
+    def is_pending_conn(self, login_id: str, ws: object) -> bool:
+        item = self.pending.get(login_id)
+        return bool(item) and ws in item["conns"]
+
+    def pending_requests(self) -> list[dict]:
+        """给房主看的申请列表（不含连接对象）。"""
+        return [
+            {
+                "login_id": item["login_id"],
+                "display_name": item["display_name"],
+                "requested_at": item["requested_at"],
+            }
+            for item in self.pending.values()
+        ]
+
+    def _drop_pending_conn(self, login_id: str, ws: object) -> None:
+        item = self.pending.get(login_id)
+        if item is None:
+            return
+        if ws in item["conns"]:
+            item["conns"].remove(ws)
+        if not item["conns"]:
+            self.pending.pop(login_id, None)
+
+    async def _send_pending(self, item: dict, message: dict) -> None:
+        """待确认用户不在 `conns` 里，发消息要单独走他们挂起的连接。"""
+        for ws in list(item["conns"]):
+            try:
+                await ws.send_json(message)
+            except (RuntimeError, ConnectionError):
+                item["conns"].remove(ws)
+
+    async def approve_join(self, operator_login_id: str, login_id: str, allow: bool) -> None:
+        """`room.approve`（S10）：房主确认非本家庭访客进桌。
+
+        同意 → 分配座位（满座则观战）、补 welcome + 快照；拒绝 → 通知访客并清掉挂起连接。
+        """
+        if operator_login_id != self.host_login_id:
+            await self.send_error(operator_login_id, "FORBIDDEN", "只有房主可以确认进桌申请")
+            return
+        item = self.pending.pop(login_id, None)
+        if item is None:
+            await self.send_error(operator_login_id, "JOIN_NOT_PENDING", "这条进桌申请已经处理过了")
+            await self._push_snapshot(operator_login_id)
+            return
+
+        if not allow:
+            await self._send_pending(
+                item,
+                make_message(
+                    "room.join_denied",
+                    {"room_code": self.code, "message": "房主没有同意这次进桌"},
+                ),
+            )
+            await self._push_snapshot(operator_login_id)
+            logger.info("拒绝进桌 room=%s login=%s", self.code, login_id)
+            return
+
+        self.approved.add(login_id)
+        slot = self.assign(login_id, item["display_name"], item["color"])
+        if slot is not None:
+            await self.drop_spectate(login_id)
+        for ws in list(item["conns"]):
+            self.attach(login_id, ws)
+        chat = await run_in_threadpool(persist.load_messages, self.room_id, 50)
+        await self.send(
+            login_id, make_message("room.welcome", welcome_payload(self, login_id, slot, chat))
+        )
+        await self.push_all()
+        await self.system_chat(f"房主已同意 {item['display_name']} 进桌")
+        logger.info(
+            "批准进桌 room=%s login=%s seat=%s",
+            self.code,
+            login_id,
+            slot.seat if slot is not None else "观战",
+        )
+
     def attach(self, login_id: str, ws: object) -> None:
         conns = self.conns.setdefault(login_id, [])
         if ws not in conns:
@@ -240,8 +346,11 @@ class RoomActor:
         """
         if ws is None:
             self.conns.pop(login_id, None)
+            self.pending.pop(login_id, None)
         else:
             self._drop_conn(login_id, ws)
+            # 待确认的访客断开：撤掉申请，房主那张卡片随之消失（推送在调用方做）
+            self._drop_pending_conn(login_id, ws)
         if login_id in self.conns:
             return
         slot = self.slot_of_login(login_id)
@@ -469,6 +578,10 @@ class RoomActor:
         for login_id in list(self.conns.keys()):
             await self._push_snapshot(login_id)
 
+    async def push_snapshot_to(self, login_id: str) -> None:
+        """给单个用户补一版快照（房主收到新的进桌申请时用）。"""
+        await self._push_snapshot(login_id)
+
     async def _push_snapshot(self, login_id: str) -> None:
         slot = self.slot_of_login(login_id)
         viewer = slot.seat if slot is not None else None
@@ -500,9 +613,11 @@ class RoomActor:
             elif msg_type == "seat.ready":
                 await self._toggle_ready(login_id)
             elif msg_type == "game.start":
-                await self._start_game(login_id)
+                await self._start_game(login_id, data)
             elif msg_type == "game.next":
                 await self._next_round(login_id)
+            elif msg_type == "game.finish":
+                await self._end_game(login_id)
             elif msg_type == "game.action":
                 await self._action(login_id, data)
             elif msg_type == "room.pause":
@@ -511,6 +626,11 @@ class RoomActor:
                 await self._set_paused(login_id, False, data.get("note"))
             elif msg_type == "chat.send":
                 await self._chat(login_id, data)
+            elif msg_type == "room.approve":
+                # S10：房主确认/拒绝非本家庭访客进桌
+                await self.approve_join(
+                    login_id, str(data.get("login_id") or ""), bool(data.get("allow"))
+                )
             else:
                 await self.send_error(login_id, "UNKNOWN_TYPE", f"不认识的消息类型：{msg_type}")
 
@@ -579,7 +699,7 @@ class RoomActor:
         )
         await self.push_all()
 
-    async def _start_game(self, login_id: str) -> None:
+    async def _start_game(self, login_id: str, data: dict | None = None) -> None:
         if self.slot_of_login(login_id) is None:
             await self.send_error(login_id, "NO_SEAT", "你在观战，不能开局")
             return
@@ -596,7 +716,55 @@ class RoomActor:
         if not all(slot.ready for slot in filled):
             await self.send_error(login_id, "NOT_READY", "还有玩家没有点准备")
             return
+        if not self._apply_turn_timeout(data):
+            await self.send_error(
+                login_id, "TIMEOUT_INVALID", "出牌限时只能设 10-120 秒，0 表示不限时"
+            )
+            return
         await self._begin_game()
+
+    def _apply_turn_timeout(self, data: dict | None) -> bool:
+        """开局前由房主定本场出牌限时（03 §4.1 的开关纪律：关闭时只留 enabled）。
+
+        `enabled=false`（默认）即不限时，`seconds` 归 0；开启时只接受 10-120 秒。
+        只改内存里的本场规则，不动房间/模板快照——下一场重新选。
+        """
+        payload = (data or {}).get("turn_timeout")
+        if not isinstance(payload, dict):
+            return True
+        timeout = getattr(self.rule, "turn_timeout", None)
+        if timeout is None:
+            # 该族没有「出牌限时」概念，忽略这项设置
+            return True
+        enabled = bool(payload.get("enabled"))
+        try:
+            seconds = int(payload.get("seconds") or 0)
+        except (TypeError, ValueError):
+            return False
+        if not enabled:
+            timeout.enabled = False
+            timeout.seconds = 0
+            self._sync_timeout_snapshot()
+            return True
+        if not 10 <= seconds <= 120:
+            return False
+        timeout.enabled = True
+        timeout.seconds = seconds
+        self._sync_timeout_snapshot()
+        return True
+
+    def _sync_timeout_snapshot(self) -> None:
+        """把本场限时写回内存快照，场次落库（mj_game.ruleSnapshot）与牌桌摘要保持一致。"""
+        snapshot = self.rule_snapshot if isinstance(self.rule_snapshot, dict) else None
+        if snapshot is None:
+            return
+        timeout = getattr(self.rule, "turn_timeout", None)
+        config = snapshot.get("config")
+        if isinstance(config, dict) and timeout is not None:
+            config["turn_timeout"] = {
+                "enabled": bool(timeout.enabled),
+                "seconds": int(timeout.seconds or 0),
+            }
 
     async def _begin_game(self) -> None:
         # 每场首局抽座一次：掷骰定东位/庄家并广播 event.seats_drawn（03 §3.4）
@@ -720,6 +888,119 @@ class RoomActor:
             for entry in scores:
                 entry["total"] = self.engine.seats[entry["seat"]].total_score
         await self.broadcast(make_message("event.game_finished", {"scores": scores}))
+        await self.push_all()
+
+    async def _end_game(self, login_id: str) -> None:
+        """`game.finish`：开桌的人可以提前收场（不必等打满 rounds_per_game）。
+
+        家庭局的现实：有人要走、时间不够时，房主一句话就能收摊，而不是拖着继续打。
+        已打完的局与积分全部保留，只有正在进行的这一局作废；收场后这桌随即关房，
+        不会以「4/4 等待开局」的样子继续挂在大厅里。
+        """
+        slot = self.slot_of_login(login_id)
+        if slot is None:
+            await self.send_error(login_id, "NO_SEAT", "你在观战，不能结束牌局")
+            return
+        if login_id != self.host_login_id:
+            await self.send_error(login_id, "NOT_HOST", "只有开桌的人可以结束牌局")
+            return
+        if self.engine is None or self.status != "playing":
+            await self.send_error(login_id, "NOT_PLAYING", "牌局还没开始")
+            return
+        await self.system_chat(f"{slot.display_name} 结束了本场牌局")
+        await self._abort_game(slot)
+        # 收摊：房间置 CLOSED（大厅只列 OPEN），牌桌上的人收起连接回大厅
+        await self._persist(persist.close_room, self.room_id, slot.login_id)
+        await self.shutdown(slot.login_id)
+
+    async def shutdown(self, operator_login_id: str = "") -> None:
+        """关房收摊：广播 `event.room_closed` → 释放观战 → 从注册表移除演员。
+
+        `mj_room.roomStatus` 由调用方落库（WS 的 `game.finish` 与 HTTP 关房各一次），
+        这里只管内存房态与连接：牌桌上的人收到事件后断开，不再重连。
+        """
+        from realtime.manager import room_manager  # 局部导入：manager 反过来依赖本模块
+
+        if self.closed:
+            return
+        self.closed = True
+        self._clear_timers()
+        self.turn_deadline = None
+        self.claim_deadline = None
+        # 大厅直接关房时牌局可能还在进行：场次标中断，别留一条永远「进行中」的僵尸记录
+        if self.game_id is not None:
+            settled = self.engine is not None and self.engine.phase == "settled"
+            await self._persist(
+                persist.close_game if settled else persist.abort_game, self.game_id
+            )
+            self.game_id = None
+        await self.close_spectate()
+        # 待确认的访客还没进桌：告知房间已关，别让他们挂在「等房主确认」的遮罩上
+        for item in list(self.pending.values()):
+            await self._send_pending(
+                item,
+                make_message(
+                    "room.join_denied",
+                    {"room_code": self.code, "message": "房间已经关了"},
+                ),
+            )
+        self.pending.clear()
+        await self.broadcast(
+            make_message("event.room_closed", {"room_code": self.code, "by": operator_login_id})
+        )
+        room_manager.remove(self.code)
+        logger.info("关房 room=%s by=%s", self.code, operator_login_id or "system")
+
+    async def _abort_game(self, slot: PlayerSlot) -> None:
+        """提前收场：落库 ABORTED → 广播整场结算 → 房态清空。
+
+        清掉半局的 engine 而不是留成 `finished`：`finished` 会让重新进桌的家人
+        看到一副打了一半又没人能动的牌。随后由 `_close_room` 关房销毁演员。
+        """
+        self._clear_timers()
+        self.turn_deadline = None
+        self.claim_deadline = None
+        engine = self.engine
+        scores = []
+        for item in self.slots:
+            if item is None:
+                continue
+            total = 0
+            if engine is not None and item.seat in engine.seats:
+                total = engine.seats[item.seat].total_score
+            scores.append({"seat": item.seat, "name": item.display_name, "total": total})
+        # 本局已结算（比如打满局的最后一局刚结算完）时没有「作废的局」，
+        # 场次记 FINISHED；只有中途收场才是 ABORTED（与进程重启的中断口径一致）。
+        settled = engine is not None and engine.phase == "settled"
+        if self.game_id is not None:
+            await self._persist(
+                persist.close_game if settled else persist.abort_game, self.game_id
+            )
+        logger.info("提前收场 room=%s game=%s by=%s", self.code, self.game_id, slot.login_id)
+
+        self.status = "waiting"
+        self.engine = None
+        self.game_id = None
+        self.last_result = None
+        self.seat_draw = None
+        self.paused = False
+        self.paused_by_seat = None
+        self.paused_by_login_id = None
+        self.paused_note = None
+        for item in self.slots:
+            if item is not None:
+                item.ready = False
+        await self.broadcast(
+            make_message(
+                "event.game_finished",
+                {
+                    "scores": scores,
+                    "aborted": True,
+                    "ended_by_seat": slot.seat,
+                    "ended_by_name": slot.display_name,
+                },
+            )
+        )
         await self.push_all()
 
     async def _action(self, login_id: str, data: dict) -> None:
@@ -876,11 +1157,11 @@ class RoomActor:
         gen = self._gen
         now = time.time()
         if engine.phase == "claim":
-            self.claim_deadline = now + self.rule.claim_window_seconds
+            limit = self._claim_window_seconds()
             self.turn_deadline = None
-            self._claim_task = asyncio.create_task(
-                self._claim_timeout(gen, self.rule.claim_window_seconds)
-            )
+            self.claim_deadline = now + limit if limit else None
+            if limit:
+                self._claim_task = asyncio.create_task(self._claim_timeout(gen, limit))
         elif engine.phase == "discard" and getattr(self.rule.turn_timeout, "enabled", False):
             seconds = self.rule.turn_timeout.seconds
             self.turn_deadline = now + seconds
@@ -889,6 +1170,16 @@ class RoomActor:
         else:
             self.turn_deadline = None
             self.claim_deadline = None
+
+    def _claim_window_seconds(self) -> int:
+        """吃/碰/杠/胡 的响应窗口秒数；0 = 不计时（跟「出牌限时」同一个总开关）。
+
+        默认不限时：家庭局里漏看一眼提示就被自动「过」掉，比慢一点难受得多。
+        房主开局选了限时，响应仍按规则里的 `claim_window_seconds`（3-30 秒）询问。
+        """
+        if not getattr(getattr(self.rule, "turn_timeout", None), "enabled", False):
+            return 0
+        return int(getattr(self.rule, "claim_window_seconds", 0) or 0)
 
     def _clear_timers(self) -> None:
         for task in (self._turn_task, self._claim_task):

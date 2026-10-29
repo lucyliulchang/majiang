@@ -16,6 +16,7 @@ ClientType = Literal[
     "room.leave",
     "seat.ready",
     "game.start",
+    "game.finish",
     "game.action",
     "chat.send",
     "state.resync",

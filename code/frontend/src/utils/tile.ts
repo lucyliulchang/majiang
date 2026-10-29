@@ -98,6 +98,17 @@ export function tileKeyName(key: string): string {
 /** 牌背资源键（05 §6.1） */
 export const BACK_KEY: TileKey = 'back'
 
+/**
+ * 内置矢量牌面（`public/tileart/<tile_key>.svg`，34 张牌 + 牌背）。
+ * 皮肤没有为某张牌提供图片时，用它兜底渲染；再失败才回退纯 CSS 牌面。
+ *
+ * 注意目录名不能叫 `tiles`：`/majiangapp/tiles/` 是皮肤上传图的运行期目录，
+ * 发版脚本会把它排除在同步之外（见 deploy/deploy.sh），放进去的静态资源不会被发布。
+ */
+export function localTileArt(key: string): string {
+  return `${import.meta.env.BASE_URL}tileart/${key}.svg`
+}
+
 /** 万用汉字数字，筒用圆点，条用竖条，字用汉字 —— 牌面渲染的元信息 */
 export function tileGlyph(tile: number): { main: string; sub: string; suit: TileSuit } {
   const suit = tileSuit(tile)

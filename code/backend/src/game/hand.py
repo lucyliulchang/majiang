@@ -22,6 +22,8 @@ class Meld:
     kind: MeldKind
     tiles: list[int]
     from_seat: int | None = None
+    #: 这副里「别人打出来的那张」（吃/碰/明杠），前端据此在副露里标出来源牌
+    claim_tile: int | None = None
 
     @property
     def is_kong(self) -> bool:
@@ -39,6 +41,8 @@ class Meld:
             "tiles": list(self.tiles) if reveal else [],
             "count": len(self.tiles),
             "from_seat": self.from_seat,
+            # 只增字段不删字段（03 §11）：老前端忽略即可
+            "claim_tile": self.claim_tile if reveal else None,
         }
 
 

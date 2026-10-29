@@ -31,6 +31,7 @@ from game.tiles import (
     new_wall,
     tile_kinds_of,
     tile_name,
+    tiles_from_counts,
 )
 
 #: 一圈固定 4 个庄次（北位下庄即圈结束，03 §3.4）
@@ -93,6 +94,8 @@ class SettledRound:
     payer_allocation: list[dict] = field(default_factory=list)
     multipliers: dict = field(default_factory=lambda: {"self_draw": 1, "dealer": 1})
     summary_text: str = ""
+    #: 终局四家手牌与副露（落库 `finalHandsJson`，供战绩回放核对番种）
+    final_hands: list[dict] = field(default_factory=list)
 
     @property
     def winners(self) -> list[dict]:
@@ -116,6 +119,42 @@ class SettledRound:
                 "breakdown": self.breakdown,
             }
         ]
+
+
+def final_hands_snapshot(states: list["SeatState"], winners: list[dict]) -> list[dict]:
+    """终局四家手牌与副露（落库 `finalHandsJson`，供战绩回放核对番种）。
+
+    点炮胡 / 抢杠胡的胡张不在 `counts` 里（只在 HandContext.extra_tile），按赢家补进去；
+    自摸时 `counts` 已含胡张。暗杠也按真实牌面留痕——战绩详情只对本家成员开放。
+    """
+    win_map: dict[int, dict] = {}
+    for item in winners:
+        try:
+            win_map[int(item.get("seat"))] = item
+        except (TypeError, ValueError):
+            continue
+    result: list[dict] = []
+    for state in states:
+        tiles = tiles_from_counts(state.counts)
+        info = win_map.get(state.seat)
+        if info is not None:
+            tile = info.get("winning_tile")
+            if tile is not None and info.get("win_type") != "self_draw":
+                tiles.append(int(tile))
+                tiles.sort()
+        result.append(
+            {
+                "seat": state.seat,
+                "login_id": state.login_id,
+                "display_name": state.display_name,
+                "concealed": tiles,
+                "melds": [meld.to_dict(reveal=True) for meld in state.melds],
+                "is_winner": info is not None,
+                "win_type": (info or {}).get("win_type"),
+                "winning_tile": (info or {}).get("winning_tile"),
+            }
+        )
+    return result
 
 
 def _order_after(seat: int) -> list[int]:
@@ -743,7 +782,9 @@ class GameEngine:
         state = self.seat_state(seat)
         tile = window.tile
         state.counts[tile] -= 2
-        state.melds.append(Meld(kind="pong", tiles=[tile, tile, tile], from_seat=window.from_seat))
+        state.melds.append(
+            Meld(kind="pong", tiles=[tile, tile, tile], from_seat=window.from_seat, claim_tile=tile)
+        )
         self._take_from_river(window.from_seat, tile)
         self.claim_happened = True
         self.turn = seat
@@ -765,7 +806,12 @@ class GameEngine:
         for partner in partners:
             state.counts[partner] -= 1
         state.melds.append(
-            Meld(kind="chow", tiles=chow_tiles(window.tile, partners), from_seat=window.from_seat)
+            Meld(
+                kind="chow",
+                tiles=chow_tiles(window.tile, partners),
+                from_seat=window.from_seat,
+                claim_tile=window.tile,
+            )
         )
         self._take_from_river(window.from_seat, window.tile)
         self.claim_happened = True
@@ -818,7 +864,7 @@ class GameEngine:
         state = self.seat_state(seat)
         state.counts[tile] -= 3
         state.melds.append(
-            Meld(kind="kong_exposed", tiles=[tile] * 4, from_seat=window.from_seat)
+            Meld(kind="kong_exposed", tiles=[tile] * 4, from_seat=window.from_seat, claim_tile=tile)
         )
         self._take_from_river(window.from_seat, tile)
         self.kong_happened = True
@@ -907,7 +953,10 @@ class GameEngine:
         for index, meld in enumerate(state.melds):
             if meld.kind == "pong" and meld.tiles[0] == tile:
                 state.melds[index] = Meld(
-                    kind="kong_added", tiles=[tile] * 4, from_seat=meld.from_seat
+                    kind="kong_added",
+                    tiles=[tile] * 4,
+                    from_seat=meld.from_seat,
+                    claim_tile=meld.claim_tile,
                 )
                 break
         self.kong_happened = True
@@ -1056,6 +1105,12 @@ class GameEngine:
             state.total_score += delta[index]
 
         fan_cap = getattr(self.rule, "fan_cap", None)
+        winners_records = list(winners_list or [])
+        if not winners_records and winner is not None:
+            winners_records = [{"seat": winner, "win_type": win_type, "winning_tile": tile}]
+        final_hands = final_hands_snapshot(
+            [self.seat_state(index) for index in range(MAX_ROUNDS)], winners_records
+        )
         self.result = SettledRound(
             round_no=self.round_no,
             dealer_seat=self.dealer_seat,
@@ -1077,6 +1132,7 @@ class GameEngine:
             payer_allocation=list(payer_allocation or []),
             multipliers=dict(multipliers or {"self_draw": 1, "dealer": 1}),
             summary_text=summary_text or self._summary_text_of(breakdown),
+            final_hands=final_hands,
         )
         return [
             {

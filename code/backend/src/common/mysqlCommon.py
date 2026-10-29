@@ -131,6 +131,7 @@ MYSQL_JSON_COLUMN_NAME_LIST = [
     "fanItemsJson",     #mj_game_round
     "scoreDeltaJson",   #mj_game_round
     "payerJson",        #mj_game_round
+    "finalHandsJson",   #mj_game_round
     "detailJson",       #mj_audit_log
 ]
 MYSQL_JSON_COLUMN_NAME_SET = set(MYSQL_JSON_COLUMN_NAME_LIST)
@@ -2008,7 +2009,7 @@ def query_mj_game_detail(gameID):
             columns=(
                 "recID,gameID,familyID,roundNo,dealerSeat,roundWind,winnerSeat,winType,"
                 "winningTile,patternID,fanItemsJson,fanRaw,fanTotal,scoreDeltaJson,payerJson,"
-                "finishedYMDHMS"
+                "finalHandsJson,finishedYMDHMS"
             ),
             order="create",
             limitNum=clampLimit(200, 200),
@@ -2114,6 +2115,7 @@ def insert_mj_game_round_settlement(dataSet):
         "fanTotal": toIntSafe(dataSet.get("fanTotal")),
         "scoreDeltaJson": normalizeJsonValue4DB(dataSet.get("scoreDeltaJson")),
         "payerJson": normalizeJsonValue4DB(dataSet.get("payerJson")),
+        "finalHandsJson": normalizeJsonValue4DB(dataSet.get("finalHandsJson")),
         "finishedYMDHMS": dataSet.get("finishedYMDHMS") or now,
         "regID": dataSet.get("regID") or "",
         "regYMDHMS": now,

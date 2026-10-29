@@ -138,7 +138,7 @@ async function removeAsset(key: string): Promise<void> {
   try {
     await skins.deleteAsset(skinCode, key)
     await refresh()
-    toast.success('已删除，这一张会回退 CSS 牌面')
+    toast.success('已删除，这一张会回退内置矢量牌面')
   } catch (error) {
     toast.error((error as Error).message)
   } finally {
@@ -429,7 +429,7 @@ async function applyToMyTable(): Promise<void> {
           </div>
 
           <p class="mt-3 text-[10px] leading-relaxed text-ink-300/60">
-            预览按本皮肤的已上传资源渲染；某张没传时自动回退 CSS 牌面，不会出现空白牌。
+            预览按本皮肤的已上传资源渲染；某张没传时自动回退内置矢量牌面，不会出现空白牌。
           </p>
         </section>
       </div>

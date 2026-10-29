@@ -105,11 +105,13 @@ def roomOut(row: dict, playerCount: int = 0, spectatorCount: int = 0, familyCode
     }
 
 
-def joinCheckOut(row: dict, playerCount: int = 0, viewerCounts: list[int] | None = None) -> dict:
+def joinCheckOut(row: dict, playerCount: int = 0, viewerCounts: list[int] | None = None,
+                 needsApproval: bool = False) -> dict:
     """04 §6 的 room_join_check 结构。
 
     `viewer_counts` 来自内存房态（`RoomActor.spectator_counts`）；`available=false`
     表示 4 座已满且 40 个观战位全满，前端据此禁用「进入观战」。
+    `needs_approval=true`：呼叫者不是本家庭成员，进桌要房主在牌桌上确认。
     """
     status = _text(row, "roomStatus") or ROOM_OPEN
     players = int(playerCount or 0)
@@ -126,6 +128,7 @@ def joinCheckOut(row: dict, playerCount: int = 0, viewerCounts: list[int] | None
         "status": status,
         "player_count": players,
         "can_join": status == ROOM_OPEN and players < 4,
+        "needs_approval": bool(needsApproval),
         "spectate": {
             "limit_per_seat": SPECTATE_LIMIT_PER_SEAT,
             "viewer_counts": counts,
@@ -236,10 +239,13 @@ def getRoomByCode(
     row = mysqlCommon.query_mj_room_by_code(code)
     if not row:
         raise _err("ROOM_NOT_FOUND", "房间不存在或已关闭", 404)
-    _roomFamilyContext(loginID, int(row.get("familyID") or 0))
+    _context, isMember = _roomFamilyContext(loginID, int(row.get("familyID") or 0))
     if _text(row, "roomStatus") == ROOM_CLOSED:
         raise _err("ROOM_CLOSED", "房间已经关闭了")
-    return joinCheckOut(row, playerCount=playerCount, viewerCounts=viewerCounts)
+    needsApproval = not isMember and _text(row, "hostLoginID") != loginID
+    return joinCheckOut(
+        row, playerCount=playerCount, viewerCounts=viewerCounts, needsApproval=needsApproval
+    )
 
 
 def listMessages(loginID: str, roomID: int, limit: int = 50) -> list[dict]:
@@ -371,7 +377,7 @@ def roomMetaByCode(loginID: str, roomCode: str) -> dict:
     row = mysqlCommon.query_mj_room_by_code(code)
     if not row:
         raise _err("ROOM_NOT_FOUND", "房间不存在或已关闭", 404)
-    context, _ = _roomFamilyContext(
+    context, isMember = _roomFamilyContext(
         loginID, int(row.get("familyID") or 0), requireEnabled=True
     )
     if _text(row, "roomStatus") == ROOM_CLOSED:
@@ -379,6 +385,8 @@ def roomMetaByCode(loginID: str, roomCode: str) -> dict:
 
     family = context.get("family") or {}
     return {
+        # 非本家庭成员凭码进桌要房主确认（S10）；房主自己总是直接进
+        "is_member": bool(isMember) or _text(row, "hostLoginID") == loginID,
         "room_id": int(row.get("recID") or 0),
         "room_code": _text(row, "roomCode"),
         "room_name": _text(row, "roomName"),

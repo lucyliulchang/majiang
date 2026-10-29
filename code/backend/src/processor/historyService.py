@@ -143,6 +143,10 @@ def gameDetail(loginID: str, gameID: int, operatorIsSystemAdmin: bool = False) -
                 "score_delta": row.get("scoreDeltaJson")
                 if isinstance(row.get("scoreDeltaJson"), list)
                 else [],
+                # 终局四家手牌与副露（旧局无此列 → 空数组，前端按有值才展示）
+                "final_hands": row.get("finalHandsJson")
+                if isinstance(row.get("finalHandsJson"), list)
+                else [],
             }
         )
 
