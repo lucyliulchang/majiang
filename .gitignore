@@ -33,5 +33,8 @@ code/deploy/mj_dist.tar.gz
 code/deploy/*_result.txt
 code/deploy/s10_skin_panel_debug.png
 
-# 含明文数据库口令的运维脚本：本机保留，口令改走 .env 后再入库
-code/deploy/remote-seed-accounts.sh
+# 一次性联调/运维脚本：含测试环境地址与口令，本机保留、不入库
+code/deploy/remote-*.sh
+!code/deploy/remote-deploy-front.sh
+code/deploy/remote-*.py
+code/deploy/s10_*.py

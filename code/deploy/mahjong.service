@@ -1,0 +1,19 @@
+[Unit]
+Description=Family Mahjong (FastAPI)
+After=network.target mysql.service
+
+[Service]
+Type=simple
+User=majiang
+Group=majiang
+WorkingDirectory=/data/majiang/src
+EnvironmentFile=/data/majiang/src/.env
+# --workers 1 是硬约束：房态在进程内存里，多 worker 会分裂房间
+ExecStart=/usr/bin/python3 -m uvicorn main.app:app --host 127.0.0.1 --port 8000 --workers 1 --no-access-log --proxy-headers
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
