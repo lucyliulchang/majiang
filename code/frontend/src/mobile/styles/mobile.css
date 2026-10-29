@@ -1,0 +1,282 @@
+/**
+ * 手机版增量样式（PC 构建不引入本文件）。
+ *
+ * 只解决三件 PC 样式没覆盖的事：
+ * 1. 视口与安全区：iOS 地址栏 / 刘海 / 底部手势条（dvh + env(safe-area-inset-*)）；
+ * 2. 触控手感：去掉点击高亮与双击缩放延迟、按钮按下缩放、输入框 16px 防聚焦放大；
+ * 3. 移动端卡片与横向滚动条清理。
+ */
+
+/* ---------------- 基础：视口 / 触控 ---------------- */
+/* 声明暗色主题。Chrome Android 的「自动深色主题」会给未声明的页面强行反色：
+ * 它只反 color 与 background-color，不反渐变背景图，于是浅色文字被反成深色、
+ * 深色渐变底保持原样 —— 表现为「整页只剩背景、一个字都看不见」。
+ * 写了 color-scheme: dark 之后 Chrome 会跳过自动反色。 */
+:root {
+  color-scheme: dark;
+}
+
+/* Chrome 判断页面明暗只看 background-color（渐变不算），这里兜一层底色，
+ * 保证启发式判定为暗色页面，同时避免首屏在渐变铺开前闪白。 */
+html {
+  background-color: #071a12;
+}
+
+/* ---------------- 老内核兜底（Chrome 78 / Android 12 预装 Chrome）---------------- */
+/* 1) inset 简写是 Chrome 87+ 才有的，78 上所有弹层/遮罩会「不覆盖全屏」 */
+@supports not (inset: 0) {
+  .inset-0 {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+  }
+}
+/* 2) flex 的 gap 是 Chrome 84+ 才支持的，78 上手牌会挤成一坨、按钮贴在一起 */
+@supports not (gap: 1px) {
+  .mj-hand-row > * + * {
+    margin-left: 3px;
+  }
+  .mj-hand-row .mj-hand-drawn {
+    margin-left: 7px;
+    padding-left: 6px;
+    border-left: 1px solid rgba(201, 160, 99, 0.3);
+  }
+  .mj-meld-row > * + * {
+    margin-left: 1px;
+  }
+  .mj-btn-row > * + * {
+    margin-left: 8px;
+  }
+}
+
+/* Chrome Android 会对「长文本块」做字体自动放大（font boosting），
+ * 结果是小字突然变大、撑破卡片、和 Safari/IE 里完全两样。锁死为 100%。 */
+html,
+body {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+.mj-root {
+  min-height: 100%;
+  /* 触控：去掉 iOS/Android 的灰色点击高亮与 300ms 双击缩放 */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  /* 牌桌与列表都是「点」不是「选」，避免长按弹出选择框 */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 输入框必须允许选择与光标 */
+.mj-root input,
+.mj-root textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* dvh：地址栏收放时高度跟着变；Chrome < 108（Android 9 及更早的预装 Chrome）
+ * 不认 dvh，必须留 100vh 回退，否则整页高度为 0 —— 表现为白屏/牌桌看不见牌。 */
+.mj-app {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+.mj-dvh {
+  height: 100vh;
+  height: 100dvh;
+}
+.mj-dvh-fallback {
+  min-height: 100%;
+}
+
+/* 底部固定 TabBar 的内容让位（安全区叠加在 72px 之上） */
+.mj-tabbar-hold {
+  padding-bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+}
+
+/* 顶部固定 NavBar 的内容让位（56px 栏高 + 刘海） */
+.mj-nav-hold {
+  padding-top: calc(56px + env(safe-area-inset-top, 0px));
+}
+
+/* 底部固定主操作条（叠在 TabBar 之上）+ 内容的双重让位 */
+.mj-cta-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+  padding: 10px 16px;
+  background: linear-gradient(to top, rgba(7, 26, 18, 0.96), rgba(7, 26, 18, 0.72));
+  border-top: 1px solid rgba(201, 160, 99, 0.14);
+}
+.mj-cta-hold {
+  padding-bottom: calc(152px + env(safe-area-inset-bottom, 0px));
+}
+
+.mj-safe-b {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.mj-safe-t {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.mj-safe-x {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* ---------------- 输入与按钮 ---------------- */
+/* iOS 只有在输入框字号 ≥16px 时才不放大页面；select 不会触发放大，
+ * 所以不跟着抬（牌桌上的「限时」下拉只有 10px，抬到 16px 会撑破浮层）。 */
+.mj-root input,
+.mj-root textarea {
+  font-size: 16px;
+}
+
+/* Chrome Android 的 select 默认画成系统白底控件，和深色牌桌完全不搭；
+ * 原生箭头在暗色底上还看不见，这里统一自绘箭头。 */
+.mj-root select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%23DCC08A' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 10px 7px;
+  padding-right: 22px;
+}
+.mj-root .field {
+  padding: 0.78rem 0.9rem;
+  border-radius: 14px;
+}
+.mj-root .field::placeholder {
+  font-size: 15px;
+}
+
+/* 按压反馈：移动端没有 hover，用 active 缩放给出「按下去」的手感 */
+.mj-press {
+  transition: transform 0.14s ease, filter 0.14s ease, background-color 0.14s ease;
+}
+.mj-press:active:not(:disabled) {
+  transform: scale(0.975);
+  filter: brightness(1.04);
+}
+
+/* ---------------- 卡片与列表 ---------------- */
+.mj-card {
+  border-radius: 16px;
+  border: 1px solid rgba(247, 243, 232, 0.1);
+  background: linear-gradient(160deg, rgba(16, 51, 39, 0.72), rgba(9, 32, 23, 0.66));
+}
+.mj-card-flat {
+  border-radius: 14px;
+  border: 1px solid rgba(247, 243, 232, 0.09);
+  background: rgba(247, 243, 232, 0.035);
+}
+
+/* 横向滑动（手牌、家庭 chips）：隐藏滚动条，保留惯性 */
+.mj-hscroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.mj-hscroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* 竖向滚动区：隐藏滚动条（iOS 上本来就不显示，Android 会画粗条） */
+.mj-vscroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+.mj-vscroll::-webkit-scrollbar {
+  width: 4px;
+}
+.mj-vscroll::-webkit-scrollbar-thumb {
+  background: rgba(201, 160, 99, 0.22);
+  border-radius: 999px;
+}
+
+/* ---------------- 牌桌专用 ---------------- */
+/* 牌桌是沉浸场景：禁掉整屏的选择/长按菜单，避免拖手牌时弹「拷贝」 */
+.mj-table {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  overscroll-behavior: none;
+}
+
+/* 顶部/底部压暗条：少用 backdrop-blur（中低端安卓掉帧），用半透明纯色替代 */
+.mj-bar-top {
+  background: rgba(7, 26, 18, 0.9);
+  border-bottom: 1px solid rgba(201, 160, 99, 0.16);
+}
+.mj-bar-bottom {
+  background: rgba(7, 26, 18, 0.94);
+  border-top: 1px solid rgba(201, 160, 99, 0.16);
+}
+
+/* 事件横幅滑入 */
+@keyframes mj-banner-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+.mj-banner {
+  animation: mj-banner-in 0.2s ease-out both;
+}
+
+/* ---------------- 底部抽屉 ---------------- */
+.mj-sheet {
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  border: 1px solid rgba(201, 160, 99, 0.22);
+  border-bottom: none;
+  background: linear-gradient(180deg, #0f3d2e 0%, #08211a 100%);
+  box-shadow: 0 -20px 50px -20px rgba(0, 0, 0, 0.8);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.sheet-enter-active,
+.sheet-leave-active {
+  transition: opacity 0.2s ease;
+}
+.sheet-enter-active .mj-sheet,
+.sheet-leave-active .mj-sheet {
+  transition: transform 0.24s cubic-bezier(0.22, 0.8, 0.3, 1);
+}
+.sheet-enter-from,
+.sheet-leave-to {
+  opacity: 0;
+}
+.sheet-enter-from .mj-sheet,
+.sheet-leave-to .mj-sheet {
+  transform: translateY(100%);
+}
+
+/* 抽屉里的抓握条 */
+.mj-grabber {
+  width: 38px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(247, 243, 232, 0.22);
+}
+
+/* ---------------- 认证页背景牌 ---------------- */
+@keyframes mj-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(var(--mj-tilt, 0deg));
+  }
+  50% {
+    transform: translateY(-16px) rotate(var(--mj-tilt, 0deg));
+  }
+}
+.mj-float {
+  animation: mj-float 7s ease-in-out infinite;
+}

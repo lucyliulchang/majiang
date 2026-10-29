@@ -1,9 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-import { getToken } from '../api/http'
-import { useAuthStore } from '../stores/auth'
-
-const PUBLIC_AUTH_ROUTES = ['login', 'register', 'forgot-password']
+import { installGuards } from './guards'
 
 const router = createRouter({
   // 与 vite base 对齐：部署在 /majiangapp/ 下时，刷新子路由才不会 404
@@ -81,32 +78,6 @@ const router = createRouter({
   ]
 })
 
-router.beforeEach(async (to) => {
-  const logged = Boolean(getToken())
-  if (!to.meta.public && !logged) {
-    return { name: 'login', query: { redirect: to.fullPath } }
-  }
-  // 已登录访问公开页统一回大厅（05 §3）
-  if (logged && PUBLIC_AUTH_ROUTES.includes(String(to.name))) return { name: 'lobby' }
-  if (!logged) return true
-
-  const auth = useAuthStore()
-  // 会话（用户 + 我的家庭 + 当前家庭）没拉过先补一次：直接刷新页面进 /rules 也能判守卫
-  await auth.ensureSession()
-
-  if (to.meta.requiresFamily && !auth.currentFamilyCode) {
-    return { name: 'families', query: { redirect: to.fullPath } }
-  }
-  // 皮肤管理：家庭管理员或系统管理员（05 §3）
-  if (to.meta.requiresAdmin && !auth.canManageSkins) {
-    return { name: 'lobby' }
-  }
-  return true
-})
-
-router.afterEach((to) => {
-  const title = (to.meta.title as string) || '家庭麻将'
-  document.title = `${title} · 家庭麻将`
-})
+installGuards(router)
 
 export default router

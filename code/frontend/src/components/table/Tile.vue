@@ -7,7 +7,8 @@ import { barCount, dotSlots, localTileArt, tileGlyph, tileKey, tileName, tileRan
 const props = withDefaults(
   defineProps<{
     tile: number
-    size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'
+    /** `micro`/`hand` 是手机牌桌专用档位（牌河小牌 / 自己手牌） */
+    size?: 'micro' | 'xs' | 'sm' | 'md' | 'hand' | 'lg' | 'xl'
     faceDown?: boolean
     selected?: boolean
     highlight?: boolean
@@ -38,9 +39,12 @@ const props = withDefaults(
  * 这样 `<img>` 用 object-contain 铺满时不会出现上下留白，牌面也不会被拉伸。
  */
 const SIZES = {
+  micro: { box: 'w-[20px] h-[27px] rounded-[2px]', pad: 'p-[1px]', dot: 'w-[2px] h-[2px]', main: 'text-[10px]', sub: 'text-[6px]', bar: 'w-[1.5px]', gap: 'gap-[0.5px]' },
   xs: { box: 'w-[17px] h-[23px] rounded-[2px]', pad: 'p-[1px]', dot: 'w-[2px] h-[2px]', main: 'text-[9px]', sub: 'text-[6px]', bar: 'w-[1.5px]', gap: 'gap-[1px]' },
   sm: { box: 'w-[24px] h-[33px] rounded-[3px]', pad: 'p-[2px]', dot: 'w-[3px] h-[3px]', main: 'text-[11px]', sub: 'text-[7px]', bar: 'w-[2px]', gap: 'gap-[2px]' },
   md: { box: 'w-[32px] h-[44px] rounded-[4px]', pad: 'p-[3px]', dot: 'w-[4px] h-[4px]', main: 'text-[15px]', sub: 'text-[9px]', bar: 'w-[2.5px]', gap: 'gap-[2px]' },
+  // 手机牌桌专用：38×52 刚好让 14 张排在 iPhone 横屏一屏内
+  hand: { box: 'w-[38px] h-[52px] rounded-[4px]', pad: 'p-[3px]', dot: 'w-[5px] h-[5px]', main: 'text-[18px]', sub: 'text-[10px]', bar: 'w-[3px]', gap: 'gap-[2px]' },
   lg: { box: 'w-[42px] h-[57px] rounded-[5px]', pad: 'p-[4px]', dot: 'w-[6px] h-[6px]', main: 'text-[20px]', sub: 'text-[11px]', bar: 'w-[3px]', gap: 'gap-[3px]' },
   xl: { box: 'w-[54px] h-[74px] rounded-[6px]', pad: 'p-[5px]', dot: 'w-[8px] h-[8px]', main: 'text-[26px]', sub: 'text-[14px]', bar: 'w-[4px]', gap: 'gap-[4px]' }
 }
