@@ -8,8 +8,10 @@
   },
   "scripts": {
     "dev": "vite",
+    "dev:mobile": "vite --open /mobile.html",
     "typecheck": "vue-tsc --noEmit",
     "build": "vue-tsc --noEmit && vite build",
+    "build:mobile": "vue-tsc --noEmit && vite build --mode mjmobile",
     "preview": "vite preview"
   },
   "dependencies": {

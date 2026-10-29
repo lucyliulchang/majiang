@@ -225,7 +225,8 @@ export const useGameStore = defineStore('game', () => {
       toast.error(data.message || '操作失败')
       if (data.code === 'UNAUTHORIZED') {
         window.setTimeout(() => {
-          window.location.href = '/login'
+          // 按构建 base 跳登录：手机版在 /mjmobile/ 下，写死 /login 会 404
+          window.location.href = `${import.meta.env.BASE_URL}login`
         }, 1200)
       }
       return

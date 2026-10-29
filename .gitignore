@@ -25,6 +25,9 @@ code/backend/data/webserver/majiangapp/tiles/*
 # 前端
 code/frontend/node_modules/
 code/frontend/dist/
+# 手机版第二产物（npm run build:mobile）
+code/frontend/dist-mobile/
+code/frontend/dist-mobile.tar.gz
 
 # 工具与联调产物
 .playwright-cli/

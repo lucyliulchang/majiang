@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- 手机端：铺满刘海屏、禁止双指缩放（牌桌上是点击而非缩放） -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0A2419" />
+    <!-- 声明本站是暗色页面：Chrome Android 的「自动深色主题」只反转文字色与纯色背景，
+         不反转渐变背景，会把浅色文字反成深色 —— 深底深字，整页只剩背景看不见字。 -->
+    <meta name="color-scheme" content="dark" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="家庭麻将" />
+    <meta name="format-detection" content="telephone=no" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230F3D2E'/%3E%3Crect x='9' y='9' width='46' height='46' rx='8' fill='%23F7F3E8'/%3E%3Ctext x='32' y='44' font-size='30' font-family='serif' font-weight='700' text-anchor='middle' fill='%23C0392B'%3E中%3C/text%3E%3C/svg%3E"
+    />
+    <title>家庭麻将 · 手机版</title>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <!-- 启动自检（纯 ES5、不依赖任何构建产物）：
+         一旦脚本 404 或运行时抛错，Vue 挂不上，页面就只剩 CSS 背景。
+         这里在 2.5 秒后检查 #app 是否为空，为空则用「浅底深字」把故障原因写在屏幕上，
+         这样即便用户的浏览器做了自动反色也仍然看得见，也便于截图排查。 -->
+    <div
+      id="mj-boot"
+      style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 99999; overflow: auto; padding: 22px 18px; background: #fff8e6; color: #141c18; font: 14px/1.65 system-ui, -apple-system, 'Microsoft YaHei', sans-serif; -webkit-text-size-adjust: 100%"
+    >
+      <h1 style="margin: 0 0 10px; font-size: 17px">页面没能启动</h1>
+      <p style="margin: 0 0 12px">请把下面这段文字截图发给开发者。</p>
+      <pre
+        id="mj-boot-msg"
+        style="margin: 0 0 14px; padding: 10px; border-radius: 10px; background: #f2e6c9; color: #7a2d20; font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-all"
+      ></pre>
+      <pre
+        id="mj-boot-env"
+        style="margin: 0 0 14px; color: #4a4a4a; font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-all"
+      ></pre>
+      <button
+        type="button"
+        onclick="location.replace(location.pathname + '?_=' + Date.now())"
+        style="padding: 12px 18px; border: none; border-radius: 10px; background: #96682c; color: #fff8e6; font: 600 15px/1 system-ui, sans-serif"
+      >
+        强制重新加载
+      </button>
+    </div>
+
+    <script>
+      ;(function () {
+        var problems = []
+        var shown = false
+        var box = document.getElementById('mj-boot')
+        var msg = document.getElementById('mj-boot-msg')
+        var env = document.getElementById('mj-boot-env')
+
+        function show() {
+          if (shown || !box) return
+          shown = true
+          box.style.display = 'block'
+          msg.textContent = problems.length
+            ? problems.join('\n')
+            : '脚本已加载，但页面内容是空的（可能是样式或初始化卡住了）。'
+          env.textContent =
+            'UA: ' + navigator.userAgent +
+            '\nURL: ' + location.href +
+            '\n时间: ' + new Date().toLocaleString()
+        }
+
+        // 捕获脚本加载失败（404 / MIME 不对）与运行时异常
+        window.addEventListener(
+          'error',
+          function (event) {
+            var el = event.target
+            if (el && el.tagName === 'SCRIPT') {
+              problems.push('脚本加载失败: ' + (el.src || '(inline)'))
+            } else if (event.message) {
+              problems.push('JS 错误: ' + event.message + '\n  @ ' + (event.filename || '') + ':' + (event.lineno || 0))
+            }
+            setTimeout(show, 0)
+          },
+          true
+        )
+        window.addEventListener('unhandledrejection', function (event) {
+          var reason = event.reason
+          problems.push('未处理的异常: ' + ((reason && (reason.message || reason)) || 'unknown'))
+          setTimeout(show, 0)
+        })
+
+        setTimeout(function () {
+          var app = document.getElementById('app')
+          if (!app || app.children.length === 0) show()
+        }, 2500)
+      })()
+    </script>
+
+    <script type="module" src="/src/mobile/main.ts"></script>
+  </body>
+</html>
