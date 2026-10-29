@@ -5089,3 +5089,159 @@ def update_mj_schema_version(tableName,recID,dataSet):
 #mj_schema_version end
 
 #===== auto-generated sections end =====
+
+
+# ---------------------------------------------------------------- 皮肤域（S8，手写区）
+# 说明：生成版 insert/update 会跳过空值，预览图与 defaultFlag 需要「置空/清零」，
+# 故这里补少量手写函数；列表类查询与既有 query_mj_tile_skin_* 保持同一口径。
+
+_SKIN_ASSET_QUERY_LIMIT = 400
+# 资源行按「皮肤 × 35 张」累积，超过通用列表上限 100，单独给一个硬上限
+_SKIN_ASSET_QUERY_MAX = 4000
+
+
+def query_mj_tile_skin_by_id(skinID):
+    """按 recID 取皮肤主档（单条，无记录返回 {}）"""
+    result = {}
+    skinID = toIntSafe(skinID)
+    if skinID <= 0:
+        return result
+    dataList = queryTableGeneral(
+        MJ_TILE_SKIN_TABLE,
+        condList=[["recID", "=", skinID]],
+        order="create",
+        limitNum=1,
+    )
+    if dataList:
+        result = dataList[0]
+    return result
+
+
+def query_mj_tile_skin_list_all(familyID):
+    """本家庭可见皮肤（**含 DISABLED**）：清单 ETag 与后台管理用。
+
+    对外清单只给 ENABLED（query_mj_tile_skin_list）；停用/软删也必须改变 ETag，
+    否则前端 304 之后仍用旧清单，永远看不到「这张皮被下架了」。
+    """
+    result = []
+    sqlStr = (
+        "SELECT recID, skinCode, skinName, familyID, previewFileID, tileAspect, "
+        "defaultFlag, skinStatus, sortOrder, ownerLoginID, regYMDHMS, modifyYMDHMS "
+        "FROM %s WHERE familyID IN (0, %%s) AND (delFlag = '0' OR delFlag IS NULL) "
+        "ORDER BY familyID ASC, sortOrder ASC, recID ASC LIMIT %%s"
+    ) % MJ_TILE_SKIN_TABLE
+    try:
+        rtn = mysqlDB.executeRead(
+            sqlStr,
+            (
+                toIntSafe(familyID),
+                clampLimit(_SKIN_ASSET_QUERY_LIMIT, _SKIN_ASSET_QUERY_LIMIT, 200),
+            ),
+        )
+        if rtn > 0:
+            result = list(dataFormatConvert(mysqlDB.fetchAll()))
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("query_mj_tile_skin_list_all:%s", e)
+    return result
+
+
+def query_mj_tile_skin_asset_list_by_family(familyID):
+    """本家庭可见皮肤的逐张资源（含 DISABLED 皮肤），一次取回供清单与 ETag 共用"""
+    result = []
+    sqlStr = (
+        "SELECT recID, skinID, familyID, tileKey, fileID, thumbFileID, width, height, "
+        "fileSize, sortOrder, regYMDHMS, modifyYMDHMS "
+        "FROM %s WHERE familyID IN (0, %%s) AND (delFlag = '0' OR delFlag IS NULL) "
+        "ORDER BY skinID ASC, recID ASC LIMIT %%s"
+    ) % MJ_TILE_SKIN_ASSET_TABLE
+    try:
+        rtn = mysqlDB.executeRead(
+            sqlStr,
+            (
+                toIntSafe(familyID),
+                clampLimit(
+                    _SKIN_ASSET_QUERY_MAX, _SKIN_ASSET_QUERY_LIMIT, _SKIN_ASSET_QUERY_MAX
+                ),
+            ),
+        )
+        if rtn > 0:
+            result = list(dataFormatConvert(mysqlDB.fetchAll()))
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("query_mj_tile_skin_asset_list_by_family:%s", e)
+    return result
+
+
+def query_mj_tile_skin_asset_by_key(skinCode, tileKey):
+    """按 skinTileKey（skinCode_tileKey）取一条资源；软删过的行也会返回，由调用方决定复活"""
+    result = {}
+    skinCode = (skinCode or "").strip()
+    tileKey = (tileKey or "").strip()
+    if not skinCode or not tileKey:
+        return result
+    dataList = queryTableGeneral(
+        MJ_TILE_SKIN_ASSET_TABLE,
+        condList=[["skinTileKey", "=", "%s_%s" % (skinCode, tileKey)]],
+        order="create",
+        limitNum=1,
+    )
+    if dataList:
+        result = dataList[0]
+    return result
+
+
+def update_mj_tile_skin_fields(skinID, dataSet):
+    """按 recID 更新皮肤任意列（允许置空）：预览图、defaultFlag 需要能写 None / '0'"""
+    skinID = toIntSafe(skinID)
+    if skinID <= 0 or not dataSet:
+        return 0
+    try:
+        return updateTableGeneral(MJ_TILE_SKIN_TABLE, "recID = %s", [skinID], dataSet)
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("update_mj_tile_skin_fields:%s", e)
+        return -1
+
+
+def clear_mj_tile_skin_default(familyID, exceptSkinID, modifyID = ""):
+    """清掉同家庭其它皮肤的 defaultFlag（setDefault 在同一事务内调用，保证唯一）"""
+    sqlStr = (
+        "UPDATE %s SET defaultFlag = '0', modifyID = %%s, modifyYMDHMS = %%s "
+        "WHERE familyID = %%s AND recID <> %%s AND defaultFlag = '1' "
+        "AND (delFlag = '0' OR delFlag IS NULL)"
+    ) % MJ_TILE_SKIN_TABLE
+    try:
+        return mysqlDB.executeWrite(
+            sqlStr, (modifyID, misc.getTime(), toIntSafe(familyID), toIntSafe(exceptSkinID))
+        )
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("clear_mj_tile_skin_default:%s", e)
+        return -1
+
+
+def clear_mj_family_default_skin(familyID, skinCode):
+    """皮肤软删后清掉家庭的 defaultSkinCode（仅当它仍指向该皮肤）"""
+    sqlStr = (
+        "UPDATE %s SET defaultSkinCode = NULL, modifyYMDHMS = %%s "
+        "WHERE recID = %%s AND defaultSkinCode = %%s"
+    ) % MJ_FAMILY_TABLE
+    try:
+        return mysqlDB.executeWrite(
+            sqlStr, (misc.getTime(), toIntSafe(familyID), (skinCode or "").strip())
+        )
+    except DBUnavailableError:
+        raise
+    except Exception as e:
+        if _DEBUG:
+            _LOG.error("clear_mj_family_default_skin:%s", e)
+        return -1

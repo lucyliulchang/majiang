@@ -55,6 +55,9 @@ class HandContext:
     is_last_tile: bool = False  # 海底
     is_robbing_kong: bool = False
     is_after_kong: bool = False  # 杠上开花
+    # ---- S7 时效判定所需的局面快照（柏氏 天胡/地胡，07 §6.5）----
+    is_heavenly: bool = False  # 庄家起手 14 张成胡、牌墙未动
+    is_earthly: bool = False  # 闲家本局第一次摸牌即自摸、此前无人吃碰明杠
 
     @property
     def total_tiles(self) -> int:
@@ -63,6 +66,11 @@ class HandContext:
     @property
     def has_exposed_meld(self) -> bool:
         return any(m.exposed for m in self.melds)
+
+    @property
+    def exposed_melds(self) -> list[Meld]:
+        """明牌（吃/碰/明杠各算一组，暗杠不算；柏氏包牌条件二，07 §7.1）。"""
+        return [meld for meld in self.melds if meld.exposed]
 
     @property
     def meld_tiles(self) -> list[int]:
@@ -102,6 +110,23 @@ def suit_profile(counts: list[int], extra_tiles: list[int] | None = None) -> tup
         else:
             suits.add(suit_of(tile))
     return suits, honors
+
+
+def suit_set(ctx: "HandContext") -> set[int]:
+    """整手牌（手牌 + 副露）出现过的数牌花色集合；字牌不参与（03 §6 缺一门）。"""
+    suits: set[int] = set()
+    for tile, count in enumerate(ctx.counts):
+        if count > 0 and is_suit(tile):
+            suits.add(suit_of(tile))
+    for tile in ctx.meld_tiles:
+        if is_suit(tile):
+            suits.add(suit_of(tile))
+    return suits
+
+
+def lack_suit_satisfied(ctx: "HandContext") -> bool:
+    """四川缺一门（03 §6）：手牌 + 副露只能出现两种数牌花色；字牌不参与判定。"""
+    return len(suit_set(ctx)) <= 2
 
 
 def ranks_in_suit(counts: list[int], suit: int) -> list[int]:

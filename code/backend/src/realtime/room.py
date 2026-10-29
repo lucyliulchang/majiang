@@ -102,6 +102,11 @@ class RoomActor:
         self.last_result: dict | None = None
         self.turn_deadline: float | None = None
         self.claim_deadline: float | None = None
+        # 暂停（04 §9.4）：只有声明了 `pause` 开关的族可用；暂停期间冻结操作与倒计时
+        self.paused = False
+        self.paused_by_seat: int | None = None
+        self.paused_by_login_id: str | None = None
+        self.paused_note: str | None = None
         # 本场抽座结果（每场首局抽一次，圈内 4 局不重抽，03 §3.4）
         self.seat_draw: dict | None = None
 
@@ -500,10 +505,68 @@ class RoomActor:
                 await self._next_round(login_id)
             elif msg_type == "game.action":
                 await self._action(login_id, data)
+            elif msg_type == "room.pause":
+                await self._set_paused(login_id, True, data.get("note"))
+            elif msg_type == "room.resume":
+                await self._set_paused(login_id, False, data.get("note"))
             elif msg_type == "chat.send":
                 await self._chat(login_id, data)
             else:
                 await self.send_error(login_id, "UNKNOWN_TYPE", f"不认识的消息类型：{msg_type}")
+
+    # ---------------------------------------------------------------- 暂停
+    def _pause_supported(self) -> bool:
+        """暂停是族能力（03 §2.2 `switches` 含 `pause`），不支持就不接这条消息。"""
+        pause = getattr(self.rule, "pause", None)
+        return bool(getattr(pause, "enabled", False))
+
+    async def _set_paused(self, login_id: str, paused: bool, note=None) -> None:
+        """`room.pause` / `room.resume`（04 §9.4）：暂停期间冻结一切倒计时与操作。"""
+        slot = self.slot_of_login(login_id)
+        if slot is None:
+            await self.send_error(login_id, "NO_SEAT", "你在观战，不能暂停牌局")
+            return
+        if not self._pause_supported():
+            await self.send_error(login_id, "PAUSE_UNSUPPORTED", "当前规则族不支持暂停")
+            return
+        if self.status != "playing" or self.engine is None or self.engine.phase == "settled":
+            await self.send_error(login_id, "NOT_PLAYING", "牌局还没开始或本局已结束")
+            return
+        if paused == self.paused:
+            await self.send_error(
+                login_id,
+                "PAUSE_UNCHANGED",
+                "牌局已经暂停" if paused else "牌局没有暂停",
+            )
+            return
+
+        self.paused = paused
+        self.paused_by_seat = slot.seat if paused else None
+        self.paused_note = (str(note).strip()[:60] or None) if paused else None
+        self.paused_by_login_id = login_id if paused else None
+        if paused:
+            self._clear_timers()
+            self.turn_deadline = None
+            self.claim_deadline = None
+        else:
+            # 恢复后重开当前阶段的计时（暂停期间不累计进度）
+            self._sync_timers()
+        await self.broadcast(
+            make_message(
+                "event.paused",
+                {
+                    "paused": paused,
+                    "by_seat": self.paused_by_seat,
+                    "by_name": slot.display_name if paused else None,
+                    "note": self.paused_note,
+                },
+            )
+        )
+        await self.system_chat(
+            f"{slot.display_name} {'暂停了牌局' if paused else '恢复了牌局'}"
+            + (f"（{self.paused_note}）" if self.paused_note else "")
+        )
+        await self.push_all()
 
     async def _toggle_ready(self, login_id: str) -> None:
         slot = self.slot_of_login(login_id)
@@ -572,6 +635,10 @@ class RoomActor:
             await self._notifyWriteFailed()
         self.status = "playing"
         self.last_result = None
+        self.paused = False
+        self.paused_by_seat = None
+        self.paused_by_login_id = None
+        self.paused_note = None
         logger.info("开桌 room=%s game=%s dealer=%s", self.code, self.game_id, draw["dealer_seat"])
         await self._after(self.engine.start_round())
 
@@ -663,6 +730,9 @@ class RoomActor:
         if self.engine is None or self.engine.phase == "settled":
             await self.send_error(login_id, "NOT_PLAYING", "牌局还没开始或本局已结束")
             return
+        if self.paused:
+            await self.send_error(login_id, "ROOM_PAUSED", "牌局已暂停，恢复后才能继续操作")
+            return
         action = {
             "action": data.get("action"),
             "tiles": data.get("tiles") or [],
@@ -708,6 +778,9 @@ class RoomActor:
         if self.engine is not None and self.engine.phase == "settled":
             await self._on_settled()
             return
+        # 无杠荒庄 → 重发本局：给牌桌留一句系统提示，避免家人以为卡住了（03 §3.6）
+        if any(event["type"] == "event.round_restarted" for event in events):
+            await self.system_chat("牌墙摸尽且本局无人杠，重新发牌（第 %d 局不计）" % self.engine.round_no)
         self._sync_timers()
 
     async def _on_settled(self) -> None:
@@ -736,7 +809,10 @@ class RoomActor:
             "fan_raw": settled.fan_raw,
             "fan_cap": settled.fan_cap,
             "kong_delta": settled.kong_delta,
-            "payer_allocation": [],
+            # S7 追加：包牌/倍数付款方分配（四川血战与柏氏包牌会用到）
+            "payer_allocation": list(settled.payer_allocation),
+            "multipliers": dict(settled.multipliers),
+            "summary_text": settled.summary_text,
             "is_draw": settled.is_draw,
         }
         if self.game_id is not None:
@@ -754,13 +830,33 @@ class RoomActor:
             settled.score_delta,
             self.rule.kong_score.enabled,
         )
-        if settled.winner_seat is not None:
+        winners = settled.winners
+        if len(winners) > 1:
+            # 四川血战：一局多个赢家，逐个点名（事件协议不变，只是文案更完整）
+            parts = []
+            for item in winners:
+                seat = int(item.get("seat", 0))
+                name = self.engine.seats[seat].display_name
+                parts.append(
+                    f"{name}{'自摸' if item.get('win_type') == 'self_draw' else '胡'}"
+                    f" {item.get('fan_total', 0)} 番"
+                )
+            text = "多人胡牌：" + "、".join(parts)
+        elif settled.winner_seat is not None:
             text = (
                 f"{self.engine.seats[settled.winner_seat].display_name} "
                 f"{'自摸' if settled.win_type == 'self_draw' else '胡牌'}"
                 f"（{tile_name(settled.winning_tile) if settled.winning_tile is not None else '荒庄'}）"
                 f"，{settled.fan_total} 番"
             )
+            if settled.summary_text:
+                text += f" · {settled.summary_text}"
+            for allocation in settled.payer_allocation:
+                if allocation.get("reason") == "bao_pai":
+                    payer = int(allocation.get("bao_pai_seat", 0))
+                    text += f" · 包牌：{self.engine.seats[payer].display_name}独付"
+        elif engine.kong_happened:
+            text = "荒庄（本局有杠），本局计局并迁庄"
         else:
             text = "荒庄，本局无人胡牌"
         await self.system_chat(text)
@@ -771,6 +867,11 @@ class RoomActor:
         engine = self.engine
         if engine is None:
             return
+        if self.paused:
+            # 暂停期间冻结一切倒计时（04 §9.4），恢复时再按当前阶段重开
+            self.turn_deadline = None
+            self.claim_deadline = None
+            return
         self._gen += 1
         gen = self._gen
         now = time.time()
@@ -780,7 +881,7 @@ class RoomActor:
             self._claim_task = asyncio.create_task(
                 self._claim_timeout(gen, self.rule.claim_window_seconds)
             )
-        elif engine.phase == "discard" and self.rule.turn_timeout.enabled:
+        elif engine.phase == "discard" and getattr(self.rule.turn_timeout, "enabled", False):
             seconds = self.rule.turn_timeout.seconds
             self.turn_deadline = now + seconds
             self.claim_deadline = None

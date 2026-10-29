@@ -1,8 +1,11 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [vue()],
+  // 生产部署在 /majiangapp/ 下（06 §8.2）：构建产物必须带前缀；dev 保持 '/'，
+  // 否则 vite 的 /majiangapp 静态代理会和资源路径打架。
+  base: command === 'build' ? '/majiangapp/' : '/',
   server: {
     host: '0.0.0.0',
     port: 5173,
@@ -28,4 +31,4 @@ export default defineConfig({
     outDir: 'dist',
     chunkSizeWarningLimit: 900
   }
-})
+}))

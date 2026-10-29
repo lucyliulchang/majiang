@@ -83,9 +83,10 @@ def intInRange(value, low: int, high: int, defaultValue: int) -> int:
         return defaultValue
     return number
 
-# 皮肤图片上传限制（S8 落地时使用，此处只定常量）
-UPLOAD_MAX_BYTES = 2 * 1024 * 1024
-UPLOAD_ALLOWED_SUFFIXES = (".png", ".webp", ".jpg", ".jpeg")
+# 皮肤图片上传限制（S8）：单文件 ≤512 KB、单皮肤 ≤8 MB、只认 png/webp，拒绝 svg（01 §10）
+UPLOAD_MAX_BYTES = 512 * 1024
+UPLOAD_MAX_SKIN_BYTES = 8 * 1024 * 1024
+UPLOAD_ALLOWED_SUFFIXES = (".png", ".webp")
 
 
 def default_sqlite_url(data_dir: Path = DEFAULT_DATA_DIR) -> str:
@@ -109,6 +110,16 @@ class BasicSettings(BaseSettings):
     # 运行时目录：允许用 LOG_DIR / DATA_DIR 覆盖（生产可指到独立挂载盘）
     log_dir: Path = DEFAULT_LOG_DIR
     data_dir: Path = DEFAULT_DATA_DIR
+
+    # 前端直访的图片站点根（01 §10、11）：
+    #   本地缺省 code/backend/data/webserver/majiangapp；
+    #   生产必须显式 UPLOAD_DIR=/data/webserver/majiangapp，与 Nginx 的站点根对齐。
+    upload_dir: str = ""
+    max_upload_bytes: int = UPLOAD_MAX_BYTES
+
+    # 皮肤功能开关（06 §8.3 回滚：SKIN_ENABLED=false → 清单为空、写操作 403，
+    # 前端整桌回退 css-classic，不需要发版）
+    skin_enabled: bool = True
 
     token_ttl_hours: int = DEFAULT_TOKEN_TTL_HOURS
     cors_origins: str = DEFAULT_CORS_ORIGINS

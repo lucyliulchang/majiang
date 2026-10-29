@@ -49,11 +49,46 @@ def kong_delta(
 @dataclass
 class RoundOutcome:
     winner_seat: int | None
-    win_type: str  # "self_draw" | "discard" | "none"
+    win_type: str  # "self_draw" | "discard" | "kong" | "none"
     discount_seat: int | None
     score: int
     breakdown: ScoreBreakdown | None
     delta: list[int]
+
+
+def default_win_delta(
+    rule: RuleConfig,
+    winner_seat: int,
+    is_self_draw: bool,
+    discard_seat: int | None,
+    score: int,
+) -> list[int]:
+    """通用族的「一家胡牌」分差（不含杠分，杠分由引擎另行累加）。
+
+    族可以整段替换这条算法（四川多赢家、柏氏倍数 + 包牌），骨架只认这个函数名。
+    """
+    delta = _zeros()
+    if is_self_draw:
+        for seat in range(SEATS):
+            if seat == winner_seat:
+                continue
+            delta[seat] -= score
+            delta[winner_seat] += score
+        return delta
+
+    payer = discard_seat if discard_seat is not None else -1
+    if rule.discard_pay_mode == "all":
+        for seat in range(SEATS):
+            if seat == winner_seat:
+                continue
+            delta[seat] -= score
+            delta[winner_seat] += score
+    elif 0 <= payer < SEATS:
+        delta[payer] -= score
+        delta[winner_seat] += score
+    else:
+        delta[winner_seat] += score
+    return delta
 
 
 def settle_win(
@@ -66,33 +101,13 @@ def settle_win(
 ) -> RoundOutcome:
     score = breakdown.score
     delta = list(kong_accumulated) if kong_accumulated else _zeros()
-
-    if is_self_draw:
-        for seat in range(SEATS):
-            if seat == winner_seat:
-                continue
-            delta[seat] -= score
-            delta[winner_seat] += score
-        win_type = "self_draw"
-    else:
-        payer = discard_seat if discard_seat is not None else -1
-        if rule.discard_pay_mode == "all":
-            for seat in range(SEATS):
-                if seat == winner_seat:
-                    continue
-                delta[seat] -= score
-                delta[winner_seat] += score
-        else:
-            if 0 <= payer < SEATS:
-                delta[payer] -= score
-                delta[winner_seat] += score
-            else:
-                delta[winner_seat] += score
-        win_type = "discard"
+    fan_delta = default_win_delta(rule, winner_seat, is_self_draw, discard_seat, score)
+    for seat in range(SEATS):
+        delta[seat] += fan_delta[seat]
 
     return RoundOutcome(
         winner_seat=winner_seat,
-        win_type=win_type,
+        win_type="self_draw" if is_self_draw else "discard",
         discount_seat=discard_seat,
         score=score,
         breakdown=breakdown,

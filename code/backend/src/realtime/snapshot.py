@@ -83,6 +83,12 @@ def build_snapshot(actor, viewer_seat: int | None, viewer_login_id: str = "") ->
         "round_wind": engine.round_wind if engine else 0,
         # 生效选项：开关关闭时只有 enabled，不下发从属值（03 §10）
         "rule_options": engine.snapshot_options() if engine else {},
+        # 暂停（04 §9.4）：房态字段，柏氏等支持 pause 的族才可能为 true
+        "paused": {
+            "paused": bool(getattr(actor, "paused", False)),
+            "by_seat": getattr(actor, "paused_by_seat", None),
+            "note": getattr(actor, "paused_note", None),
+        },
         "game_total_rounds": rule.rounds_per_game,
         "hand": [],
         "drawn": None,
@@ -119,11 +125,16 @@ def build_snapshot(actor, viewer_seat: int | None, viewer_login_id: str = "") ->
                 payload["drawn"] = engine.last_draw
             if viewer_seat is not None:
                 payload["legal"] = engine.legal_actions(viewer_seat)
-            if rule.ting_hint.enabled and engine.phase == "discard" and engine.turn == look_seat:
+            # ting_hint 不是每族都有（柏氏没有听牌提示，03 §7）
+            if (
+                getattr(getattr(rule, "ting_hint", None), "enabled", False)
+                and engine.phase == "discard"
+                and engine.turn == look_seat
+            ):
                 tenpai = engine.tenpai_map(look_seat)
                 payload["tenpai"] = {str(tile): waits for tile, waits in tenpai.items()}
 
-    if engine.phase == "discard" and rule.turn_timeout.enabled:
+    if engine.phase == "discard" and getattr(rule.turn_timeout, "enabled", False):
         payload["deadline"] = actor.turn_deadline
     if engine.phase == "claim":
         payload["claim_deadline"] = actor.claim_deadline

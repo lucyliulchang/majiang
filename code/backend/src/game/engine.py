@@ -21,10 +21,10 @@ from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from game.claims import ClaimWindow, chow_options, chow_tiles
-from game.fan import best_win
-from game.hand import HandContext, Meld
-from game.patterns import collect_wins, is_winning, winning_tiles
-from game.scoring import kong_delta, settle_draw, settle_rob_kong, settle_win
+from game.fan import ScoreBreakdown, best_win
+from game.hand import HandContext, Meld, lack_suit_satisfied
+from game.patterns import collect_wins, winning_tiles
+from game.scoring import kong_delta, settle_draw, default_win_delta
 from game.tiles import (
     TILE_SET_136,
     empty_counts,
@@ -65,7 +65,11 @@ class SeatState:
 
 @dataclass
 class SettledRound:
-    """一局结算（03 §3.2 `RoundSettlement` 的单赢家形态；通用族 winners 长度恒为 0/1）。"""
+    """一局结算（03 §3.2 `RoundSettlement`）。
+
+    `winners` 兼容单赢家（通用/广东/柏氏，长度 0/1）与多赢家（四川血战，长度 0..3）：
+    多赢家时 `winners_list` 非空、`winner_seat` 取第一个赢家（落库 `winnerSeat` 口径）。
+    """
 
     round_no: int
     dealer_seat: int
@@ -84,10 +88,17 @@ class SettledRound:
     kong_delta: list[int] = field(default_factory=lambda: [0, 0, 0, 0])
     is_draw: bool = False
     restarts: int = 0
+    # ---- S7 追加字段 ----
+    winners_list: list[dict] = field(default_factory=list)
+    payer_allocation: list[dict] = field(default_factory=list)
+    multipliers: dict = field(default_factory=lambda: {"self_draw": 1, "dealer": 1})
+    summary_text: str = ""
 
     @property
     def winners(self) -> list[dict]:
-        """统一结构：单赢家长度 1，荒庄为空（03 §3.2）。"""
+        """统一结构：单赢家长度 1，荒庄为空，四川血战可到 3（03 §3.2）。"""
+        if self.winners_list:
+            return self.winners_list
         if self.winner_seat is None:
             return []
         return [
@@ -100,7 +111,7 @@ class SettledRound:
                 "fan_raw": self.fan_raw,
                 "fan_cap": self.fan_cap,
                 "fan_total": self.fan_total,
-                "multipliers": {"self_draw": 1, "dealer": 1},
+                "multipliers": dict(self.multipliers),
                 "score_from_fan": self.breakdown.get("score", 0) if self.breakdown else 0,
                 "breakdown": self.breakdown,
             }
@@ -220,6 +231,10 @@ class GameEngine:
         self.restarts = 0
         self.deal: dict = {}
         self.result: SettledRound | None = None
+        # ---- S7：时效判定（天胡/地胡，07 §6.5）所需的局面计数 ----
+        self.move_count = 0  # 本局出牌次数（0 = 牌墙未动）
+        self.draws_by_seat: dict[int, int] = {seat: 0 for seat in range(MAX_ROUNDS)}
+        self.claim_happened = False  # 本局是否发生过吃/碰/明杠
 
     # ------------------------------------------------------------------ 基础
     @property
@@ -252,6 +267,18 @@ class GameEngine:
         counts = list(state.counts)
         if extra_tile is not None:
             counts[extra_tile] += 1
+        is_heavenly = (
+            is_self_draw
+            and seat == self.dealer_seat
+            and self.move_count == 0
+            and not self.claim_happened
+        )
+        is_earthly = (
+            is_self_draw
+            and seat != self.dealer_seat
+            and self.draws_by_seat.get(seat, 0) == 1
+            and not self.claim_happened
+        )
         return HandContext(
             counts=counts,
             melds=list(state.melds),
@@ -262,7 +289,73 @@ class GameEngine:
             is_last_tile=self.remaining == 0,
             is_robbing_kong=is_robbing_kong,
             is_after_kong=self.after_kong,
+            is_heavenly=is_heavenly,
+            is_earthly=is_earthly,
         )
+
+    # ------------------------------------------------------------------ 族钩子
+    def _min_fan_to_win(self) -> int:
+        """起胡番数（03 §2.2 `min_fan_to_win`）；通用/广东/四川为 0，柏氏为 1。"""
+        try:
+            return max(0, int(getattr(self.rule, "min_fan_to_win", 0) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _requires_lack_suit(self) -> bool:
+        """是否强制缺一门（四川）；其余族恒 False（03 §8）。"""
+        return bool(getattr(self.rule, "lack_suit_required", False))
+
+    def _rob_kong_kinds(self) -> tuple[str, ...]:
+        """可被抢杠的杠型：通用族仅补杠；柏氏仅明杠（07 §6.5.4）。"""
+        kinds = getattr(self.rule, "rob_kong_kinds", ("added",))
+        return tuple(kinds or ())
+
+    def _out_seats(self) -> set[int]:
+        """已退出本局的座位（血战到底用；单赢家族恒为空）。"""
+        return set()
+
+    def _next_active(self, seat: int) -> int:
+        """下一个可行动座位：单赢家族就是下家（03 §3.4 的行牌顺序）。"""
+        return (seat + 1) % MAX_ROUNDS
+
+    def _kong_delta(self, seat: int, kind: str, from_seat: int | None) -> list[int]:
+        """杠分（族可改付款方：柏氏三类杠恒为三家各付，07 §8）。"""
+        return kong_delta(self.rule, seat, kind, from_seat)
+
+    def _settle_fan_delta(
+        self,
+        winner_seat: int,
+        breakdown: ScoreBreakdown,
+        win_type: str,
+        discard_seat: int | None,
+        ctx: HandContext | None = None,
+    ) -> tuple[list[int], list[dict], dict]:
+        """把一家的番分折算成四家分差；返回 `(分差, payer_allocation, 生效倍率)`。
+
+        `ctx` 是胡牌那一刻的手牌上下文，族算包牌/倍数时会用到（通用族忽略）。
+        """
+        _ = ctx
+        score = int(getattr(breakdown, "score", 0) or 0)
+        is_self_draw = win_type == "self_draw"
+        delta = default_win_delta(self.rule, winner_seat, is_self_draw, discard_seat, score)
+        return delta, [], {"self_draw": 1, "dealer": 1}
+
+    def evaluate_win(self, ctx: HandContext) -> ScoreBreakdown | None:
+        """族级胡牌判定：牌型命中 + 缺一门 + 起胡番数三道闸门。
+
+        返回 `None` 即「不能胡」，避免各处分别调用 `is_winning` 而漏掉族约束。
+        """
+        wins = collect_wins(ctx, self.rule)
+        if not wins:
+            return None
+        breakdown = best_win(wins, self.rule)
+        if breakdown is None:
+            return None
+        if self._requires_lack_suit() and not lack_suit_satisfied(ctx):
+            return None
+        if breakdown.fan_total < self._min_fan_to_win():
+            return None
+        return breakdown
 
     # ------------------------------------------------------------------ 开局
     def start_round(
@@ -282,6 +375,9 @@ class GameEngine:
         self.last_discard = None
         self.last_discard_seat = None
         self.after_kong = False
+        self.move_count = 0
+        self.draws_by_seat = {seat: 0 for seat in range(MAX_ROUNDS)}
+        self.claim_happened = False
 
         for state in self.seats.values():
             state.counts = empty_counts()
@@ -378,7 +474,7 @@ class GameEngine:
             }
         if self.phase == "discard" and seat == self.turn:
             actions: list[dict] = [{"action": "discard"}]
-            if is_winning(self._ctx(seat, win_tile=self.last_draw), self.rule):
+            if self.evaluate_win(self._ctx(seat, win_tile=self.last_draw)) is not None:
                 actions.append({"action": "hu"})
             actions.extend(self._self_kong_options(seat))
             return {"actions": actions}
@@ -457,9 +553,10 @@ class GameEngine:
             "round_wind": settled.round_wind,
             "winners": settled.winners,
             "score_delta": list(settled.score_delta),
-            "payer_allocation": [],
+            "payer_allocation": list(settled.payer_allocation),
             "kong_delta": list(settled.kong_delta),
-            "summary": self._summary_text(settled),
+            "multipliers": dict(settled.multipliers),
+            "summary": settled.summary_text or self._summary_text(settled),
             "is_draw": settled.is_draw,
         }
 
@@ -502,6 +599,9 @@ class GameEngine:
         state = self.seat_state(seat)
         if not 0 <= tile < 34 or state.counts[tile] <= 0:
             raise EngineError("NOT_IN_HAND", "这张牌不在你手里")
+        if tile not in self.tile_set:
+            # 108 张族（四川）无字牌：手里不该有，提交上来按非法出牌拒绝
+            raise EngineError("BAD_DISCARD", f"当前牌张集合里没有「{tile_name(tile)}」")
 
         state.counts[tile] -= 1
         state.discards.append(tile)
@@ -509,11 +609,12 @@ class GameEngine:
         self.last_discard_seat = seat
         self.after_kong = False
         self.last_draw = None
+        self.move_count += 1
 
         events = [{"type": "event.discarded", "data": {"seat": seat, "tile": tile}}]
         window = self._build_claim_window(tile, seat, reason="discard")
         if window is None:
-            events.extend(self._begin_turn((seat + 1) % 4))
+            events.extend(self._begin_turn(self._next_active(seat)))
             return events
         self.claim = window
         self.phase = "claim"
@@ -530,15 +631,24 @@ class GameEngine:
         )
         return events
 
-    def _build_claim_window(self, tile: int, from_seat: int, reason: str = "discard") -> ClaimWindow | None:
+    def _build_claim_window(
+        self,
+        tile: int,
+        from_seat: int,
+        reason: str = "discard",
+        exclude: set[int] | None = None,
+    ) -> ClaimWindow | None:
         options: dict[int, list[dict]] = {}
+        out_seats = self._out_seats()
         for seat in _order_after(from_seat):
+            if seat in out_seats or seat in (exclude or ()):
+                continue
             state = self.seat_state(seat)
             actions: list[dict] = []
             if reason == "discard":
-                if is_winning(
-                    self._ctx(seat, win_tile=tile, is_self_draw=False, extra_tile=tile), self.rule
-                ):
+                if self.evaluate_win(
+                    self._ctx(seat, win_tile=tile, is_self_draw=False, extra_tile=tile)
+                ) is not None:
                     actions.append({"action": "hu", "label": "胡"})
                 if state.counts[tile] >= 3:
                     actions.append({"action": "kong", "kong_kind": "exposed", "tiles": [tile], "label": "明杠"})
@@ -554,16 +664,15 @@ class GameEngine:
                             }
                         )
             else:
-                if is_winning(
+                if self.evaluate_win(
                     self._ctx(
                         seat,
                         win_tile=tile,
                         is_self_draw=False,
                         is_robbing_kong=True,
                         extra_tile=tile,
-                    ),
-                    self.rule,
-                ):
+                    )
+                ) is not None:
                     actions.append({"action": "hu", "label": "抢杠胡"})
             if actions:
                 options[seat] = actions
@@ -606,12 +715,9 @@ class GameEngine:
         chosen = window.resolve()
 
         if chosen is None:
-            if window.reason == "rob_kong":
-                assert window.kong_seat is not None
-                events = self._apply_added_kong(window.kong_seat, window.tile)
-                events.extend(self._begin_turn(window.kong_seat, from_tail=True))
-                return events
-            return self._begin_turn((window.from_seat + 1) % 4)
+            if window.reason == "rob_kong" and window.kong_seat is not None:
+                return self._finish_rob_kong_window(window)
+            return self._begin_turn(self._next_active(window.from_seat))
 
         seat, action = chosen
         kind = action["action"]
@@ -639,6 +745,7 @@ class GameEngine:
         state.counts[tile] -= 2
         state.melds.append(Meld(kind="pong", tiles=[tile, tile, tile], from_seat=window.from_seat))
         self._take_from_river(window.from_seat, tile)
+        self.claim_happened = True
         self.turn = seat
         self.phase = "discard"
         self.after_kong = False
@@ -661,6 +768,7 @@ class GameEngine:
             Meld(kind="chow", tiles=chow_tiles(window.tile, partners), from_seat=window.from_seat)
         )
         self._take_from_river(window.from_seat, window.tile)
+        self.claim_happened = True
         self.turn = seat
         self.phase = "discard"
         self.after_kong = False
@@ -679,15 +787,42 @@ class GameEngine:
             self._turn_event(),
         ]
 
-    def _do_exposed_kong(self, seat: int, window: ClaimWindow) -> list[dict]:
-        state = self.seat_state(seat)
+    def _do_exposed_kong(
+        self, seat: int, window: ClaimWindow, allow_rob: bool = True
+    ) -> list[dict]:
+        """明杠（大明杠）：族声明「明杠可抢」时先开抢杠窗口（07 §6.5.4）。"""
         tile = window.tile
+        if allow_rob and "exposed" in self._rob_kong_kinds():
+            # 杠家本人不参与抢杠询问（07 §6.5.4：其他家才可抢）
+            rob = self._build_claim_window(
+                tile, window.from_seat, reason="rob_kong", exclude={seat}
+            )
+            if rob is not None:
+                rob.kong_seat = seat
+                rob.kong_kind = "exposed"
+                rob.origin_from_seat = window.from_seat
+                self.claim = rob
+                self.phase = "claim"
+                return [
+                    {
+                        "type": "event.claim_open",
+                        "data": {
+                            "tile": tile,
+                            "from_seat": seat,
+                            "seats": rob.seats,
+                            "reason": "rob_kong",
+                        },
+                    }
+                ]
+
+        state = self.seat_state(seat)
         state.counts[tile] -= 3
         state.melds.append(
             Meld(kind="kong_exposed", tiles=[tile] * 4, from_seat=window.from_seat)
         )
         self._take_from_river(window.from_seat, tile)
         self.kong_happened = True
+        self.claim_happened = True
         events = [
             {
                 "type": "event.kongged",
@@ -695,6 +830,23 @@ class GameEngine:
             }
         ]
         events.extend(self._award_kong(seat, "exposed", window.from_seat))
+        events.extend(self._begin_turn(seat, from_tail=True))
+        return events
+
+    def _finish_rob_kong_window(self, window: ClaimWindow) -> list[dict]:
+        """抢杠窗口无人抢：杠成立并计杠分，杠家从牌尾补牌。"""
+        assert window.kong_seat is not None
+        seat = window.kong_seat
+        if window.kong_kind == "exposed":
+            replay = ClaimWindow(
+                tile=window.tile,
+                from_seat=window.origin_from_seat if window.origin_from_seat is not None else seat,
+                options={},
+                reason="discard",
+            )
+            events = self._do_exposed_kong(seat, replay, allow_rob=False)
+        else:
+            events = self._apply_added_kong(seat, window.tile)
         events.extend(self._begin_turn(seat, from_tail=True))
         return events
 
@@ -724,23 +876,25 @@ class GameEngine:
                 raise EngineError("BAD_KONG", "补杠需要先碰过这张牌")
             if state.counts[tile] < 1:
                 raise EngineError("NOT_IN_HAND", "这张牌不在你手里")
-            window = self._build_claim_window(tile, seat, reason="rob_kong")
-            if window is not None:
-                window.kong_seat = seat
-                window.kong_kind = "added"
-                self.claim = window
-                self.phase = "claim"
-                return [
-                    {
-                        "type": "event.claim_open",
-                        "data": {
-                            "tile": tile,
-                            "from_seat": seat,
-                            "seats": window.seats,
-                            "reason": "rob_kong",
-                        },
-                    }
-                ]
+            # 补杠是否可抢由族定义：通用族可抢；柏氏不可抢，直接成立（07 §6.5.4）
+            if "added" in self._rob_kong_kinds():
+                window = self._build_claim_window(tile, seat, reason="rob_kong")
+                if window is not None:
+                    window.kong_seat = seat
+                    window.kong_kind = "added"
+                    self.claim = window
+                    self.phase = "claim"
+                    return [
+                        {
+                            "type": "event.claim_open",
+                            "data": {
+                                "tile": tile,
+                                "from_seat": seat,
+                                "seats": window.seats,
+                                "reason": "rob_kong",
+                            },
+                        }
+                    ]
             events = self._apply_added_kong(seat, tile)
             events.extend(self._begin_turn(seat, from_tail=True))
             return events
@@ -763,7 +917,7 @@ class GameEngine:
 
     def _award_kong(self, seat: int, kind: str, from_seat: int | None) -> list[dict]:
         self.kong_happened = True
-        delta = kong_delta(self.rule, seat, kind, from_seat)
+        delta = self._kong_delta(seat, kind, from_seat)
         for index, value in enumerate(delta):
             self.kong_accumulated[index] += value
             self.seat_state(index).round_score += value
@@ -792,6 +946,7 @@ class GameEngine:
         self.phase = "discard"
         self.last_draw = tile
         self.after_kong = from_tail
+        self.draws_by_seat[seat] = self.draws_by_seat.get(seat, 0) + 1
         return [
             {"type": "event.drawn", "data": {"seat": seat, "wall_count": self.remaining}},
             self._turn_event(),
@@ -811,52 +966,50 @@ class GameEngine:
     # ------------------------------------------------------------------ 结算
     def _do_self_draw_hu(self, seat: int) -> list[dict]:
         ctx = self._ctx(seat, win_tile=self.last_draw, is_self_draw=True)
-        wins = collect_wins(ctx, self.rule)
-        breakdown = best_win(wins, self.rule)
+        breakdown = self.evaluate_win(ctx)
         if breakdown is None:
             raise EngineError("NOT_WIN", "这副牌还没胡")
-        outcome = settle_win(
-            self.rule,
-            winner_seat=seat,
-            breakdown=breakdown,
-            is_self_draw=True,
-            discard_seat=None,
-            kong_accumulated=self.kong_accumulated,
-        )
-        return self._finish(seat, "self_draw", self.last_draw, breakdown, outcome.delta)
+        return self._finish_win(seat, "self_draw", self.last_draw, breakdown, None, ctx)
 
     def _settle_discard_hu(self, seat: int, from_seat: int, tile: int) -> list[dict]:
         ctx = self._ctx(seat, win_tile=tile, is_self_draw=False, extra_tile=tile)
-        wins = collect_wins(ctx, self.rule)
-        breakdown = best_win(wins, self.rule)
+        breakdown = self.evaluate_win(ctx)
         if breakdown is None:
             raise EngineError("NOT_WIN", "这副牌还没胡")
-        outcome = settle_win(
-            self.rule,
-            winner_seat=seat,
-            breakdown=breakdown,
-            is_self_draw=False,
-            discard_seat=from_seat,
-            kong_accumulated=self.kong_accumulated,
-        )
-        return self._finish(seat, "discard", tile, breakdown, outcome.delta)
+        return self._finish_win(seat, "discard", tile, breakdown, from_seat, ctx)
 
     def _settle_rob_kong(self, seat: int, kong_seat: int, tile: int) -> list[dict]:
         ctx = self._ctx(
             seat, win_tile=tile, is_self_draw=False, is_robbing_kong=True, extra_tile=tile
         )
-        wins = collect_wins(ctx, self.rule)
-        breakdown = best_win(wins, self.rule)
+        breakdown = self.evaluate_win(ctx)
         if breakdown is None:
             raise EngineError("NOT_WIN", "这副牌还没胡")
-        outcome = settle_rob_kong(
-            self.rule,
-            winner_seat=seat,
-            breakdown=breakdown,
-            kong_seat=kong_seat,
-            kong_accumulated=self.kong_accumulated,
+        return self._finish_win(seat, "rob_kong", tile, breakdown, kong_seat, ctx)
+
+    def _finish_win(
+        self,
+        seat: int,
+        win_type: str,
+        tile: int | None,
+        breakdown: ScoreBreakdown,
+        discard_seat: int | None,
+        ctx: HandContext | None = None,
+    ) -> list[dict]:
+        """一家胡牌的收口：族算分差 → 加本局杠分 → 落结算。四川血战会覆盖本方法。"""
+        fan_delta, allocation, multipliers = self._settle_fan_delta(
+            seat, breakdown, win_type, discard_seat, ctx
         )
-        return self._finish(seat, "discard", tile, breakdown, outcome.delta)
+        delta = [self.kong_accumulated[index] + fan_delta[index] for index in range(MAX_ROUNDS)]
+        return self._finish(
+            seat,
+            win_type,
+            tile,
+            breakdown,
+            delta,
+            payer_allocation=allocation,
+            multipliers=multipliers,
+        )
 
     def _settle_draw(self) -> list[dict]:
         """牌墙取尽无人胡：有杠 → 荒庄（迁庄计局）；无杠 → 重发本局（不计数）。"""
@@ -883,15 +1036,26 @@ class GameEngine:
         return [restart] + events
 
     def _finish(
-        self, winner: int | None, win_type: str, tile: int | None, breakdown, delta: list[int]
+        self,
+        winner: int | None,
+        win_type: str,
+        tile: int | None,
+        breakdown,
+        delta: list[int],
+        *,
+        winners_list: list[dict] | None = None,
+        payer_allocation: list[dict] | None = None,
+        multipliers: dict | None = None,
+        summary_text: str = "",
     ) -> list[dict]:
         self.phase = "settled"
         self.claim = None
-        for index in range(4):
+        for index in range(MAX_ROUNDS):
             state = self.seat_state(index)
             state.round_score = delta[index]
             state.total_score += delta[index]
 
+        fan_cap = getattr(self.rule, "fan_cap", None)
         self.result = SettledRound(
             round_no=self.round_no,
             dealer_seat=self.dealer_seat,
@@ -905,10 +1069,14 @@ class GameEngine:
             breakdown=breakdown.to_dict() if breakdown else None,
             round_wind=self.round_wind,
             fan_raw=breakdown.fan_raw if breakdown else 0,
-            fan_cap=self.rule.fan_cap,
+            fan_cap=fan_cap,
             kong_delta=list(self.kong_accumulated),
             is_draw=winner is None,
             restarts=self.restarts,
+            winners_list=list(winners_list or []),
+            payer_allocation=list(payer_allocation or []),
+            multipliers=dict(multipliers or {"self_draw": 1, "dealer": 1}),
+            summary_text=summary_text or self._summary_text_of(breakdown),
         )
         return [
             {
@@ -932,9 +1100,22 @@ class GameEngine:
                     "kong_delta": self.result.kong_delta,
                     "is_draw": self.result.is_draw,
                     "restarts": self.result.restarts,
+                    # S7 追加：包牌付款方分配与生效倍率（04 §9.4）
+                    "payer_allocation": self.result.payer_allocation,
+                    "multipliers": self.result.multipliers,
+                    "summary_text": self.result.summary_text,
                 },
             }
         ]
+
+    def _summary_text_of(self, breakdown) -> str:
+        if breakdown is None:
+            return ""
+        lines = breakdown.to_dict().get("lines") or []
+        parts = [f"{line['name']} {line['fan']}" for line in lines if line.get("fan")]
+        if not parts:
+            return str(breakdown.pattern_name or "")
+        return f"{breakdown.pattern_name}：" + " + ".join(parts)
 
     def next_dealer(self, settlement: SettledRound | None = None) -> int:
         """恒返回下家（03 §3.4）：每局换庄、第 n 局庄家 = 座位 n-1，不支持连庄。

@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { CalendarClock, ChartLine, Loader2, Trophy, X } from 'lucide-vue-next'
 
 import AppHeader from '../components/AppHeader.vue'
 import Sparkline from '../components/Sparkline.vue'
 import { api } from '../api/http'
 import { useToast } from '../composables/useToast'
+import { useAuthStore } from '../stores/auth'
 import type { GameDetail, GameSummary, StatsInfo } from '../types'
 
 const toast = useToast()
+const auth = useAuthStore()
 
 const games = ref<GameSummary[]>([])
 const stats = ref<StatsInfo | null>(null)
@@ -17,12 +19,21 @@ const range = ref<'all' | '7' | '30'>('all')
 const detail = ref<GameDetail | null>(null)
 const detailLoading = ref(false)
 
+const familyCode = computed(() => auth.currentFamilyCode || '')
+const familyQuery = computed(() => (familyCode.value ? `family_code=${encodeURIComponent(familyCode.value)}` : ''))
+
 async function load(): Promise<void> {
+  if (!familyCode.value) {
+    games.value = []
+    stats.value = null
+    loading.value = false
+    return
+  }
   loading.value = true
   try {
     const [list, stat] = await Promise.all([
-      api.get<GameSummary[]>('/history/games?limit=60'),
-      api.get<StatsInfo>('/history/stats')
+      api.get<GameSummary[]>(`/history/games?limit=60&${familyQuery.value}`),
+      api.get<StatsInfo>(`/history/stats?${familyQuery.value}`)
     ])
     games.value = list
     stats.value = stat
@@ -34,6 +45,12 @@ async function load(): Promise<void> {
 }
 
 onMounted(load)
+
+// 切家庭：战绩与统计整份重拉，明细抽屉一并关掉（避免看到别家的对局）
+watch(familyCode, () => {
+  detail.value = null
+  void load()
+})
 
 // 场次状态自 S5 起统一为大写（04 §7）
 const STATUS_TEXT: Record<string, string> = {
@@ -100,7 +117,9 @@ async function openDetail(id: number): Promise<void> {
       <div class="mb-5">
         <p class="text-[11px] tracking-[0.32em] text-gold-400/70">HISTORY</p>
         <h1 class="mt-1 text-2xl font-semibold text-cream-100">战绩与对账</h1>
-        <p class="mt-1 text-sm text-ink-300/80">每局的番种、分数变化都留了底，家里谁赢谁输一目了然。</p>
+        <p class="mt-1 text-sm text-ink-300/80">
+          {{ auth.currentFamilyName }} · 每局的番种、分数变化都留了底，家里谁赢谁输一目了然。
+        </p>
       </div>
 
       <div class="grid gap-4 lg:grid-cols-[320px_1fr]">

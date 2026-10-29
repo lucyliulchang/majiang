@@ -136,11 +136,34 @@ def health() -> dict:
 
 
 # 前端直访的图片（牌面皮肤等）：本地由本服务托管，生产由 Nginx 从
-# /data/webserver/majiangapp 出，两处 URL 前缀一致。
+# /data/webserver/majiangapp 出，两处 URL 前缀一致（01 §10）。
+# 目录 = settings.public_dir（data/webserver/majiangapp；生产由 UPLOAD_DIR 指到
+# /data/webserver/majiangapp），启动时不存在则自动创建——上传接口不能因缺目录 500。
 settings.ensure_dirs()
+
+
+class CachedStaticFiles(StaticFiles):
+    """皮肤/前端静态文件：文件名含内容哈希，可长缓存（05 §6.3）。
+
+    `index.html` 例外：它是唯一不带哈希的入口，必须每次回源，否则前端发版后
+    用户会长期拿到旧的 build 引用。
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        fullPath = str(args[0]) if args else str(kwargs.get("full_path") or "")
+        if fullPath.rsplit("/", 1)[-1] == "index.html":
+            response.headers.setdefault("Cache-Control", "no-cache")
+        else:
+            response.headers.setdefault(
+                "Cache-Control", "public, max-age=31536000, immutable"
+            )
+        return response
+
+
 app.mount(
     PUBLIC_IMAGE_URL,
-    StaticFiles(directory=settings.public_dir),
+    CachedStaticFiles(directory=settings.public_dir),
     name="public-images",
 )
 
@@ -159,4 +182,5 @@ if dist_dir.is_dir():
         target = dist_dir / full_path
         if full_path and target.is_file():
             return FileResponse(target)
-        return FileResponse(dist_dir / "index.html")
+        # 入口 HTML 不带哈希：no-cache，避免发版后仍用旧产物
+        return FileResponse(dist_dir / "index.html", headers={"Cache-Control": "no-cache"})

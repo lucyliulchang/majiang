@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
-import { barCount, dotSlots, tileGlyph, tileName, tileRank, tileSuit } from '../../utils/tile'
+import { useSkinsStore } from '../../stores/skins'
+import { barCount, dotSlots, tileGlyph, tileKey, tileName, tileRank, tileSuit } from '../../utils/tile'
 
 const props = withDefaults(
   defineProps<{
@@ -12,8 +13,21 @@ const props = withDefaults(
     highlight?: boolean
     dim?: boolean
     idle?: boolean
+    /** 首屏手牌用 eager，其余交给浏览器懒加载（05 §6.3） */
+    eager?: boolean
+    /** 指定皮肤（皮肤管理页的实时预览用；不影响全局当前皮肤） */
+    skinCode?: string
   }>(),
-  { size: 'md', faceDown: false, selected: false, highlight: false, dim: false, idle: false }
+  {
+    size: 'md',
+    faceDown: false,
+    selected: false,
+    highlight: false,
+    dim: false,
+    idle: false,
+    eager: false,
+    skinCode: ''
+  }
 )
 
 const SIZES = {
@@ -22,6 +36,8 @@ const SIZES = {
   md: { box: 'w-[32px] h-[48px] rounded-[5px]', pad: 'p-[3px]', dot: 'w-[4px] h-[4px]', main: 'text-[15px]', sub: 'text-[9px]', bar: 'w-[2.5px]', gap: 'gap-[2px]' },
   lg: { box: 'w-[42px] h-[62px] rounded-[6px]', pad: 'p-[4px]', dot: 'w-[6px] h-[6px]', main: 'text-[20px]', sub: 'text-[11px]', bar: 'w-[3px]', gap: 'gap-[3px]' }
 }
+
+const skins = useSkinsStore()
 
 const size = computed(() => SIZES[props.size])
 const suit = computed(() => tileSuit(props.tile))
@@ -32,6 +48,25 @@ const isDragonRed = computed(() => props.tile === 31)
 const isDragonGreen = computed(() => props.tile === 32)
 const isDragonWhite = computed(() => props.tile === 33)
 const singleBar = computed(() => suit.value === 'tiao' && tileRank(props.tile) === 0)
+
+/** 牌背用 `back` 键，其余按 0–33 → 1m…white（05 §6.1） */
+const assetKey = computed(() => (props.faceDown ? 'back' : tileKey(props.tile)))
+/** 预览指定皮肤时不改动全局选中项 */
+const previewSkin = computed(() =>
+  props.skinCode ? skins.skins.find((item) => item.skin_code === props.skinCode) ?? null : null
+)
+const imageUrl = computed(() =>
+  previewSkin.value ? previewSkin.value.assets[assetKey.value] || '' : skins.assetOf(assetKey.value)
+)
+/** 单张加载失败只影响这一张：该张回退 CSS，不弹错误、不阻塞牌桌 */
+const brokenUrl = ref('')
+
+watch(imageUrl, () => {
+  brokenUrl.value = ''
+})
+
+const showImage = computed(() => Boolean(imageUrl.value) && brokenUrl.value !== imageUrl.value)
+const altText = computed(() => (props.faceDown ? '' : tileName(props.tile)))
 </script>
 
 <template>
@@ -48,12 +83,27 @@ const singleBar = computed(() => suit.value === 'tiao' && tileRank(props.tile) =
     ]"
     :style="faceDown ? { background: 'linear-gradient(150deg,#1a5c46,#0f3d2e)' } : {}"
   >
-    <!-- 牌背 -->
-    <div v-if="faceDown" class="flex h-full w-full items-center justify-center rounded-[inherit] border border-gold-400/25">
+    <!-- 皮肤图片优先：object-fit contain 铺满容器，尺寸仍由 CSS 决定（05 §6.3） -->
+    <img
+      v-if="showImage"
+      :src="imageUrl"
+      :alt="altText"
+      class="pointer-events-none h-full w-full rounded-[inherit] object-contain"
+      :loading="eager ? 'eager' : 'lazy'"
+      decoding="async"
+      draggable="false"
+      @error="brokenUrl = imageUrl"
+    />
+
+    <!-- CSS 回退：牌背 -->
+    <div
+      v-else-if="faceDown"
+      class="flex h-full w-full items-center justify-center rounded-[inherit] border border-gold-400/25"
+    >
       <div class="h-[70%] w-[62%] rounded-[2px] border border-gold-400/30 bg-[radial-gradient(circle_at_30%_25%,rgba(201,160,99,0.28),transparent_65%)]" />
     </div>
 
-    <!-- 牌面 -->
+    <!-- CSS 回退：牌面 -->
     <div v-else class="flex h-full w-full flex-col items-center justify-center overflow-hidden rounded-[inherit]" :class="size.pad">
       <div class="absolute inset-[1.5px] rounded-[inherit] border border-gold-400/20" />
 

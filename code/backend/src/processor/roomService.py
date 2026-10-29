@@ -2,8 +2,8 @@
 
 职责边界（01 §2）：
   - 路由只解析参数、调本模块、套响应模型；
-  - 本模块负责成员校验（按房间自身的 familyID，不信查询参数）、模板可见性与族就绪校验、
-    邀请码生成、事务与错误码；
+  - 本模块负责房间归属解析（按房间自身的 familyID，不信查询参数）、模板可见性与族就绪校验、
+    邀请码生成、事务与错误码；开桌与房间列表仍限本家庭成员，入房相关读接口凭邀请码可跨家庭；
   - 房态（座位、在线连接、观战绑定）只在内存 `realtime.room_manager`，**不落库**，
     因此 `player_count` / `spectator_count` 由路由从 actor 取实时值传入。
 
@@ -157,6 +157,38 @@ def _assertMember(loginID: str, familyID: int, requireEnabled: bool = False) -> 
     )
 
 
+def _roomFamilyContext(
+    loginID: str, familyID: int, requireEnabled: bool = False
+) -> tuple[dict, bool]:
+    """房间归属家庭的上下文 + 呼叫者是否该家庭成员。
+
+    入房口径（S9）：房间仍然属于原家庭（列表/战绩/落库一律按房间 familyID），
+    但**邀请码本身就是入场凭证**——非本家庭的登录用户凭码也能读房间与进桌，
+    因此这里不再强制成员关系，只把 `memberRole` 置空（家庭管理员类操作会被拒绝）。
+    家庭停用（requireEnabled=True）时整房拒绝，与成员口径一致；
+    家庭被物理删除的房间视为不可用，避免留下无法治理的孤儿房。
+    """
+    fid = int(familyID or 0)
+    family = mysqlCommon.query_mj_family_by_id(fid) if fid > 0 else {}
+    if not family:
+        raise _err("ROOM_NOT_FOUND", "房间不存在或已关闭", 404)
+
+    familyStatus = _text(family, "familyStatus") or familyService.FAMILY_ENABLED
+    if requireEnabled and familyStatus != familyService.FAMILY_ENABLED:
+        raise familyService.FamilyServiceError("FAMILY_DISABLED", "该家庭已停用", 403)
+
+    member = mysqlCommon.query_mj_family_member(fid, loginID) if loginID else {}
+    isMember = bool(member) and _text(member, "memberStatus") == familyService.STATUS_ACTIVE
+    context = {
+        "familyID": fid,
+        "familyCode": _text(family, "familyCode"),
+        "memberRole": _text(member, "memberRole") if isMember else "",
+        "familyStatus": familyStatus,
+        "family": family,
+    }
+    return context, isMember
+
+
 def _loadRoom(roomID: int) -> dict:
     row = mysqlCommon.query_mj_room_by_id(roomID)
     if not row:
@@ -173,7 +205,11 @@ def listRooms(loginID: str, familyID: int, familyCode: str, limit: int = MAX_ROO
 
 
 def getRoom(loginID: str, roomID: int, playerCount: int = 0, spectatorCount: int = 0) -> dict:
-    """房间详情：以房间自身 familyID 校验成员关系（04 §6 #27）。"""
+    """房间详情（04 §6 #27）：以房间自身 familyID 校验成员关系。
+
+    按 `room_id` 自增枚举就能读到 room_code，会绕过邀请码的随机性，因此这里不放开；
+    跨家庭进入只走「凭码」的两条路径（`getRoomByCode` / WS 握手）。
+    """
     row = _loadRoom(roomID)
     context = _assertMember(loginID, int(row.get("familyID") or 0))
     return roomOut(
@@ -190,21 +226,28 @@ def getRoomByCode(
     playerCount: int = 0,
     viewerCounts: list[int] | None = None,
 ) -> dict:
-    """按邀请码入房校验（04 §6 #28）：格式 → 存在 → 成员 → 状态。"""
+    """按邀请码入房校验（04 §6 #28）：格式 → 存在 → 家庭可用 → 状态。
+
+    S9：邀请码即入场凭证，非本家庭登录用户同样可校验通过（不再返回 403）。
+    """
     code = (roomCode or "").strip()
     if len(code) != 6 or not code.isdigit() or code[0] == "0":
         raise _err("INVITE_CODE_FORMAT", "邀请码必须是 6 位数字")
     row = mysqlCommon.query_mj_room_by_code(code)
     if not row:
         raise _err("ROOM_NOT_FOUND", "房间不存在或已关闭", 404)
-    _assertMember(loginID, int(row.get("familyID") or 0))
+    _roomFamilyContext(loginID, int(row.get("familyID") or 0))
     if _text(row, "roomStatus") == ROOM_CLOSED:
         raise _err("ROOM_CLOSED", "房间已经关闭了")
     return joinCheckOut(row, playerCount=playerCount, viewerCounts=viewerCounts)
 
 
 def listMessages(loginID: str, roomID: int, limit: int = 50) -> list[dict]:
-    """最近聊天（04 §6 #30）：必带 LIMIT，返回按时间正序。"""
+    """最近聊天（04 §6 #30）：必带 LIMIT，返回按时间正序。
+
+    与 `getRoom` 同理保持成员校验：跨家庭玩家进桌后的聊天走 WS 的 `room.welcome`，
+    不需要按 room_id 读历史。
+    """
     row = _loadRoom(roomID)
     _assertMember(loginID, int(row.get("familyID") or 0))
     rows = mysqlCommon.query_mj_room_message_list(roomID, limit=limit)
@@ -287,11 +330,14 @@ def closeRoom(
     playerCount: int = 0,
     spectatorCount: int = 0,
 ) -> dict:
-    """关房（04 §6 #29）：房主或家庭管理员；重复关闭幂等。"""
+    """关房（04 §6 #29）：房主或房间所属家庭的管理员；重复关闭幂等。
+
+    凭码进房的外家庭成员没有 `memberRole`，只能以房主身份关自己的房。
+    """
     row = _loadRoom(roomID)
-    context = _assertMember(loginID, int(row.get("familyID") or 0))
+    context, isMember = _roomFamilyContext(loginID, int(row.get("familyID") or 0))
     isHost = _text(row, "hostLoginID") == loginID
-    isAdmin = context.get("memberRole") in (
+    isAdmin = isMember and context.get("memberRole") in (
         familyService.ROLE_OWNER,
         familyService.ROLE_ADMIN,
     )
@@ -314,8 +360,9 @@ def closeRoom(
 
 
 def roomMetaByCode(loginID: str, roomCode: str) -> dict:
-    """WS 握手用的房间元信息（04 §9.1）：成员 → 状态 → 规则快照。
+    """WS 握手用的房间元信息（04 §9.1）：家庭可用 → 状态 → 规则快照。
 
+    S9：邀请码即入场凭证，非本家庭登录用户也能握手进桌；家庭停用仍整房拒绝。
     失败抛 RoomServiceError，由 `main/ws.py` 映射成 4003/4004 关闭码。
     """
     code = (roomCode or "").strip().upper()
@@ -324,7 +371,9 @@ def roomMetaByCode(loginID: str, roomCode: str) -> dict:
     row = mysqlCommon.query_mj_room_by_code(code)
     if not row:
         raise _err("ROOM_NOT_FOUND", "房间不存在或已关闭", 404)
-    context = _assertMember(loginID, int(row.get("familyID") or 0), requireEnabled=True)
+    context, _ = _roomFamilyContext(
+        loginID, int(row.get("familyID") or 0), requireEnabled=True
+    )
     if _text(row, "roomStatus") == ROOM_CLOSED:
         raise _err("ROOM_NOT_FOUND", "房间不存在或已关闭", 404)
 

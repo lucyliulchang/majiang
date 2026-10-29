@@ -20,6 +20,8 @@ class ClaimWindow:
     reason: str = "discard"  # "discard" | "rob_kong"
     kong_seat: int | None = None
     kong_kind: str | None = None
+    #: 被抢的明杠源自哪一家的弃牌（抢杠不成立时要把那张牌收回并补杠，07 §6.5.4）
+    origin_from_seat: int | None = None
 
     @property
     def seats(self) -> list[int]:

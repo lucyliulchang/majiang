@@ -58,8 +58,9 @@ def test_guangdong_family_registered_and_ready():
 
 
 def test_unregistered_family_not_ready():
-    assert registry.get_family("sichuan") is None
-    ready, issues = registry.is_ready("sichuan")
+    # S7 起 sichuan / baishi 都已接入引擎，未注册族的门禁改用不存在的编码验证
+    assert registry.get_family("no_such_family") is None
+    ready, issues = registry.is_ready("no_such_family")
     assert ready is False and issues
 
 
@@ -99,6 +100,26 @@ def test_create_engine_uses_family_plugin():
 
     guangdong = registry.create_engine("guangdong", RuleConfig(), _seats())
     assert guangdong.family_code == "guangdong"
+
+
+def test_engines_satisfy_rule_engine_protocol():
+    """注册表里的每个引擎都必须满足 03 §3.2 的 `RuleEngine` 协议。"""
+    from game.engine import RuleEngine
+
+    for code in registry.registered_codes():
+        engine = registry.create_engine(code, registry.config_model_of(code)(), _seats())
+        assert isinstance(engine, RuleEngine), code
+        for method in (
+            "start_round",
+            "legal_actions",
+            "apply_action",
+            "timeout_claim",
+            "tenpai_map",
+            "settlement",
+            "next_dealer",
+            "snapshot_options",
+        ):
+            assert callable(getattr(engine, method)), f"{code}.{method}"
 
 
 def _seats():

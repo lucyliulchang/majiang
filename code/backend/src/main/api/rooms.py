@@ -78,7 +78,10 @@ def join_check(
     room_code: str,
     user: CurrentUser = Depends(current_user),
 ) -> RoomJoinCheck:
-    """按邀请码入房校验（04 §6 #28）：含实时围观数（`spectate.available` 用于禁用进入）。"""
+    """按邀请码入房校验（04 §6 #28）：含实时围观数（`spectate.available` 用于禁用进入）。
+
+    S9：邀请码即入场凭证，非本家庭的登录用户同样可以校验通过。
+    """
     actor = room_manager.get(room_code.strip().upper())
     players = actor.player_count() if actor is not None else 0
     viewers = actor.spectator_counts() if actor is not None else [0, 0, 0, 0]
@@ -90,7 +93,7 @@ def get_room(
     room_id: int,
     user: CurrentUser = Depends(current_user),
 ) -> RoomOut:
-    """房间详情（04 §6 #27）：以房间自身 familyID 校验成员关系。"""
+    """房间详情（04 §6 #27）：以房间自身 familyID 校验成员关系（凭码入房走 #28 与 WS）。"""
     row = roomService.getRoom(user.login_id, room_id)
     players, spectators = _liveCounts(row["room_code"])
     return RoomOut(**{**row, "player_count": players, "spectator_count": spectators})

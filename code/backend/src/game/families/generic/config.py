@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -108,14 +108,19 @@ class FanItem(_StrictModel):
     exclusive_group: str | None = None
     stackable: bool = False
 
+    #: 番值上限（类属性，不是字段）：柏氏番表最高 120（全文字七对），子类覆盖即可
+    FAN_MAX: ClassVar[int] = 100
+
     @model_validator(mode="after")
     def _check(self):
         if not _SLUG.match(self.id):
             raise ValueError(f"番种标识「{self.id}」不合法，只能是小写字母/数字/下划线")
         if not self.name.strip():
             raise ValueError("番种名称不能为空")
-        if not 0 <= self.fan <= 100:
-            raise ValueError(f"番种「{self.name}」的番值必须在 0-100 之间")
+        if not 0 <= self.fan <= type(self).FAN_MAX:
+            raise ValueError(
+                f"番种「{self.name}」的番值必须在 0-{type(self).FAN_MAX} 之间"
+            )
         if self.exclusive_group is not None and not self.exclusive_group.strip():
             self.exclusive_group = None
         return self
@@ -178,6 +183,10 @@ def strip_legacy_keys(raw: dict) -> dict:
 
 class RuleConfig(_StrictModel):
     """通用族规则参数（快照 `config` 字段的完整形状）。"""
+
+    #: 族编码（类属性，不是配置字段）：牌型注册表按它挑本族可见的插件（03 §2.2）。
+    #: 子类覆盖即可，不会出现在 `model_dump()` 里，也不影响模板形状。
+    family_code: ClassVar[str] = "generic"
 
     base_score: int = 1
     fan_mode: Literal["linear", "exponential"] = "exponential"

@@ -49,7 +49,10 @@ watch(
 </script>
 
 <template>
-  <aside class="flex h-full flex-col rounded-2xl border border-gold-400/18 bg-felt-950/55 backdrop-blur">
+  <aside
+    data-chat-panel
+    class="flex h-full flex-col rounded-2xl border border-gold-400/18 bg-felt-950/55 backdrop-blur"
+  >
     <div class="flex items-center gap-2 border-b border-cream-100/10 px-4 py-3">
       <MessageSquare class="h-4 w-4 text-gold-300" />
       <span class="text-sm font-medium text-cream-100">{{ title }}</span>

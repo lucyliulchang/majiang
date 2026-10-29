@@ -108,7 +108,8 @@ def save_round(gameID: int, familyID: int, settled) -> None:
         "fanRaw": int(getattr(settled, "fan_raw", 0) or getattr(settled, "fan_total", 0) or 0),
         "fanTotal": int(getattr(settled, "fan_total", 0) or 0),
         "scoreDeltaJson": getattr(settled, "score_delta", []) or [],
-        "payerJson": getattr(settled, "payer_json", None),
+        # 付款方分配（S7：柏氏包牌独付、四川血战逐家赔付）；无分配时留空
+        "payerJson": list(getattr(settled, "payer_allocation", []) or []) or None,
         "finishedYMDHMS": misc.getTime(),
     }
     scoreDelta = list(getattr(settled, "score_delta", []) or [])

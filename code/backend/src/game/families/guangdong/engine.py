@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from game.families.guangdong.config import RuleConfig
+from game.families.registry import coerce_config
 from game.families.generic.engine import GenericEngine
 
 
@@ -17,9 +18,7 @@ class GuangdongEngine(GenericEngine):
 
 
 def create_engine(rule, seats, **kwargs) -> GuangdongEngine:
-    if not isinstance(rule, RuleConfig):
-        rule = RuleConfig.model_validate(rule or {})
-    return GuangdongEngine(rule, seats, **kwargs)
+    return GuangdongEngine(coerce_config(rule, RuleConfig), seats, **kwargs)
 
 
 __all__ = ["GuangdongEngine", "create_engine"]

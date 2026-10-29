@@ -58,6 +58,7 @@ function handleClick(tile: number): void {
         <Tile
           :tile="tile"
           size="lg"
+          eager
           :selected="selected === tile"
           :highlight="showHint && tenpaiSet.has(tile)"
         />
@@ -74,6 +75,7 @@ function handleClick(tile: number): void {
         <Tile
           :tile="sorted.drawn as number"
           size="lg"
+          eager
           :selected="selected === (sorted.drawn as number)"
           :highlight="showHint && tenpaiSet.has(sorted.drawn as number)"
         />

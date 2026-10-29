@@ -29,3 +29,9 @@ code/frontend/dist/
 # 工具与联调产物
 .playwright-cli/
 shots/
+code/deploy/mj_dist.tar.gz
+code/deploy/*_result.txt
+code/deploy/s10_skin_panel_debug.png
+
+# 含明文数据库口令的运维脚本：本机保留，口令改走 .env 后再入库
+code/deploy/remote-seed-accounts.sh

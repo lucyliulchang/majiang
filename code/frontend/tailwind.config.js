@@ -43,7 +43,10 @@ export default {
         },
         amber: {
           400: '#E8A33D'
-        }
+        },
+        // 05 §2.1 新增：家庭徽标与皮肤入口
+        family: '#6C8EBF',
+        skin: '#9B7EBD'
       },
       fontFamily: {
         sans: ['"Noto Sans SC"', '"PingFang SC"', '"Microsoft YaHei"', 'system-ui', 'sans-serif'],

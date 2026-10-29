@@ -20,6 +20,7 @@ from typing import Callable
 from game.patterns import registered_ids
 from game.tiles import new_wall, tile_kinds_of, tile_set_of
 
+
 logger = logging.getLogger("mahjong.families")
 
 # capability 必备字段（03 §2.2）；缺任意一个即 ready=false
@@ -50,6 +51,9 @@ KNOWN_SWITCHES = (
     "ting_hint",
     "draw_penalty",
     "pause",
+    # 四川专属：查叫 / 查花猪（默认关，细则待补；见 03 §6 与 S7 遗留问题）
+    "cha_jiao",
+    "hua_zhu",
 )
 KNOWN_SETTLEMENTS = (
     "self_draw",
@@ -108,8 +112,13 @@ _REGISTRY: dict[str, FamilyPlugin] = {}
 # ---------------------------------------------------------------- 自检
 
 
-def check_capability(capability: dict, config_model: type | None = None) -> list[str]:
-    """按 03 §2.2 自检能力声明，返回问题列表（空 = 通过）。"""
+def check_capability(
+    capability: dict, config_model: type | None = None, family_code: str | None = None
+) -> list[str]:
+    """按 03 §2.2 自检能力声明，返回问题列表（空 = 通过）。
+
+    `family_code` 决定牌型查表口径（S7：族内覆盖 + 全局默认，见 `game/patterns/base.py`）。
+    """
     issues: list[str] = []
     if not isinstance(capability, dict) or not capability:
         return ["capabilityJson 缺失或不是对象"]
@@ -132,7 +141,7 @@ def check_capability(capability: dict, config_model: type | None = None) -> list
     if not isinstance(patterns, list) or not patterns:
         issues.append("capability.patterns 为空")
     else:
-        known = set(registered_ids())
+        known = set(registered_ids(family_code))
         unknown = [item for item in patterns if item not in known]
         if unknown:
             issues.append("牌型未注册：" + ", ".join(unknown))
@@ -180,6 +189,12 @@ def _has_config_defaults(config_model: type, capability: dict) -> bool:
         return False
     if getattr(getattr(config, "draw_penalty", None), "enabled", False) and "draw_penalty" not in switches:
         return False
+    if getattr(getattr(config, "pause", None), "enabled", False) and "pause" not in switches:
+        return False
+    if getattr(getattr(config, "cha_jiao", None), "enabled", False) and "cha_jiao" not in switches:
+        return False
+    if getattr(getattr(config, "hua_zhu", None), "enabled", False) and "hua_zhu" not in switches:
+        return False
 
     fan_modes = set(capability.get("fan_modes") or [])
     if getattr(config, "fan_mode", None) not in fan_modes:
@@ -192,8 +207,13 @@ def _has_config_defaults(config_model: type, capability: dict) -> bool:
 
 
 def register_family(plugin: FamilyPlugin) -> FamilyPlugin:
-    """登记族插件并跑导入期自检（同一 code 重复登记以最后一次为准）。"""
-    issues = check_capability(plugin.capability, plugin.config_model)
+    """登记族插件并跑导入期自检（同一 code 重复登记以最后一次为准）。
+
+    `plugin.issues` 是**族自带**的门禁项（例如柏氏的 07 §13 用例自检），
+    与能力自检的结论取并集：任何一条不通过都 `ready=false`（可列族、不可开桌）。
+    """
+    issues = check_capability(plugin.capability, plugin.config_model, plugin.rule_family_code)
+    issues.extend(plugin.issues)
     stored = FamilyPlugin(
         rule_family_code=plugin.rule_family_code,
         rule_family_name=plugin.rule_family_name,
@@ -268,8 +288,24 @@ def is_ready(rule_family_code: str, capability: dict | None = None) -> tuple[boo
         return False, ["引擎未注册"]
     issues = list(plugin.issues)
     if capability:
-        issues.extend(check_capability(capability, plugin.config_model))
+        issues.extend(
+            check_capability(capability, plugin.config_model, plugin.rule_family_code)
+        )
     return (not issues), issues
+
+
+def coerce_config(rule, config_model: type):
+    """把「别的族的配置实例 / dict / None」收成本族的配置模型。
+
+    路由层只会给本族配置，但预置脚本、测试、历史快照可能递过来形状相近的模型；
+    统一走 `model_dump()` → `model_validate()`，缺的字段用本族默认值补齐。
+    """
+    if isinstance(rule, config_model):
+        return rule
+    dump = getattr(rule, "model_dump", None)
+    if callable(dump):
+        return config_model.model_validate(dump())
+    return config_model.model_validate(rule or {})
 
 
 def create_engine(rule_family_code: str, rule, seats, **kwargs):
@@ -298,6 +334,7 @@ __all__ = [
     "all_families",
     "capability_of",
     "check_capability",
+    "coerce_config",
     "config_model_of",
     "create_engine",
     "get_family",

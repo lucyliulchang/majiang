@@ -343,11 +343,16 @@ def test_rule_template_crud_and_isolation(s5_env):
     assert error.value.code == "RULE_FAMILY_NOT_FOUND"
 
 
-def test_room_open_requires_ready_family(s5_env):
-    """未就绪的族（sichuan / baishi 尚未接入引擎）不允许开桌，且不落房。"""
+def test_room_open_requires_ready_family(s5_env, monkeypatch):
+    """未就绪的族不允许开桌，且不落房。
+
+    S7 起 sichuan / baishi 都已接入引擎并通过自检，因此这里用「把就绪判定打回 false」
+    来模拟仍未就绪的族（例如柏氏 07 §13 用例未全绿时的门禁），验证开桌闸门本身。
+    """
     family = mysqlCommon.query_mj_rule_family_by_code("baishi")
     assert family, "种子应包含 baishi 族"
-    assert ruleService.isReady(family) is False
+    assert ruleService.isReady(family) is True, "柏氏已按 07 §13 验收，应可开桌"
+    monkeypatch.setattr(ruleService, "isReady", lambda _family: False)
 
     existing = mysqlCommon.query_mj_rule_template_by_code("s5_baishi_probe")
     templateID = int(existing.get("recID") or 0)
@@ -378,3 +383,59 @@ def test_room_open_requires_ready_family(s5_env):
         )
     assert error.value.code == "RULE_FAMILY_NOT_READY"
     assert _roomCount(s5_env["family_id"]) == before
+
+
+# ---------------------------------------------------------------- 7. 邀请码跨家庭入房
+
+
+def test_invite_code_joins_other_family_room(s5_env):
+    """S9：邀请码即入场凭证——非本家庭成员可查房/握手/读聊天，但不能关房、不能借机开桌。"""
+    from processor import accountService
+
+    accountService.ensureUserBasic(OUTSIDER)
+    room = s5_env["room"]
+    code = room["room_code"]
+
+    check = roomService.getRoomByCode(OUTSIDER, code)
+    assert check["room_code"] == code
+    assert check["can_join"] is True
+
+    meta = roomService.roomMetaByCode(OUTSIDER, code)
+    assert meta["room_id"] == room["id"]
+    assert meta["family_code"] == s5_env["family_code"]
+
+    # 只有「凭码」的两条路径放开：按 room_id 读详情/聊天仍限成员，
+    # 否则枚举自增 id 就能拿到 room_code，邀请码形同虚设。
+    with pytest.raises(BizError) as error:
+        roomService.getRoom(OUTSIDER, room["id"])
+    assert error.value.code == "NOT_FAMILY_MEMBER"
+
+    with pytest.raises(BizError) as error:
+        roomService.listMessages(OUTSIDER, room["id"], limit=5)
+    assert error.value.code == "NOT_FAMILY_MEMBER"
+
+    # 外家庭成员没有该家庭的管理员身份：关房仍然只有房主能关
+    with pytest.raises(BizError) as error:
+        roomService.closeRoom(OUTSIDER, room["id"])
+    assert error.value.code == "FORBIDDEN"
+
+    # 入房放开不等于开桌放开：开桌仍限本家庭成员
+    with pytest.raises(BizError) as error:
+        roomService.createRoom(
+            OUTSIDER,
+            s5_env["family_id"],
+            s5_env["family_code"],
+            "越权开桌",
+            s5_env["template_id"],
+        )
+    assert error.value.code == "NOT_FAMILY_MEMBER"
+
+
+def test_room_list_still_family_only(s5_env):
+    """只放开「凭码入房」：房间列表仍按家庭隔离，看不到别人家开了哪些房。"""
+    from processor import accountService
+
+    accountService.ensureUserBasic(OUTSIDER)
+    with pytest.raises(BizError) as error:
+        roomService.listRooms(OUTSIDER, s5_env["family_id"], s5_env["family_code"])
+    assert error.value.code == "NOT_FAMILY_MEMBER"

@@ -20,10 +20,13 @@ export function setStatusHandler(handler: StatusHandler): void {
   onStatus = handler
 }
 
+/** WS 路径：dev 走 vite 代理 `/ws`，生产由 `.env.production` 设为 `/majiangws`（nginx 改写到后端 /ws） */
+const WS_PATH = (import.meta.env.VITE_WS_PATH as string) || '/ws'
+
 function buildUrl(code: string): string {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const token = encodeURIComponent(getToken())
-  return `${protocol}//${location.host}/ws?token=${token}&code=${encodeURIComponent(code)}`
+  return `${protocol}//${location.host}${WS_PATH}?token=${token}&code=${encodeURIComponent(code)}`
 }
 
 function startHeartbeat(): void {

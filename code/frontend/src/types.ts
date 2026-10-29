@@ -16,10 +16,41 @@ export interface AuthOptions {
   verify_code_cooldown_seconds: number
 }
 
+/** 04 §3 的 family；`member_role` 是当前用户在该家庭的角色（OWNER/ADMIN/MEMBER） */
+export interface FamilyInfo {
+  family_code: string
+  family_name: string
+  owner_login_id: string
+  default_rule_family_code: string | null
+  default_skin_code: string | null
+  member_role: string
+  status: string
+  sort_order: number
+}
+
+/** 04 §3 的 member */
+export interface FamilyMember {
+  login_id: string
+  nick_name: string
+  member_role: string
+  member_status: string
+  joined_ymdhms: string
+}
+
+/** 04 §4 的用户偏好（无任何 BGM 字段） */
+export interface UserPref {
+  last_family_code: string | null
+  skin_code: string | null
+  sound_enabled: boolean
+  sound_volume: number
+  chat_sound: boolean
+  show_tenpai: boolean
+}
+
 export interface AuthSession {
   token: string
   user: UserInfo
-  families: Record<string, unknown>[]
+  families: FamilyInfo[]
   current_family_code: string | null
 }
 
@@ -185,6 +216,9 @@ export interface SeatView {
   melds: MeldView[]
   round_score: number
   total_score: number
+  /** 本局门风 0–3（庄家恒为 0=东），04 §9.5 */
+  wind?: number
+  is_dealer?: boolean
   /** 当前围观人数（0–10），全房可见、不含观战者身份 */
   spectator_count?: number
 }
@@ -239,7 +273,11 @@ export interface Snapshot {
   seats: (SeatView | null)[]
   status: string
   round_no: number
+  /** 本局局风 0 东 / 1 南 / 2 西 / 3 北 = round_no - 1（04 §9.5） */
+  round_wind?: number
   dealer_seat: number | null
+  /** 暂停态（增量字段，缺省视为未暂停） */
+  paused?: { paused: boolean; by_seat: number | null; note: string | null }
   game_total_rounds: number
   hand: number[]
   drawn: number | null
@@ -305,4 +343,36 @@ export interface StatsInfo {
   best_game: number
   worst_game: number
   rounds_won: number
+}
+
+/** 04 §8 的 skin；`family_code` 为 null 表示全局内置皮肤 */
+export interface SkinInfo {
+  skin_code: string
+  skin_name: string
+  family_code: string | null
+  is_default: boolean
+  status: string
+  tile_aspect: number
+  asset_count: number
+  preview_url: string | null
+  /** tile_key → 绝对 URL（`/majiangapp/tiles/...`），缺项表示该张回退 CSS */
+  assets: Record<string, string>
+  fallback: string
+  updated_at: string
+}
+
+/** PUT /api/skins/{skin_code}/{tile_key} 的响应 */
+export interface SkinAssetInfo {
+  tile_key: string
+  file_id: string
+  width: number
+  height: number
+}
+
+/** GET /api/rules/validate 的响应（试算，不落库） */
+export interface RuleValidateResult {
+  ok: boolean
+  code: string
+  message: string
+  summary: string
 }

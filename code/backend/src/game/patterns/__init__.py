@@ -6,6 +6,9 @@
 - `game/families/generic/patterns/` 由 `game.families` 导入；
 - 若调用方只导入了骨架（例如直接跑单测），`_ensure_registered()` 会兜底加载通用族牌型，
   防止「注册表空 → 永远胡不了」的静默故障。
+
+族归属（S7）取自 `rule.family_code`（配置模型的类属性，不是字段）：
+`generic` / `guangdong` / `sichuan` / `baishi` 各自只看自己可见的牌型集合。
 """
 
 from __future__ import annotations
@@ -14,10 +17,12 @@ from typing import TYPE_CHECKING
 
 from game.hand import HandContext
 from game.patterns.base import (  # noqa: F401  对外统一出口
+    FAMILY_REGISTRY,
     REGISTRY,
     FanHit,
     WinResult,
     get_pattern,
+    patterns_for,
     register_pattern,
 )
 
@@ -25,16 +30,19 @@ if TYPE_CHECKING:
     from game.families.generic.config import RuleConfig
 
 __all__ = [
+    "FAMILY_REGISTRY",
     "REGISTRY",
     "FanHit",
     "WinResult",
     "get_pattern",
+    "patterns_for",
     "register_pattern",
     "registered_ids",
     "collect_wins",
     "is_winning",
     "winning_tiles",
     "match_pattern",
+    "family_of",
 ]
 
 
@@ -45,13 +53,19 @@ def _ensure_registered() -> None:
     import game.families.generic.patterns  # noqa: F401  导入即注册
 
 
-def registered_ids() -> list[str]:
+def family_of(rule) -> str:
+    """配置模型声明的族编码；缺失时退回 `generic`（旧模板仍可解析）。"""
+    return str(getattr(rule, "family_code", None) or "generic")
+
+
+def registered_ids(family: str | None = None) -> list[str]:
     _ensure_registered()
-    return list(REGISTRY.keys())
+    return list(patterns_for(family).keys())
 
 
 def match_pattern(pattern_id: str, ctx: HandContext, rule: "RuleConfig") -> bool:
-    pattern = get_pattern(pattern_id)
+    _ensure_registered()
+    pattern = get_pattern(pattern_id, family_of(rule))
     if pattern is None or not rule.is_pattern_enabled(pattern_id):
         return False
     rule_based = getattr(pattern, "match_with_rule", None)
@@ -61,10 +75,10 @@ def match_pattern(pattern_id: str, ctx: HandContext, rule: "RuleConfig") -> bool
 
 
 def collect_wins(ctx: HandContext, rule: "RuleConfig") -> list[WinResult]:
-    """遍历注册表，收集所有命中的牌型（可能多个，例如七对同时也是标准胡）。"""
+    """遍历本族牌型，收集所有命中的牌型（可能多个，例如七对同时也是标准胡）。"""
     _ensure_registered()
     results: list[WinResult] = []
-    for pattern_id, pattern in REGISTRY.items():
+    for pattern_id, pattern in patterns_for(family_of(rule)).items():
         if not rule.is_pattern_enabled(pattern_id):
             continue
         rule_based = getattr(pattern, "match_with_rule", None)
@@ -83,7 +97,7 @@ def collect_wins(ctx: HandContext, rule: "RuleConfig") -> list[WinResult]:
 
 
 def is_winning(ctx: HandContext, rule: "RuleConfig") -> bool:
-    for pattern_id in registered_ids():
+    for pattern_id in registered_ids(family_of(rule)):
         if match_pattern(pattern_id, ctx, rule):
             return True
     return False

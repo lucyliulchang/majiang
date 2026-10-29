@@ -2,7 +2,8 @@
 
 S5 口径：
   - 身份用 JWT 的 `sub`（loginID），回查 USER_BASIC 得昵称/启用状态，不再读 users 表；
-  - 房间与规则走 `roomService.roomMetaByCode`（按房间 familyID 校验成员关系）；
+  - 房间与规则走 `roomService.roomMetaByCode`（按房间 familyID 解析归属；邀请码即入场凭证，
+    非本家庭登录用户也可握手，家庭停用仍拒绝）；
   - 本函数是协程：所有数据库访问都经 `run_in_threadpool`，不阻塞事件循环。
 """
 

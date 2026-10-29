@@ -51,8 +51,21 @@ class Settings(BasicSettings):
 
     @property
     def public_dir(self) -> Path:
-        """前端可直接访问的图片根目录（生产 /data/webserver/majiangapp）。"""
+        """前端可直接访问的图片根目录（生产 /data/webserver/majiangapp）。
+
+        优先 UPLOAD_DIR：生产站点树与前端的 Nginx root 必须重合，否则
+        `/majiangapp/tiles/...` 会落到 /data/majiang/data 下面而 404（docs/部署.md §5.2）。
+        """
+        raw = (self.upload_dir or "").strip()
+        if raw:
+            path = Path(raw)
+            return path if path.is_absolute() else (DEFAULT_DATA_DIR.parent / path)
         return self.data_dir / "webserver" / "majiangapp"
+
+    @property
+    def tiles_dir(self) -> Path:
+        """皮肤资源根：`{public_dir}/tiles/{skinCode}/{tileKey}.{hash8}.{ext}`。"""
+        return self.public_dir / "tiles"
 
     @property
     def frontend_dist(self) -> Path:
@@ -68,7 +81,7 @@ class Settings(BasicSettings):
             self.data_dir / "db",
             self.data_dir / "backup",
             self.public_dir,
-            self.public_dir / "tiles",
+            self.tiles_dir,
         ):
             try:
                 path.mkdir(parents=True, exist_ok=True)

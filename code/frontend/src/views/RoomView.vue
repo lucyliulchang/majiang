@@ -16,6 +16,7 @@ import TurnTimer from '../components/table/TurnTimer.vue'
 import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
 import { useGameStore } from '../stores/game'
+import { useSkinsStore } from '../stores/skins'
 import type { LegalAction } from '../types'
 
 const route = useRoute()
@@ -23,6 +24,7 @@ const router = useRouter()
 const toast = useToast()
 const auth = useAuthStore()
 const game = useGameStore()
+const skins = useSkinsStore()
 
 const code = String(route.params.code || '').toUpperCase()
 const selected = ref<number | null>(null)
@@ -32,6 +34,8 @@ const spectateOpen = ref(false)
 
 onMounted(() => {
   game.enterRoom(code)
+  // 皮肤清单进桌即就绪：切换时只换 assetMap，不刷新牌桌
+  void skins.ensureLoaded()
 })
 
 onBeforeUnmount(() => {
@@ -78,8 +82,17 @@ const myTurnTimerVisible = computed(
 )
 
 const canDiscard = computed(() => game.isMyTurn && game.hasAction('discard'))
+// 自己回合的「过」只是「不杠/不自摸，直接出牌」：本地收起动作条即可，
+// 不能发给服务端——出牌阶段服务端只认 discard/hu/kong，pass 会回 BAD_ACTION 卡住牌局
+const passDismissed = ref(false)
+watch(
+  () => `${game.turn}|${game.legal.map((item) => `${item.action}:${item.kong_kind ?? ''}:${(item.tiles || []).join('-')}`).join(',')}`,
+  () => {
+    passDismissed.value = false
+  }
+)
 const showActionBar = computed(() => {
-  if (isSpectator.value) return false
+  if (isSpectator.value || passDismissed.value) return false
   const actions = game.legal
   return actions.some((item) => item.action !== 'discard')
 })
@@ -120,6 +133,15 @@ function onAct(action: LegalAction): void {
   game.act(action)
 }
 
+function onPass(): void {
+  // 自己的回合：过 = 不杠、不自摸，收起动作条去出牌（服务端出牌阶段不认 pass）
+  if (game.isMyTurn && game.hasAction('discard')) {
+    passDismissed.value = true
+    return
+  }
+  game.pass()
+}
+
 function copyCode(): void {
   const text = game.snapshot?.room?.room_code || code
   navigator.clipboard?.writeText(text).then(
@@ -145,12 +167,20 @@ function backToLobby(): void {
 
 const myMelds = computed(() => mySeatView.value?.melds || [])
 const hintEnabled = computed(() => Boolean(game.ruleBrief?.ting_hint))
+/** 庄家昵称：ScoreBoard 显示「南风局 · 第 2/4 局 · 庄家 X」 */
+const dealerName = computed(() => {
+  const seat = game.snapshot?.dealer_seat
+  if (seat === null || seat === undefined) return null
+  return game.snapshot?.seats?.[seat]?.display_name || null
+})
 </script>
 
 <template>
   <div class="flex h-screen min-h-[640px] flex-col overflow-hidden">
     <!-- 顶部信息条 -->
-    <header class="flex h-14 shrink-0 items-center border-b border-gold-400/15 bg-felt-950/85 px-4 backdrop-blur">
+    <!-- relative z-50：header 因 backdrop-blur 自成层叠上下文，需压在牌桌与聊天栏之上，
+         否则 ScoreBoard 里 z-40 的皮肤/音效弹层会被后面的牌桌区域遮住、点不到 -->
+    <header class="relative z-50 flex min-h-14 shrink-0 items-center border-b border-gold-400/15 bg-felt-950/85 px-3 py-1.5 backdrop-blur sm:px-4">
       <div v-if="game.snapshot" class="w-full">
         <ScoreBoard
           :room-name="game.snapshot.room.room_name"
@@ -160,6 +190,10 @@ const hintEnabled = computed(() => Boolean(game.ruleBrief?.ting_hint))
           :wall-count="game.snapshot.wall_count"
           :round-no="game.snapshot.round_no"
           :total-rounds="game.snapshot.game_total_rounds"
+          :family-name="game.snapshot.room.family_name"
+          :family-code="game.snapshot.room.family_code"
+          :round-wind="game.snapshot.round_wind ?? (game.snapshot.round_no ? game.snapshot.round_no - 1 : null)"
+          :dealer-name="dealerName"
           :connected="game.connected"
           @copy="copyCode"
           @exit="exitRoom"
@@ -188,7 +222,7 @@ const hintEnabled = computed(() => Boolean(game.ruleBrief?.ting_hint))
     </div>
 
     <div class="flex min-h-0 flex-1">
-      <!-- 牌桌 -->
+      <!-- 牌桌：不要抬高层级，header 的 skin/sound 弹层要压在牌桌之上 -->
       <section class="relative flex min-w-0 flex-1 items-center justify-center p-3">
         <div class="felt-panel relative flex h-full w-full max-w-[1080px] flex-col gap-2 rounded-[28px] p-3 shadow-table">
           <!-- 顶部：对家 -->
@@ -384,7 +418,7 @@ const hintEnabled = computed(() => Boolean(game.ruleBrief?.ting_hint))
             :claim-tile="game.snapshot?.legal?.claim_tile ?? null"
             :reason="game.snapshot?.legal?.reason"
             @act="onAct"
-            @pass="game.pass()"
+            @pass="onPass"
           />
         </div>
       </section>

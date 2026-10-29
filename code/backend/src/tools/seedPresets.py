@@ -1,10 +1,12 @@
 """种子数据：规则族 + 预置模板 + 1 个内置皮肤（02 §7）。
 
-口径（S6 起）：
-  - 已接入的族（`generic` / `guangdong`）的 **capability 与预置模板一律从
-    `game/families/registry.py` 取**，不再在这里抄一份，避免「代码与库不同步」；
-  - 尚未接入引擎的族（`sichuan` / `baishi`，S7 落地）先按 03 §2.2 冻结能力声明；
-    它们可以出现在族清单里，但 `ready=false`，开桌返回 `RULE_FAMILY_NOT_READY`。
+口径（S7 起）：
+  - 四族（`generic` / `guangdong` / `sichuan` / `baishi`）的 **capability 与预置模板
+    一律从 `game/families/registry.py` 取**，这里不再抄第二份，避免「代码与库不同步」；
+  - `capabilityJson` 视为代码资产：已存在的族行会被**覆盖成本次注册表的值**
+    （否则老库里的旧能力声明会让模板校验与 `ready` 判定跑偏），
+    其余列（状态、排序等运营字段）不覆盖；
+  - 预置模板只在 templateCode 不存在时插入，`presetFlag='1'`（全局预置、可复制不可改）。
 
 幂等口径：按唯一键（ruleFamilyCode / templateCode / skinCode）先查后插，
 重复执行不新增、不报错，也不覆盖家庭后续对预置项的改动。
@@ -24,72 +26,6 @@ sys.path.insert(0, parentdir)
 from common import miscCommon as misc  # noqa: E402
 from game.families import registry  # noqa: E402
 
-# 尚未接入引擎的族（S7 才有 engine.py）：能力声明按 03 §5/§6/§7 冻结
-_PENDING_FAMILIES = [
-    (
-        "sichuan",
-        "四川血战到底",
-        "sichuan",
-        "108",
-        {
-            "tile_set": "108",
-            "allow_chow": False,
-            "honors": False,
-            "wind_fan": False,
-            "patterns": ["standard", "seven_pairs"],
-            "fan_combine": ["group_best"],
-            "fan_modes": ["linear", "exponential"],
-            "fan_cap_allowed": True,
-            "fan_cap_max": 30,
-            "switches": ["turn_timeout", "kong_score", "ting_hint", "draw_penalty"],
-            "settlement": ["self_draw", "discard", "draw", "kong", "rob_kong"],
-            "multi_winner": True,
-            "bao_pai": False,
-            "self_draw_multiplier": 1,
-            "dealer_multiplier": {"win": 1, "pay": 1},
-            "lack_suit": True,
-            "min_fan_to_win": 0,
-            "max_rounds": 4,
-        },
-        40,
-        "108 张（无字牌），缺一门，可多人胡",
-    ),
-    (
-        "baishi",
-        "柏氏规则",
-        "baishi",
-        "136",
-        {
-            "tile_set": "136",
-            "allow_chow": True,
-            "honors": True,
-            "wind_fan": True,
-            "patterns": ["standard", "seven_pairs", "thirteen_unrelated", "thirteen_orphans"],
-            "fan_combine": ["sum_all"],
-            "fan_modes": ["linear"],
-            "fan_cap_allowed": False,
-            "fan_cap_max": 0,
-            "switches": ["turn_timeout", "kong_score", "pause"],
-            "settlement": ["self_draw", "discard", "draw", "kong", "rob_kong", "bao_pai"],
-            "multi_winner": False,
-            "bao_pai": {
-                "supported": True,
-                "win_type": "discard",
-                "min_exposed_melds": 3,
-                "patterns": ["qing_yi_se", "hun_yi_se", "quan_zi", "quan_yao"],
-                "payer": "discarder_full",
-            },
-            "dealer_multiplier": {"win": 2, "pay": 2},
-            "self_draw_multiplier": 2,
-            "lack_suit": False,
-            "min_fan_to_win": 1,
-            "max_rounds": 4,
-        },
-        20,
-        "累计不乘积、不封顶、包牌独付，细则见 07",
-    ),
-]
-
 
 # 内置皮肤：familyID=0，前端按 CSS 渲染，无逐张资源
 BUILTIN_SKIN = {
@@ -105,7 +41,11 @@ BUILTIN_SKIN = {
 
 
 def ruleFamilyRows() -> list[tuple]:
-    """(code, 名称, engineCode, tileSetCode, capability, sortOrder, memo)：注册表优先。"""
+    """(code, 名称, engineCode, tileSetCode, capability, sortOrder, memo)：全部来自注册表。
+
+    注册表就是唯一事实来源：库里多出来的族（历史遗留）不会被删，注册表里缺的族
+    也不可能被这里塞进去——`check_capability` 已经在导入期拦过一遍。
+    """
     rows: list[tuple] = []
     for plugin in registry.all_families():
         rows.append(
@@ -119,27 +59,37 @@ def ruleFamilyRows() -> list[tuple]:
                 plugin.memo,
             )
         )
-    rows.extend(_PENDING_FAMILIES)
     rows.sort(key=lambda row: row[5])
     return rows
 
 
-def _exists(tableName, columnName, value):
-    from common import mysqlCommon as comMysql
-
-    rows = comMysql.queryTableGeneral(
-        tableName, condList=[[columnName, "=", value]], order="create", limitNum=1
-    )
-    return bool(rows)
-
-
 def seedRuleFamilies():
-    """规则族行；按 ruleFamilyCode 幂等。返回新增条数。"""
+    """规则族行；按 ruleFamilyCode 幂等，已存在则只同步 capability 等代码资产。
+
+    返回新增条数（覆盖同步的条数记在日志里，不计入返回值）。
+    """
     from common import mysqlCommon as comMysql
 
     created = 0
+    refreshed = 0
     for code, name, engineCode, tileSetCode, capability, sortOrder, memo in ruleFamilyRows():
-        if _exists(comMysql.MJ_RULE_FAMILY_TABLE, "ruleFamilyCode", code):
+        row = comMysql.query_mj_rule_family_by_code(code)
+        if row:
+            current = row.get("capabilityJson") or {}
+            if current != capability or str(row.get("engineCode") or "") != engineCode:
+                comMysql.update_mj_rule_family(
+                    comMysql.MJ_RULE_FAMILY_TABLE,
+                    int(row.get("recID") or 0),
+                    {
+                        "ruleFamilyName": name,
+                        "engineCode": engineCode,
+                        "tileSetCode": tileSetCode,
+                        "capabilityJson": capability,
+                        "sortOrder": sortOrder,
+                        "memo": memo,
+                    },
+                )
+                refreshed += 1
             continue
         dataSet = {
             "ruleFamilyCode": code,
@@ -156,17 +106,47 @@ def seedRuleFamilies():
         recID = comMysql.insert_mj_rule_family(comMysql.MJ_RULE_FAMILY_TABLE, dataSet)
         if recID > 0:
             created += 1
+    if refreshed:
+        print(f"[seedPresets] 已同步 {refreshed} 个族的能力声明")
     return created
 
 
 def seedRuleTemplates():
-    """各族预置模板；familyID=0 / presetFlag=1 / ownerLoginID=NULL，按 templateCode 幂等。"""
+    """各族预置模板；familyID=0 / presetFlag=1 / ownerLoginID=NULL，按 templateCode 幂等。
+
+    已存在的**预置**行（familyID=0 且 presetFlag='1'）视为代码资产：`configJson`
+    与注册表不一致时覆盖（族能力收紧后，老库里的模板可能带族不再支持的开关，
+    开桌会被 `_assertCapability` 拒绝，整族不可用）。家庭复制出来的模板不动。
+    """
     from common import mysqlCommon as comMysql
 
     created = 0
+    refreshed = 0
     for plugin in registry.all_families():
         for preset in plugin.presets:
-            if _exists(comMysql.MJ_RULE_TEMPLATE_TABLE, "templateCode", preset.template_code):
+            row = comMysql.queryTableGeneral(
+                comMysql.MJ_RULE_TEMPLATE_TABLE,
+                condList=[["templateCode", "=", preset.template_code]],
+                delFlag="",
+                order="create",
+                limitNum=1,
+            )
+            if row:
+                current = row[0]
+                isPreset = str(current.get("presetFlag") or "") == "1" and int(
+                    current.get("familyID") or 0
+                ) == 0
+                if isPreset and (current.get("configJson") or {}) != (preset.config or {}):
+                    comMysql.update_mj_rule_template_fields(
+                        int(current.get("recID") or 0),
+                        {
+                            "templateName": preset.template_name,
+                            "description": preset.description,
+                            "configJson": preset.config,
+                        },
+                        "seedPresets",
+                    )
+                    refreshed += 1
                 continue
             dataSet = {
                 "templateCode": preset.template_code,
@@ -187,21 +167,39 @@ def seedRuleTemplates():
             )
             if recID > 0:
                 created += 1
+    if refreshed:
+        print(f"[seedPresets] 已同步 {refreshed} 个预置模板配置")
     return created
 
 
 def seedTileSkins():
-    """1 条内置皮肤；按 skinCode 幂等。"""
+    """1 条内置皮肤（css-classic）：无资源、ENABLED、全局默认；按 skinCode 幂等。
+
+    已存在时只纠正「状态/默认标记」两项代码资产：内置皮肤被误停用后不会出现在
+    任何家庭的清单里，前端整站退化成纯 CSS——这属于种子必须保证的基线。
+    """
     from common import mysqlCommon as comMysql
 
     created = 0
-    if not _exists(comMysql.MJ_TILE_SKIN_TABLE, "skinCode", BUILTIN_SKIN["skinCode"]):
+    row = comMysql.query_mj_tile_skin_by_code(BUILTIN_SKIN["skinCode"])
+    if not row:
         dataSet = dict(BUILTIN_SKIN)
         dataSet["regID"] = "seedPresets"
         dataSet["regYMDHMS"] = misc.getTime()
         recID = comMysql.insert_mj_tile_skin(comMysql.MJ_TILE_SKIN_TABLE, dataSet)
         if recID > 0:
             created += 1
+        return created
+
+    fixSet = {}
+    if str(row.get("skinStatus") or "") != BUILTIN_SKIN["skinStatus"]:
+        fixSet["skinStatus"] = BUILTIN_SKIN["skinStatus"]
+    if str(row.get("defaultFlag") or "") != BUILTIN_SKIN["defaultFlag"]:
+        fixSet["defaultFlag"] = BUILTIN_SKIN["defaultFlag"]
+    if fixSet:
+        fixSet["modifyID"] = "seedPresets"
+        fixSet["modifyYMDHMS"] = misc.getTime()
+        comMysql.update_mj_tile_skin_fields(int(row.get("recID") or 0), fixSet)
     return created
 
 

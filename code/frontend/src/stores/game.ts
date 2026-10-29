@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { closeSocket, openSocket, sendMessage, setMessageHandler, setStatusHandler } from '../api/ws'
+import { notifyConnectionRestored, preloadSounds, stopAll } from '../audio/audioManager'
+import { handleSoundEvent, handleSoundMessage, resetGameSounds } from '../audio/useGameSounds'
 import { useToast } from '../composables/useToast'
 import type { ChatMessage, LegalAction, SeatView, Snapshot, SpectateView } from '../types'
 import { tileName, tilesName } from '../utils/tile'
@@ -98,6 +100,8 @@ export const useGameStore = defineStore('game', () => {
   }
 
   function handleEvent(type: string, data: any): void {
+    // 08 §2：音效只由增量事件驱动（快照/欢迎包永不发声）
+    handleSoundEvent(type, data, selfSeat.value)
     switch (type) {
       case 'event.discarded':
         flash(`${seatName(data.seat)} 打出 ${tileName(data.tile)}`, 'action')
@@ -151,6 +155,8 @@ export const useGameStore = defineStore('game', () => {
   }
 
   function handleMessage(type: string, data: any): void {
+    // chat.message 的提示音在这里判定（系统播报 / 面板聚焦不出声）
+    handleSoundMessage(type, data)
     if (type === 'state.snapshot') {
       snapshot.value = data as Snapshot
       if (data.phase !== 'settled') finished.value = finished.value
@@ -159,6 +165,8 @@ export const useGameStore = defineStore('game', () => {
     if (type === 'room.welcome') {
       roomCode.value = data.room?.room_code || data.room?.code || roomCode.value
       chat.value = (data.chat || []) as ChatMessage[]
+      // 进桌即预加载 15 个 SFX（Promise.allSettled，单个失败不影响其他）
+      void preloadSounds()
       return
     }
     if (type === 'chat.message') {
@@ -183,18 +191,30 @@ export const useGameStore = defineStore('game', () => {
     snapshot.value = null
     chat.value = []
     finished.value = null
+    // 进新桌：清空上一桌的 settled 去重与限流状态
+    resetGameSounds()
+    let everConnected = false
     setMessageHandler(handleMessage)
     setStatusHandler((isUp, detail) => {
       connected.value = isUp
       connectionDetail.value = detail || ''
-      if (isUp) pushSystem('已连接到牌桌')
-      else if (detail) pushSystem(detail)
+      if (isUp) {
+        // 断线重连：800ms 静音期，吞掉快照恢复与突兀事件，不补播
+        if (everConnected) {
+          notifyConnectionRestored()
+          void preloadSounds()
+        }
+        everConnected = true
+        pushSystem('已连接到牌桌')
+      } else if (detail) pushSystem(detail)
     })
     openSocket(code)
   }
 
   function leaveRoom(): void {
     closeSocket()
+    stopAll()
+    resetGameSounds()
     snapshot.value = null
     chat.value = []
     roomCode.value = ''

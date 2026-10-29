@@ -29,8 +29,16 @@ from processor import familyService
 
 logger = get_logger("mahjong.rule")
 
-# 三组开关的「从属值」字段名（校验错误归类用）
-_SWITCH_KEYS = ("turn_timeout", "kong_score", "ting_hint", "draw_penalty", "pause")
+# 开关类配置项（校验错误归类 + 白名单逐项比对；族不支持的开关一律拒绝）
+_SWITCH_KEYS = (
+    "turn_timeout",
+    "kong_score",
+    "ting_hint",
+    "draw_penalty",
+    "pause",
+    "cha_jiao",
+    "hua_zhu",
+)
 
 
 class RuleServiceError(BizError):
@@ -182,6 +190,8 @@ def _enabledPatterns(config) -> list[str]:
     thirteenUnrelated = getattr(patterns, "thirteen_unrelated", None)
     if thirteenUnrelated is not None and getattr(thirteenUnrelated, "enabled", False):
         enabled.append("thirteen_unrelated")
+    if getattr(patterns, "long_seven_pairs", False):
+        enabled.append("long_seven_pairs")
     return enabled
 
 
@@ -293,7 +303,7 @@ def _snapshotOptions(config) -> dict:
         "claim_window_seconds": getattr(config, "claim_window_seconds", 8),
         "allow_chow": bool(getattr(config, "allow_chow", True)),
     }
-    for key in ("turn_timeout", "kong_score", "ting_hint", "draw_penalty"):
+    for key in ("turn_timeout", "kong_score", "ting_hint", "draw_penalty", "pause", "cha_jiao", "hua_zhu"):
         section = getattr(config, key, None)
         if section is None:
             continue
@@ -301,34 +311,89 @@ def _snapshotOptions(config) -> dict:
             options[key] = {"enabled": False}
             continue
         payload = {"enabled": True}
-        for attr in ("seconds", "exposed", "hidden", "added", "value"):
+        for attr in ("seconds", "exposed", "hidden", "added", "value", "pay_mode"):
             value = getattr(section, attr, None)
             if value is not None:
                 payload[attr] = value
         options[key] = payload
+    # 族扩展项（仅在该族配置里存在时才冻结，S7）
+    for key in ("multi_winner", "min_fan_to_win", "self_draw_multiplier"):
+        value = getattr(config, key, None)
+        if value is not None:
+            options[key] = value
+    dealer = getattr(config, "dealer_rule", None)
+    if dealer is not None:
+        options["dealer_multiplier"] = {
+            "win": int(getattr(dealer, "win_multiplier", 1)),
+            "pay": int(getattr(dealer, "pay_multiplier", 1)),
+        }
+    bao = getattr(config, "bao_pai", None)
+    if bao is not None:
+        options["bao_pai"] = {
+            "enabled": bool(getattr(bao, "enabled", False)),
+            "win_type": getattr(bao, "win_type", "discard"),
+            "min_exposed_melds": int(getattr(bao, "min_exposed_melds", 3)),
+            "patterns": list(getattr(bao, "patterns", []) or []),
+            "payer": getattr(bao, "payer", "discarder_full"),
+        }
     return options
 
 
 def summaryText(config) -> str:
-    """一句话摘要（04 §5 validate 的 summary）。"""
+    """一句话摘要（04 §5 validate 的 summary）。
+
+    族配置形状不同（柏氏没有 ting_hint、多了倍数/包牌/暂停、不封顶），
+    这里统一按 getattr 取，缺什么就不说，避免为每个族写一份摘要。
+    """
+    fanMode = getattr(config, "fan_mode", "linear")
     parts = [
-        f"底分 {config.base_score}",
-        "2 的 N 次方" if config.fan_mode == "exponential" else "线性累加",
+        f"底分 {getattr(config, 'base_score', 1)}",
+        "2 的 N 次方" if fanMode == "exponential" else "线性累加",
     ]
-    if config.fan_cap is not None:
-        parts.append(f"封顶 {config.fan_cap} 番")
-    parts.append("可以吃" if config.allow_chow else "不能吃")
-    if config.turn_timeout.enabled:
-        parts.append(f"限时 {config.turn_timeout.seconds} 秒")
+    fanCap = getattr(config, "fan_cap", None)
+    if fanCap is not None:
+        parts.append(f"封顶 {fanCap} 番")
+    elif getattr(config, "fan_cap", "missing") is None:
+        parts.append("不封顶")
+    parts.append("可以吃" if getattr(config, "allow_chow", True) else "不能吃")
+
+    turnTimeout = getattr(config, "turn_timeout", None)
+    if turnTimeout is not None and getattr(turnTimeout, "enabled", False):
+        parts.append(f"限时 {turnTimeout.seconds} 秒")
     else:
         parts.append("不限时")
-    if config.kong_score.enabled:
+
+    kongScore = getattr(config, "kong_score", None)
+    if kongScore is not None and getattr(kongScore, "enabled", False):
         parts.append(
-            f"杠分 明{config.kong_score.exposed}/暗{config.kong_score.hidden}/补{config.kong_score.added}"
+            f"杠分 明{kongScore.exposed}/暗{kongScore.hidden}/补{kongScore.added}"
         )
     else:
         parts.append("杠不计分")
-    parts.append("听牌提示开" if config.ting_hint.enabled else "无听牌提示")
+
+    tingHint = getattr(config, "ting_hint", None)
+    if tingHint is not None:
+        parts.append("听牌提示开" if tingHint.enabled else "无听牌提示")
+
+    minFan = getattr(config, "min_fan_to_win", None)
+    if minFan:
+        parts.append(f"起胡 {minFan} 番")
+    if getattr(config, "multi_winner", False):
+        parts.append("一家胡了继续打")
+    selfDraw = int(getattr(config, "self_draw_multiplier", 1) or 1)
+    if selfDraw > 1:
+        parts.append(f"自摸 ×{selfDraw}")
+    dealer = getattr(config, "dealer_rule", None)
+    if dealer is not None:
+        parts.append(
+            f"庄家 ×{int(getattr(dealer, 'win_multiplier', 1))}/×{int(getattr(dealer, 'pay_multiplier', 1))}"
+        )
+    bao = getattr(config, "bao_pai", None)
+    if bao is not None and getattr(bao, "enabled", False):
+        parts.append(f"包牌 ≥{int(getattr(bao, 'min_exposed_melds', 3))} 明牌")
+    pause = getattr(config, "pause", None)
+    if pause is not None and getattr(pause, "enabled", False):
+        parts.append("可暂停")
     return " · ".join(parts)
 
 
