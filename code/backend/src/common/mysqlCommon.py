@@ -2022,8 +2022,12 @@ def query_mj_game_detail(gameID):
     return result
 
 
-def query_mj_game_stats(loginID, familyID):
-    """个人统计（2 条 SQL）：参与场次数/总分/最好/最差 + 胡牌局数。"""
+def query_mj_game_stats(loginID, familyID, crossFamily = False):
+    """个人统计（2 条 SQL）：参与场次数/总分/最好/最差 + 胡牌局数。
+
+    `crossFamily=True`：统计我参与过的全部场次（含客队），不再限制 familyID；
+    先按 loginID 收敛，因此不会把别人家的局算进来。
+    """
     result = {
         "gamesPlayed": 0,
         "totalScore": 0,
@@ -2039,11 +2043,15 @@ def query_mj_game_stats(loginID, familyID):
         "SELECT COUNT(*) AS gamesPlayed, COALESCE(SUM(p.totalScore), 0) AS totalScore, "
         "COALESCE(MAX(p.totalScore), 0) AS bestGame, COALESCE(MIN(p.totalScore), 0) AS worstGame "
         "FROM %s p INNER JOIN %s g ON g.recID = p.gameID "
-        "WHERE p.loginID = %%s AND g.familyID = %%s "
+        "WHERE p.loginID = %%s "
         "AND (p.delFlag = '0' OR p.delFlag IS NULL) AND (g.delFlag = '0' OR g.delFlag IS NULL)"
     ) % (MJ_GAME_PLAYER_TABLE, MJ_GAME_TABLE)
+    valuesList = [loginID]
+    if not crossFamily:
+        sqlStr += " AND g.familyID = %s"
+        valuesList.append(toIntSafe(familyID))
     try:
-        rtn = mysqlDB.executeRead(sqlStr, (loginID, toIntSafe(familyID)))
+        rtn = mysqlDB.executeRead(sqlStr, tuple(valuesList))
         if rtn > 0:
             row = mysqlDB.fetchOne() or {}
             result["gamesPlayed"] = toIntSafe(row.get("gamesPlayed"))
@@ -2054,10 +2062,14 @@ def query_mj_game_stats(loginID, familyID):
         sqlWon = (
             "SELECT COUNT(*) AS roundsWon FROM %s r "
             "INNER JOIN %s p ON p.gameID = r.gameID AND p.seatNo = r.winnerSeat "
-            "WHERE p.loginID = %%s AND r.familyID = %%s AND r.winnerSeat IS NOT NULL "
+            "WHERE p.loginID = %%s AND r.winnerSeat IS NOT NULL "
             "AND (p.delFlag = '0' OR p.delFlag IS NULL) AND (r.delFlag = '0' OR r.delFlag IS NULL)"
         ) % (MJ_GAME_ROUND_TABLE, MJ_GAME_PLAYER_TABLE)
-        rtn = mysqlDB.executeRead(sqlWon, (loginID, toIntSafe(familyID)))
+        valuesWon = [loginID]
+        if not crossFamily:
+            sqlWon += " AND r.familyID = %s"
+            valuesWon.append(toIntSafe(familyID))
+        rtn = mysqlDB.executeRead(sqlWon, tuple(valuesWon))
         if rtn > 0:
             row = mysqlDB.fetchOne() or {}
             result["roundsWon"] = toIntSafe(row.get("roundsWon"))

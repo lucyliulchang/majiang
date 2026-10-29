@@ -129,6 +129,41 @@ def test_stranger_without_participation_is_forbidden(monkeypatch):
     assert error.value.code == "FORBIDDEN"
 
 
+def test_stats_covers_cross_family(monkeypatch):
+    calls: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        familyService,
+        "assertMemberOfFamilyID",
+        lambda loginID, familyID, requireEnabled=False: {"memberRole": "MEMBER"},
+    )
+
+    def fakeStats(loginID, familyID, crossFamily=False):
+        calls["crossFamily"] = crossFamily
+        calls["loginID"] = loginID
+        return {
+            "gamesPlayed": 3,
+            "totalScore": 10,
+            "bestGame": 8,
+            "worstGame": -6,
+            "roundsWon": 2,
+        }
+
+    monkeypatch.setattr(mysqlCommon, "query_mj_game_stats", fakeStats)
+
+    stats = historyService.myStats(GUEST, HOME_FAMILY_ID)
+
+    assert calls["crossFamily"] is True
+    assert calls["loginID"] == GUEST
+    assert stats == {
+        "total_score": 10,
+        "games_played": 3,
+        "rounds_won": 2,
+        "best_game": 8,
+        "worst_game": -6,
+    }
+
+
 def test_family_admin_can_open_game_detail(monkeypatch):
     monkeypatch.setattr(
         mysqlCommon,

@@ -137,7 +137,7 @@ async function openDetail(id: number): Promise<void> {
             <p class="mb-1 flex items-center gap-1.5 text-sm font-medium text-gold-300">
               <Trophy class="h-4 w-4" /> 我的总计
             </p>
-            <p class="mb-3 text-[10px] text-ink-300/55">统计口径：当前家庭内，不含客队场次</p>
+            <p class="mb-3 text-[10px] text-ink-300/55">统计口径：我参与的全部场次（含客队场次）</p>
             <div class="grid grid-cols-2 gap-2.5">
               <div class="rounded-xl border border-cream-100/10 bg-cream-100/[0.03] px-3 py-2.5">
                 <p class="text-[11px] text-ink-300/70">累计积分</p>

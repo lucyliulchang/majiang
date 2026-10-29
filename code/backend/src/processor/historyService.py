@@ -162,9 +162,13 @@ def gameDetail(loginID: str, gameID: int, operatorIsSystemAdmin: bool = False) -
 
 
 def myStats(loginID: str, familyID: int) -> dict:
-    """个人统计（04 §7 #33）。"""
+    """个人统计（04 §7 #33）：我参与过的全部场次（含跨家庭客队场次）。
+
+    口径与 #31 列表一致——卡片上的「累计积分 / 参与场次」就是列表里那些场次的和，
+    不会出现「列表有 12 场、统计说 0 场」的割裂。
+    """
     familyService.assertMemberOfFamilyID(loginID, familyID)
-    raw = mysqlCommon.query_mj_game_stats(loginID, familyID)
+    raw = mysqlCommon.query_mj_game_stats(loginID, familyID, crossFamily=True)
     return {
         "total_score": int(raw.get("totalScore") or 0),
         "games_played": int(raw.get("gamesPlayed") or 0),
