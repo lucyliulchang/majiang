@@ -164,9 +164,14 @@ const modeText = computed(() =>
     </button>
 
     <div class="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-300/80 sm:gap-x-4">
-      <span class="whitespace-nowrap">
+      <span class="whitespace-nowrap" :title="roundNo > totalRounds ? `一场 ${totalRounds} 个庄次，庄家胡牌连庄局数顺延` : ''">
         <template v-if="roundWindText">{{ roundWindText }} · </template>
-        第 <b class="font-num text-cream-100">{{ roundNo }}</b> / {{ totalRounds }} 局
+        <template v-if="roundNo > totalRounds">
+          第 <b class="font-num text-cream-100">{{ roundNo }}</b> 局（连庄）
+        </template>
+        <template v-else>
+          第 <b class="font-num text-cream-100">{{ roundNo }}</b> / {{ totalRounds }} 局
+        </template>
       </span>
       <span v-if="dealerName" class="hidden whitespace-nowrap md:inline">庄家 {{ dealerName }}</span>
       <span class="whitespace-nowrap">牌墙 <b class="font-num text-gold-300">{{ wallCount }}</b></span>

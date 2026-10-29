@@ -97,7 +97,8 @@ def build_snapshot(actor, viewer_seat: int | None, viewer_login_id: str = "") ->
         "status": actor.status,
         "round_no": engine.round_no if engine else 0,
         "dealer_seat": engine.dealer_seat if engine else None,
-        # 局风 = 局序 - 1：第 1 局东、第 2 局南…（03 §3.4，与谁是庄家无关）
+        # 局风 = 庄次（0 东 → 3 北）：每换一次庄 +1，庄家胡牌连庄时保持不变，
+        # 因此连庄局里 round_wind 不一定等于 round_no - 1（03 §3.4）
         "round_wind": engine.round_wind if engine else 0,
         # 生效选项：开关关闭时只有 enabled，不下发从属值（03 §10）
         "rule_options": engine.snapshot_options() if engine else {},

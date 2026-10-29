@@ -768,6 +768,39 @@ def test_case29_draw_with_kong_settles_as_draw():
     assert settled.winners == []
 
 
+# ---------------------------------------------------------------- 轮庄：庄家胡牌连庄
+
+
+def _settled_with(eng, winnerSeat):
+    from game.engine import SettledRound
+
+    return SettledRound(
+        round_no=eng.round_no,
+        dealer_seat=eng.dealer_seat,
+        winner_seat=winnerSeat,
+        win_type="discard",
+        winning_tile=5,
+        pattern_id="standard",
+        fan_items=[],
+        fan_total=1,
+        score_delta=[0, 0, 0, 0],
+        breakdown=None,
+    )
+
+
+def test_dealer_continues_when_dealer_wins():
+    eng = engine(dealer_seat=2, round_no=3)
+    assert eng.round_wind == 2
+    # 庄家胡牌（自摸或点炮）：庄家不动，局风不变（由 realtime/room.py 保持）
+    assert eng.next_dealer(_settled_with(eng, 2)) == 2
+    # 闲家胡：交下家
+    assert eng.next_dealer(_settled_with(eng, 1)) == 3
+    # 荒庄（有杠）：结算无赢家 → 交下家
+    assert eng.next_dealer(_settled_with(eng, None)) == 3
+    # 未结算时与通用骨架一致，交下家
+    assert eng.next_dealer(None) == 3
+
+
 # ---------------------------------------------------------------- 13.16 抢杠（明杠）
 
 
