@@ -2,8 +2,9 @@
 import { computed } from 'vue'
 import { ArrowRight, Trophy } from 'lucide-vue-next'
 
-import type { RoundResult, SeatView } from '../../types'
+import type { FinalHand, RoundResult, SeatView } from '../../types'
 import { tileName } from '../../utils/tile'
+import Tile from './Tile.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -57,6 +58,23 @@ const winnerIsDealer = computed(
   () => props.dealerSeat !== null && props.result.winner_seat === props.dealerSeat
 )
 
+// ---- 胡牌手牌：赢家暗牌 + 副露，共 14 张（点炮/抢杠的胡张已并入暗牌） ----
+const winnerHand = computed<FinalHand | null>(() => {
+  const hands = props.result.final_hands || []
+  if (!hands.length) return null
+  return (
+    hands.find((hand) => hand.seat === props.result.winner_seat) ||
+    hands.find((hand) => hand.is_winner) ||
+    null
+  )
+})
+
+const winnerTileCount = computed(() => {
+  const hand = winnerHand.value
+  if (!hand) return 0
+  return hand.concealed.length + hand.melds.reduce((sum, meld) => sum + meld.tiles.length, 0)
+})
+
 /** 一家本局收/付的杠分（番分之外的加减分） */
 function kongOf(seat: number): number {
   return Number(props.result.kong_delta?.[seat] ?? 0)
@@ -74,15 +92,15 @@ function signed(value: number): string {
 
 <template>
   <div class="fixed inset-0 z-[60] flex items-center justify-center bg-felt-950/85 px-4 backdrop-blur-sm">
-    <div class="max-h-[92vh] w-full max-w-xl animate-riseIn overflow-y-auto rounded-2xl border border-gold-400/30 bg-gradient-to-b from-felt-800/95 to-felt-950/95 p-6 shadow-table">
+    <div class="max-h-[92vh] w-full max-w-2xl animate-riseIn overflow-y-auto rounded-2xl border border-gold-400/30 bg-gradient-to-b from-felt-800/95 to-felt-950/95 p-6 shadow-table sm:p-7">
       <div class="flex items-start justify-between">
         <div>
-          <p class="text-[11px] tracking-[0.28em] text-ink-300/70">第 {{ result.round_no }} 局 · 结算</p>
-          <h2 class="mt-1 flex items-center gap-2 text-xl font-semibold text-cream-100">
-            <Trophy class="h-5 w-5 text-gold-300" />
+          <p class="text-[13px] tracking-[0.28em] text-ink-300/70">第 {{ result.round_no }} 局 · 结算</p>
+          <h2 class="mt-1 flex items-center gap-2 text-2xl font-semibold text-cream-100">
+            <Trophy class="h-6 w-6 text-gold-300" />
             <template v-if="winnerName">
               {{ winnerName }} 胡牌
-              <span class="text-sm font-normal text-ink-300/80">
+              <span class="text-base font-normal text-ink-300/80">
                 {{ winTypeText }}
                 <template v-if="result.winning_tile !== null">· {{ tileName(result.winning_tile) }}</template>
               </span>
@@ -91,24 +109,57 @@ function signed(value: number): string {
           </h2>
         </div>
         <div class="text-right">
-          <p class="font-num text-3xl font-bold text-gold-300">{{ result.fan_total }}</p>
-          <p class="text-[11px] text-ink-300/70">番</p>
+          <p class="font-num text-4xl font-bold text-gold-300">{{ result.fan_total }}</p>
+          <p class="text-[13px] text-ink-300/70">番</p>
         </div>
       </div>
 
+      <!-- 胡牌手牌：赢家暗牌 + 副露，一共 14 张；金框是胡张，副露按组分开 -->
+      <div v-if="winnerHand" class="mt-4 rounded-xl border border-gold-400/25 bg-gold-400/[0.06] p-3">
+        <div class="mb-2 flex items-center justify-between gap-2">
+          <p class="text-sm text-gold-300">胡牌手牌（{{ winnerTileCount }} 张）</p>
+          <p v-if="winnerHand.melds.length" class="text-xs text-ink-300/60">
+            副露 {{ winnerHand.melds.length }} 组
+          </p>
+        </div>
+        <div class="flex flex-wrap items-end gap-1">
+          <Tile
+            v-for="(tile, index) in winnerHand.concealed"
+            :key="`concealed-${index}`"
+            :tile="tile"
+            size="sm"
+            :highlight="tile === winnerHand.winning_tile"
+          />
+          <span
+            v-for="(meld, meldIndex) in winnerHand.melds"
+            :key="`meld-${meldIndex}`"
+            class="ml-1 flex items-end gap-0.5 rounded border border-cream-100/10 bg-felt-950/40 px-0.5 py-0.5"
+          >
+            <Tile
+              v-for="(tile, tileIndex) in meld.tiles"
+              :key="`meld-tile-${meldIndex}-${tileIndex}`"
+              :tile="tile"
+              size="sm"
+              :mark="meld.claim_tile === tile"
+            />
+          </span>
+        </div>
+        <p class="mt-1.5 text-xs text-ink-300/55">左侧是手里暗牌，右侧分组是吃碰杠；金框为胡张</p>
+      </div>
+
       <div v-if="result.fan_items.length" class="mt-4 rounded-xl border border-cream-100/10 bg-cream-100/[0.03] p-3">
-        <p class="mb-2 text-xs text-ink-300/70">命中番种</p>
+        <p class="mb-2 text-sm text-ink-300/70">命中番种</p>
         <div class="flex flex-wrap gap-1.5">
           <span
             v-for="item in result.fan_items"
             :key="item.id"
-            class="rounded-md border border-gold-400/25 bg-gold-400/10 px-2 py-1 text-xs text-gold-100"
+            class="rounded-md border border-gold-400/25 bg-gold-400/10 px-2 py-1 text-sm text-gold-100"
           >
             {{ item.name }}
             <span class="text-gold-300/80">+{{ item.fan * item.count }}</span>
           </span>
         </div>
-        <p v-if="result.breakdown?.capped" class="mt-2 text-[11px] text-amber-400">
+        <p v-if="result.breakdown?.capped" class="mt-2 text-[13px] text-amber-400">
           已按封顶 {{ result.breakdown.fan_total }} 番计算（原始 {{ result.breakdown.fan_raw }} 番）
         </p>
       </div>
@@ -116,9 +167,9 @@ function signed(value: number): string {
       <!-- 分数构成：番分与杠分分开算，再相加 -->
       <div
         v-if="result.winner_seat !== null || kongItems.length"
-        class="mt-3 space-y-1.5 rounded-xl border border-cream-100/10 bg-felt-950/45 p-3 text-[11px] leading-relaxed text-ink-300/85"
+        class="mt-3 space-y-1.5 rounded-xl border border-cream-100/10 bg-felt-950/45 p-3 text-[13px] leading-relaxed text-ink-300/85"
       >
-        <p class="text-xs text-gold-300">分数怎么算</p>
+        <p class="text-sm text-gold-300">分数怎么算</p>
 
         <!-- ① 番分：番 × 底分 × 倍数 -->
         <p v-if="result.winner_seat !== null">
@@ -171,35 +222,35 @@ function signed(value: number): string {
               : 'border-cream-100/10 bg-felt-900/40'
           "
         >
-          <p class="truncate text-xs text-ink-300/80" :style="{ color: seat.color }">{{ seat.display_name }}</p>
+          <p class="truncate text-sm text-ink-300/80" :style="{ color: seat.color }">{{ seat.display_name }}</p>
           <p
-            class="mt-1 font-num text-lg font-bold"
+            class="mt-1 font-num text-xl font-bold"
             :class="(result.score_delta[seat.seat] ?? 0) >= 0 ? 'text-jade-400' : 'text-vermilion-400'"
           >
             {{ signed(result.score_delta[seat.seat] ?? 0) }}
           </p>
           <!-- 番 / 杠 拆开显示：一眼看出这个数字里有几分是杠 -->
-          <p class="text-[10px] text-ink-300/60">
+          <p class="text-xs text-ink-300/60">
             番 {{ signed(fanOf(seat.seat)) }}
             <template v-if="kongOf(seat.seat) !== 0">
               <span class="text-jade-400/80"> · 杠 {{ signed(kongOf(seat.seat)) }}</span>
             </template>
           </p>
-          <p class="text-[10px] text-ink-300/45">累计 {{ seat.total_score }}</p>
+          <p class="text-xs text-ink-300/45">累计 {{ seat.total_score }}</p>
         </div>
       </div>
 
       <div class="mt-5 flex items-center justify-between gap-3">
-        <p class="text-xs" :class="myDelta >= 0 ? 'text-jade-400' : 'text-vermilion-400'">
+        <p class="text-sm" :class="myDelta >= 0 ? 'text-jade-400' : 'text-vermilion-400'">
           本局你 {{ myDelta > 0 ? '赢' : myDelta < 0 ? '输' : '平' }} {{ Math.abs(myDelta) }} 分
         </p>
         <div class="flex gap-2">
-          <button type="button" class="btn-ghost rounded-lg px-3 py-2 text-sm" @click="emit('close')">
+          <button type="button" class="btn-ghost rounded-lg px-3.5 py-2 text-base" @click="emit('close')">
             看看牌桌
           </button>
-          <button type="button" class="btn-gold flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold" @click="emit('next')">
+          <button type="button" class="btn-gold flex items-center gap-1.5 rounded-lg px-4 py-2 text-base font-semibold" @click="emit('next')">
             {{ isLastRound ? '查看总账' : '下一局' }}
-            <ArrowRight class="h-4 w-4" />
+            <ArrowRight class="h-5 w-5" />
           </button>
         </div>
       </div>

@@ -18,6 +18,7 @@ import { useAuthStore } from '../stores/auth'
 import { useGameStore } from '../stores/game'
 import { useSkinsStore } from '../stores/skins'
 import type { LegalAction } from '../types'
+import { tileName } from '../utils/tile'
 
 const route = useRoute()
 const router = useRouter()
@@ -58,7 +59,8 @@ const turn = computed(() => game.turn)
 const seats = computed(() => game.seats)
 
 const relative = computed(() => {
-  const self = selfSeat.value ?? 0
+  // 观战时把「被关注的人」摆到底部：手牌、副露、牌河才能像本家视角一样对齐
+  const self = selfSeat.value ?? game.spectateSeat ?? 0
   return {
     self,
     right: (self + 1) % 4,
@@ -171,6 +173,14 @@ function onDiscard(tile: number): void {
   selected.value = null
 }
 
+/** 手牌点选只负责选中/取消，真正出牌由「打出」按钮触发（移动端不容易误触） */
+function discardSelected(): void {
+  if (selected.value === null) return
+  onDiscard(selected.value)
+}
+
+const selectedName = computed(() => (selected.value === null ? '' : tileName(selected.value)))
+
 function onAct(action: LegalAction): void {
   game.act(action)
 }
@@ -216,7 +226,12 @@ function backToLobby(): void {
   router.push({ name: 'lobby' })
 }
 
-const myMelds = computed(() => mySeatView.value?.melds || [])
+/**
+ * 底部手牌区对应的人：在座玩家看自己，观战者看被关注的人。
+ * 手牌、副露（吃碰杠）与分数必须同一视角，否则观战时会「看得到手牌却看不到吃碰」。
+ */
+const bottomView = computed(() => (isSpectator.value ? spectateTarget.value : mySeatView.value))
+const myMelds = computed(() => bottomView.value?.melds || [])
 const hintEnabled = computed(() => Boolean(game.ruleBrief?.ting_hint))
 /** 吃牌时标出「被吃的那一张」；碰/杠整组同牌，不标 */
 function claimIndex(meld: { kind: string; tiles: number[]; claim_tile?: number | null }): number {
@@ -318,14 +333,14 @@ const dealerName = computed(() => {
                 </div>
               </div>
 
-              <!-- 左侧出牌提示：只在自己该出牌时亮，点牌即出 -->
+              <!-- 左侧出牌提示：只在自己该出牌时亮；点牌先选中，再点一次取消 -->
               <transition name="fade">
                 <div
                   v-if="canDiscard"
                   class="flex items-center justify-center gap-1.5 rounded-xl border border-gold-400/60 bg-gold-400/15 px-2 py-2 text-[11px] font-medium leading-tight text-gold-100 shadow-gold animate-breathe"
                 >
                   <Hand class="h-3.5 w-3.5 shrink-0 text-gold-300" />
-                  <span>轮到你出牌</span>
+                  <span>{{ selected === null ? '轮到你出牌' : '点牌可改选，按「打出」出牌' }}</span>
                 </div>
               </transition>
             </div>
@@ -333,7 +348,7 @@ const dealerName = computed(() => {
             <div class="relative min-h-0 rounded-2xl border border-cream-100/[0.06] bg-felt-950/25">
               <DiscardRiver
                 :discards="game.snapshot?.discards || [[], [], [], []]"
-                :self-seat="selfSeat"
+                :self-seat="relative.self"
                 :last-discard="game.snapshot?.last_discard || null"
                 :wall-count="game.snapshot?.wall_count || 0"
                 :turn="turn"
@@ -437,18 +452,18 @@ const dealerName = computed(() => {
               <div class="flex items-center gap-2">
                 <span
                   class="flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-felt-950"
-                  :style="{ backgroundColor: mySeatView?.color || auth.avatarColor }"
+                  :style="{ backgroundColor: bottomView?.color || auth.avatarColor }"
                 >
-                  {{ (mySeatView?.display_name || auth.displayName).slice(0, 1) }}
+                  {{ (bottomView?.display_name || auth.displayName).slice(0, 1) }}
                 </span>
                 <div class="leading-tight">
                   <p class="text-xs text-cream-100">
-                    {{ isSpectator ? '观战中' : mySeatView?.display_name || auth.displayName }}
+                    {{ bottomView?.display_name || (isSpectator ? '观战中' : auth.displayName) }}
                   </p>
-                  <p class="text-[10px]" :class="(mySeatView?.total_score || 0) >= 0 ? 'text-jade-400' : 'text-vermilion-400'">
-                    累计 {{ mySeatView?.total_score ?? 0 }}
-                    <span v-if="mySeatView?.round_score" class="text-ink-300/60">
-                      · 本局 {{ mySeatView.round_score > 0 ? '+' : '' }}{{ mySeatView.round_score }}
+                  <p class="text-[10px]" :class="(bottomView?.total_score || 0) >= 0 ? 'text-jade-400' : 'text-vermilion-400'">
+                    累计 {{ bottomView?.total_score ?? 0 }}
+                    <span v-if="bottomView?.round_score" class="text-ink-300/60">
+                      · 本局 {{ bottomView.round_score > 0 ? '+' : '' }}{{ bottomView.round_score }}
                     </span>
                   </p>
                 </div>
@@ -495,7 +510,6 @@ const dealerName = computed(() => {
                 :interactive="canDiscard"
                 :show-hint="hintEnabled && canDiscard"
                 @select="onSelect"
-                @discard="onDiscard"
               />
               <div v-else class="flex items-center gap-2 pb-4">
                 <p class="text-xs text-ink-300/60">你在观战，还没选观战对象</p>
@@ -504,6 +518,23 @@ const dealerName = computed(() => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- 出牌确认条：点牌只选中，再点一次取消选中，按「打出」才真正出牌 -->
+        <div
+          v-if="canDiscard && selected !== null && !showActionBar"
+          class="pointer-events-none absolute inset-x-0 bottom-24 flex justify-center px-4"
+        >
+          <div
+            class="pointer-events-auto flex items-center gap-2 rounded-2xl border border-gold-400/30 bg-felt-950/85 px-3 py-2 shadow-table backdrop-blur-md animate-riseIn"
+          >
+            <span class="pl-1 text-[11px] text-ink-300/80">已选</span>
+            <span class="text-xs font-semibold text-cream-100">{{ selectedName }}</span>
+            <button type="button" class="btn-gold rounded-xl px-4 py-1.5 text-sm font-semibold" @click="discardSelected">
+              打出
+            </button>
+            <button type="button" class="btn-ghost rounded-xl px-3 py-1.5 text-xs" @click="selected = null">取消</button>
           </div>
         </div>
 

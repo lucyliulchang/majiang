@@ -844,6 +844,28 @@ class RoomActor:
             )
         )
 
+    def _next_dealer_state(self) -> tuple[int, int, bool]:
+        """结算后下一局的 `(庄家座位, 局风, 本圈是否结束)`。
+
+        庄家是否连庄由族的 `next_dealer(result)` 决定：返回庄家自己 → 庄家与局风都不动，
+        只把局号 +1；返回下家 → 庄家换人、局风 +1，局风攒满 `rounds_per_game` 即圈结束。
+        未结算（`engine.result is None`，如无杠重发）时按换庄算，仅用于兜底。
+        """
+        engine = self.engine
+        if engine is None:
+            return 0, 0, True
+        dealerSeat = int(engine.dealer_seat)
+        roundWind = int(engine.round_wind)
+        try:
+            nextDealer = int(engine.next_dealer(engine.result))
+        except Exception:  # 族实现异常不该把牌桌卡住：退回「下家坐庄」
+            logger.exception("next_dealer 失败 room=%s，按换庄处理", self.code)
+            nextDealer = (dealerSeat + 1) % 4
+        if nextDealer == dealerSeat:
+            return dealerSeat, roundWind, False
+        nextWind = roundWind + 1
+        return nextDealer, nextWind, nextWind >= int(self.rule.rounds_per_game)
+
     async def _next_round(self, login_id: str) -> None:
         if self.slot_of_login(login_id) is None:
             await self.send_error(login_id, "NO_SEAT", "你在观战，不能开局")
@@ -857,13 +879,15 @@ class RoomActor:
         if login_id != self.host_login_id:
             await self.send_error(login_id, "NOT_HOST", "只有房主可以开始下一局")
             return
-        if self.engine.round_no >= self.rule.rounds_per_game:
+        # 圈结束只看庄次：第 4 个庄次（北位）下庄即收场；庄家胡牌连庄时庄次不变
+        dealerSeat, roundWind, finished = self._next_dealer_state()
+        if finished:
             await self._finish_game()
             return
         for slot in self.slots:
             if slot is not None:
                 slot.ready = True
-        # 轮庄与局风全由局号推导：第 n 局庄家 = 座位 n-1，局风 东→南→西→北（03 §3.4）。
+        # 局号照常 +1（历史一局一条记录），庄家与局风由结算决定：连庄保持、下庄顺延。
         # 无杠重发在同一局内由引擎自行处理（不发 game.next），因此这里只推进局号。
         roundNo = self.engine.round_no + 1
         self.engine = registry.create_engine(
@@ -871,6 +895,8 @@ class RoomActor:
             self.rule,
             list(self.engine.seats.values()),
             round_no=roundNo,
+            dealer_seat=dealerSeat,
+            round_wind=roundWind,
         )
         self.last_result = None
         await self._after(self.engine.start_round())
@@ -1084,7 +1110,8 @@ class RoomActor:
             "fan_items": settled.fan_items,
             "score_delta": settled.score_delta,
             "breakdown": settled.breakdown,
-            "is_last_round": settled.round_no >= self.rule.rounds_per_game,
+            # 圈结束看庄次（庄家胡牌连庄时局号会超过圈数，不能拿局号比）
+            "is_last_round": self._next_dealer_state()[2],
             # S6 追加（04 §9.5 的 result 结构，只增字段不删字段）
             "winners": settled.winners,
             "fan_raw": settled.fan_raw,
@@ -1095,6 +1122,8 @@ class RoomActor:
             "multipliers": dict(settled.multipliers),
             "summary_text": settled.summary_text,
             "is_draw": settled.is_draw,
+            # 终局四家手牌与副露：结算页直接回放赢家 14 张，不必等战绩落库后回查
+            "final_hands": list(settled.final_hands),
         }
         if self.game_id is not None:
             saved = await self._persist(
@@ -1140,6 +1169,9 @@ class RoomActor:
             text = "荒庄（本局有杠），本局计局并迁庄"
         else:
             text = "荒庄，本局无人胡牌"
+        # 连庄要说清楚，否则下一局还是同一位庄家会让人以为没挪庄是 bug
+        if not settled.is_draw and self._next_dealer_state()[0] == engine.dealer_seat:
+            text += " · 庄家连庄"
         await self.system_chat(text)
         await self.push_all()
 

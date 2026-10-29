@@ -168,6 +168,38 @@ class BaishiEngine(GameEngine):
             multipliers=multipliers,
         )
 
+    # ------------------------------------------------------------------ 轮庄
+    def next_dealer(self, settlement=None) -> int:
+        """柏氏连庄：庄家胡牌 → 庄家继续坐庄，其余情况交给下家。
+
+        通用骨架是「每局换庄」，家庭局按柏氏习惯改成连庄：赢家含庄家时庄家不动，
+        由 `realtime/room.py` 保持局风不变、局号照常 +1（历史一局一条记录）。
+        """
+        seats = _winner_seats(settlement)
+        if self.dealer_seat in seats:
+            return self.dealer_seat
+        return (self.dealer_seat + 1) % MAX_ROUNDS
+
+
+def _winner_seats(settlement) -> set[int]:
+    """结算里的赢家座位集合，兼容 `SettledRound` 与协议字典、单赢家与多赢家。"""
+    if settlement is None:
+        return set()
+    if isinstance(settlement, dict):
+        winners = settlement.get("winners") or []
+        fallback = settlement.get("winner_seat")
+    else:
+        winners = getattr(settlement, "winners", None) or []
+        fallback = getattr(settlement, "winner_seat", None)
+    seats: set[int] = set()
+    for item in winners:
+        seat = item.get("seat") if isinstance(item, dict) else getattr(item, "seat", None)
+        if seat is not None:
+            seats.add(int(seat))
+    if not seats and fallback is not None:
+        seats.add(int(fallback))
+    return seats
+
 
 def create_engine(rule, seats, **kwargs) -> BaishiEngine:
     from game.families.baishi.config import RuleConfig

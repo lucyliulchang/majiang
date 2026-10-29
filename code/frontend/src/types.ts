@@ -249,6 +249,24 @@ export interface FanLine {
   count: number
 }
 
+/** 终局一家手牌与副露（`mj_game_round.finalHandsJson`）：胡张已并入赢家手牌 */
+export interface FinalHand {
+  seat: number
+  login_id?: string
+  display_name: string
+  concealed: number[]
+  melds: {
+    kind: string
+    kind_name: string
+    tiles: number[]
+    from_seat: number | null
+    claim_tile: number | null
+  }[]
+  is_winner: boolean
+  win_type: string | null
+  winning_tile: number | null
+}
+
 export interface RoundResult {
   round_no: number
   winner_seat: number | null
@@ -265,6 +283,8 @@ export interface RoundResult {
   /** 生效倍数：自摸 ×2、庄家份 ×2（柏氏）；其它族恒为 1 */
   multipliers?: { self_draw: number; dealer: number }
   summary_text?: string
+  /** 终局四家手牌与副露（结算页回放赢家 14 张） */
+  final_hands?: FinalHand[]
 }
 
 export interface Snapshot {
@@ -291,7 +311,7 @@ export interface Snapshot {
   seats: (SeatView | null)[]
   status: string
   round_no: number
-  /** 本局局风 0 东 / 1 南 / 2 西 / 3 北 = round_no - 1（04 §9.5） */
+  /** 本局局风 0 东 / 1 南 / 2 西 / 3 北；按庄次推进，庄家胡牌连庄时不变（04 §9.5） */
   round_wind?: number
   dealer_seat: number | null
   /** 暂停态（增量字段，缺省视为未暂停） */
@@ -358,22 +378,7 @@ export interface GameDetail {
     fan_total: number
     score_delta: number[]
     /** 终局四家手牌与副露（旧局为空数组），用于核对番种 */
-    final_hands: {
-      seat: number
-      login_id?: string
-      display_name: string
-      concealed: number[]
-      melds: {
-        kind: string
-        kind_name: string
-        tiles: number[]
-        from_seat: number | null
-        claim_tile: number | null
-      }[]
-      is_winner: boolean
-      win_type: string | null
-      winning_tile: number | null
-    }[]
+    final_hands: FinalHand[]
   }[]
 }
 

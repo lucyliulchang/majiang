@@ -17,8 +17,8 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
+  // 只上报「点选/取消选中」，出牌由牌桌上单独的「打出」按钮触发
   select: [tile: number]
-  discard: [tile: number]
 }>()
 
 const sorted = computed(() => {
@@ -39,8 +39,8 @@ const waitCount = computed(() => {
 
 function handleClick(tile: number): void {
   if (!props.interactive) return
-  if (props.selected === tile) emit('discard', tile)
-  else emit('select', tile)
+  // 依次点选：再点同一张等于取消选中，统一由父级切换；出牌走「打出」按钮，避免误触连打出牌
+  emit('select', tile)
 }
 </script>
 
