@@ -15,7 +15,15 @@ const props = defineProps<{
   ruleBrief: RuleBrief | null
   wallCount: number
   roundNo: number
+  /** 一圈几个庄次（固定 4） */
   totalRounds: number
+  /** 本圈第几局（1–4）；缺省退回 roundNo */
+  roundInCircle?: number | null
+  /** 本场第几圈 / 共几圈（v1.1.0） */
+  circleNo?: number | null
+  totalCircles?: number | null
+  /** 本局是否连庄 */
+  dealerContinue?: boolean
   roundWind?: number | null
   dealerName?: string | null
   connected: boolean
@@ -29,8 +37,12 @@ const WIND_TEXT = ['东', '南', '西', '北']
 const roundText = computed(() => {
   const wind = props.roundWind
   const prefix = wind === null || wind === undefined ? '' : `${WIND_TEXT[wind] || ''}风 · `
-  if (props.roundNo > props.totalRounds) return `${prefix}第 ${props.roundNo} 局（连庄）`
-  return `${prefix}第 ${props.roundNo} / ${props.totalRounds} 局`
+  const inCircle = props.roundInCircle ?? props.roundNo
+  const circles = props.totalCircles ?? 1
+  const circle = props.circleNo ?? 1
+  const circlePart = circles > 1 ? `${circle}/${circles} 圈 · ` : ''
+  const tail = props.dealerContinue ? '（连庄）' : ''
+  return `${prefix}${circlePart}第 ${inCircle} / ${props.totalRounds} 局${tail}`
 })
 </script>
 

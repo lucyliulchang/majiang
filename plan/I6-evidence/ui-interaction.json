@@ -1,0 +1,96 @@
+{
+  "checks": [
+    {
+      "name": "两段式：动作条出现「胡」",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "两段式：同时在位「碰」（胡优先但仍可见）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "两段式：过胡按钮文案为「不胡」",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "点「不胡」后发送 game.action pass",
+      "ok": true,
+      "detail": "{\"type\":\"game.action\",\"data\":{\"action\":\"pass\"}}"
+    },
+    {
+      "name": "吃：动作条出现「吃」",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "吃 4 万出现 3 组候选",
+      "ok": true,
+      "detail": "候选数 3"
+    },
+    {
+      "name": "套用第 2 组后显示已选两张（3、5 万）",
+      "ok": true,
+      "detail": "已选 三万 五万"
+    },
+    {
+      "name": "改选第 3 组后变为 5、6 万",
+      "ok": true,
+      "detail": "已选 五万 六万"
+    },
+    {
+      "name": "取消吃后回到动作条，「吃」仍可再点",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "选满两张后「确认吃」可点",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "确认吃后发送 chow 且只带两张手牌",
+      "ok": true,
+      "detail": "{\"type\":\"game.action\",\"data\":{\"action\":\"chow\",\"tiles\":[1,2]}}"
+    },
+    {
+      "name": "点手牌出现「打出」确认条",
+      "ok": true,
+      "detail": "41 · 本局 -3 已选 二万 打出 取消 牌桌闲聊 还没有人说话，打个招呼吧"
+    },
+    {
+      "name": "改点第二张：仍是单选（一张），确认条只剩一个「打出」",
+      "ok": true,
+      "detail": "buttons=1"
+    },
+    {
+      "name": "再点同一张取消选中（确认条消失）",
+      "ok": true,
+      "detail": " 张 妈 妈妈 累计 -41 · 本局 -3 牌桌闲聊 还没有人说话，打个招呼吧"
+    }
+  ],
+  "sent": [
+    {
+      "type": "state.resync",
+      "data": {}
+    },
+    {
+      "type": "game.action",
+      "data": {
+        "action": "pass"
+      }
+    },
+    {
+      "type": "game.action",
+      "data": {
+        "action": "chow",
+        "tiles": [
+          1,
+          2
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+[
+  {
+    "dir": "in",
+    "text": "{\"v\":1,\"type\":\"error\",\"ts\":1793363900,\"data\":{\"code\":\"PLAYING\",\"message\":\"牌局正在进行中\"}}"
+  },
+  {
+    "dir": "in",
+    "text": "{\"v\":1,\"type\":\"error\",\"ts\":1793363924,\"data\":{\"code\":\"DB_WRITE_FAILED\",\"message\":\"这局数据没存上，请稍后重试\"}}"
+  }
+]

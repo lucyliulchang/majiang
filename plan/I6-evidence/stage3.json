@@ -1,0 +1,57 @@
+{
+  "checks": [
+    {
+      "name": "第 1 局打到结算",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "手机大厅能看到本桌卡片",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "手机竖屏结算面板含庄标",
+      "ok": true,
+      "detail": "badge=3"
+    },
+    {
+      "name": "375×667 无横向溢出",
+      "ok": true,
+      "detail": "{\"scrollW\":375,\"clientW\":375}"
+    },
+    {
+      "name": "667×375 无横向溢出",
+      "ok": true,
+      "detail": "{\"scrollW\":667,\"clientW\":667}"
+    },
+    {
+      "name": "手机横屏结算面板含庄标",
+      "ok": true,
+      "detail": "badge=3"
+    },
+    {
+      "name": "连打到「这场打完了」",
+      "ok": false,
+      "detail": "共 6 次结算"
+    },
+    {
+      "name": "整圈结束后关桌并回大厅",
+      "ok": false,
+      "detail": "I6 回归房 171898 S5 测试家庭 柏氏标准 · 底分 1 · 不限时 北风局 · 第 6 局（连庄） 庄家 弟弟 牌墙 8 已连接 皮肤 音效 结束牌局 离桌 妈 妈妈 -41 本局 -3 "
+    }
+  ],
+  "room": "171898",
+  "room_id": 150,
+  "rounds": [
+    "I6 回归房 171898 S5 测试家庭 柏氏标准 · 底分 1 · 不限时 东风局 · 第 1 / 4 局 庄家 妈妈 牌墙 22 已连接 皮肤 音效 结束牌局 离桌 妈 庄 妈妈 +30 本局 +30 13 张 姐 姐姐 -10 本局",
+    6
+  ],
+  "fonts": {
+    "desktopAction": "no-action-bar(settled)",
+    "mobile": {
+      "text": "下一局",
+      "size": "16px"
+    }
+  }
+}

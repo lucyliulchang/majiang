@@ -13,12 +13,12 @@ import ScoreBoard from '../components/table/ScoreBoard.vue'
 import SpectatePanel from '../components/table/SpectatePanel.vue'
 import Tile from '../components/table/Tile.vue'
 import TurnTimer from '../components/table/TurnTimer.vue'
+import { useHandCursor } from '../composables/useHandCursor'
 import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
-import { useGameStore } from '../stores/game'
+import { CHOW_PICK_LIMIT, useGameStore } from '../stores/game'
 import { useSkinsStore } from '../stores/skins'
 import type { LegalAction } from '../types'
-import { tileName } from '../utils/tile'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,7 +28,6 @@ const game = useGameStore()
 const skins = useSkinsStore()
 
 const code = String(route.params.code || '').toUpperCase()
-const selected = ref<number | null>(null)
 const dismissedRound = ref<number | null>(null)
 const chatOpen = ref(false)
 const spectateOpen = ref(false)
@@ -42,13 +41,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   game.leaveRoom()
 })
-
-watch(
-  () => game.result?.round_no,
-  () => {
-    selected.value = null
-  }
-)
 
 const phase = computed(() => game.phase)
 const inGame = computed(() => phase.value !== 'waiting')
@@ -101,6 +93,65 @@ const myTurnTimerVisible = computed(
 )
 
 const canDiscard = computed(() => game.isMyTurn && game.hasAction('discard'))
+
+// 手牌游标：鼠标点选与键盘共用一套选中状态（←/→ 选牌，空格/↑ 出牌，↓/Esc 取消）
+// 吃牌选两张走同一套组件的**多选**分支（U-2）：出牌仍是单选，两者互不污染
+const {
+  selectedIndex,
+  selectedName,
+  multiSelected,
+  select: selectTile,
+  clear: clearSelection,
+  setMulti,
+  clearMulti,
+  discardSelected
+} = useHandCursor({
+  hand: computed(() => game.hand),
+  drawn: computed(() => game.drawn),
+  active: computed(() => canDiscard.value || game.chowSelecting),
+  discard: (tile) => game.discard(tile),
+  multiActive: computed(() => game.chowSelecting),
+  multiLimit: CHOW_PICK_LIMIT,
+  onMultiChange: (tiles) => game.setChowPicks(tiles),
+  onNothingToDiscard: () => toast.info('先点一张牌，再按空格出牌')
+})
+
+// ---- 吃牌选两张（v1.1.0 U-2）：点「吃」只进选牌态，确认后才提交 ----
+/** 进入选牌态并默认套用服务端推荐组合 */
+function openChow(): void {
+  game.beginChow()
+  setMulti(game.chowPicks)
+}
+
+/** 点候选组合一键套用 */
+function applyChow(tiles: number[]): void {
+  game.setChowPicks(tiles)
+  setMulti(tiles)
+}
+
+function cancelChow(): void {
+  game.cancelChow()
+  clearMulti()
+}
+
+function confirmChow(): void {
+  game.confirmChow()
+  clearMulti()
+}
+
+// 窗口关闭（收口 / 超时 / 换牌）时 store 会清空选牌态，手牌高亮跟着退
+watch(
+  () => game.chowSelecting,
+  (open) => {
+    if (!open) clearMulti()
+  }
+)
+// 换局时手牌会重发，游标必须回到未选中
+watch(
+  () => game.result?.round_no,
+  () => clearSelection()
+)
+
 // 自己回合的「过」只是「不杠/不自摸，直接出牌」：本地收起动作条即可，
 // 不能发给服务端——出牌阶段服务端只认 discard/hu/kong，pass 会回 BAD_ACTION 卡住牌局
 const passDismissed = ref(false)
@@ -162,26 +213,12 @@ function cancelSpectate(): void {
   spectateOpen.value = false
 }
 
-function onSelect(tile: number): void {
-  if (!canDiscard.value) return
-  selected.value = selected.value === tile ? null : tile
-}
-
-function onDiscard(tile: number): void {
-  if (!canDiscard.value) return
-  game.discard(tile)
-  selected.value = null
-}
-
-/** 手牌点选只负责选中/取消，真正出牌由「打出」按钮触发（移动端不容易误触） */
-function discardSelected(): void {
-  if (selected.value === null) return
-  onDiscard(selected.value)
-}
-
-const selectedName = computed(() => (selected.value === null ? '' : tileName(selected.value)))
-
 function onAct(action: LegalAction): void {
+  // 吃不再"点一下就提交"：进选牌态，由玩家指定用哪两张手牌（U-2）
+  if (action.action === 'chow') {
+    openChow()
+    return
+  }
   game.act(action)
 }
 
@@ -214,15 +251,19 @@ function nextRound(): void {
 
 // ---- 结束牌局（仅开桌的人）：二次确认后提前收场，已打完的局保留 ----
 const endConfirmOpen = ref(false)
-const canEndGame = computed(() => game.isHost && inGame.value)
+/** 房态口径与后端一致（`RoomActor.status`）：只要不是 waiting 就能收场，finished 是"关闭牌桌" */
+const roomStatus = computed(() => game.snapshot?.status ?? 'waiting')
+const canEndGame = computed(() => game.isHost && roomStatus.value !== 'waiting')
+const endGameLabel = computed(() => (roomStatus.value === 'finished' ? '关闭牌桌' : '结束牌局'))
 
 function confirmEndGame(): void {
   endConfirmOpen.value = false
   game.endGame()
 }
 
-function backToLobby(): void {
-  game.leaveRoom()
+/** 回大厅：房间还没关掉时房主先幂等关房（REST），关不上也不拦人，大厅可以再关 */
+async function backToLobby(): Promise<void> {
+  await game.exitToLobby()
   router.push({ name: 'lobby' })
 }
 
@@ -262,13 +303,18 @@ const dealerName = computed(() => {
           :rule-brief="game.ruleBrief"
           :wall-count="game.snapshot.wall_count"
           :round-no="game.snapshot.round_no"
-          :total-rounds="game.snapshot.game_total_rounds"
+          :total-rounds="game.snapshot.rounds_per_circle ?? 4"
+          :round-in-circle="game.snapshot.round_in_circle ?? null"
+          :circle-no="game.snapshot.circle_no ?? 1"
+          :total-circles="game.snapshot.total_circles ?? 1"
+          :dealer-continue="Boolean(game.snapshot.dealer_continue)"
           :family-name="game.snapshot.room.family_name"
           :family-code="game.snapshot.room.family_code"
-          :round-wind="game.snapshot.round_wind ?? (game.snapshot.round_no ? game.snapshot.round_no - 1 : null)"
+          :round-wind="game.snapshot.round_wind ?? (game.snapshot.round_no ? (game.snapshot.round_no - 1) % 4 : null)"
           :dealer-name="dealerName"
           :connected="game.connected"
           :can-end-game="canEndGame"
+          :end-game-label="endGameLabel"
           @copy="copyCode"
           @exit="exitRoom"
           @end-game="endConfirmOpen = true"
@@ -340,7 +386,7 @@ const dealerName = computed(() => {
                   class="flex items-center justify-center gap-1.5 rounded-xl border border-gold-400/60 bg-gold-400/15 px-2 py-2 text-[11px] font-medium leading-tight text-gold-100 shadow-gold animate-breathe"
                 >
                   <Hand class="h-3.5 w-3.5 shrink-0 text-gold-300" />
-                  <span>{{ selected === null ? '轮到你出牌' : '点牌可改选，按「打出」出牌' }}</span>
+                  <span>{{ selectedIndex === null ? '轮到你出牌（←→ 选牌，空格/↑ 出牌）' : '点牌可改选，按「打出」出牌' }}</span>
                 </div>
               </transition>
             </div>
@@ -358,7 +404,7 @@ const dealerName = computed(() => {
               <transition name="fade">
                 <div
                   v-if="game.banner"
-                  class="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-xs backdrop-blur"
+                  class="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 whitespace-nowrap rounded-full border px-4 py-2 text-sm backdrop-blur"
                   :class="
                     game.banner.kind === 'win'
                       ? 'border-vermilion-500/50 bg-vermilion-500/20 text-cream-50'
@@ -505,11 +551,12 @@ const dealerName = computed(() => {
                 v-if="!isSpectator || spectateTarget"
                 :tiles="game.hand"
                 :drawn="game.drawn"
-                :selected="selected"
+                :selected-index="selectedIndex"
+                :selected-indices="multiSelected"
                 :tenpai="game.tenpai"
-                :interactive="canDiscard"
+                :interactive="canDiscard || game.chowSelecting"
                 :show-hint="hintEnabled && canDiscard"
-                @select="onSelect"
+                @select="selectTile"
               />
               <div v-else class="flex items-center gap-2 pb-4">
                 <p class="text-xs text-ink-300/60">你在观战，还没选观战对象</p>
@@ -523,7 +570,7 @@ const dealerName = computed(() => {
 
         <!-- 出牌确认条：点牌只选中，再点一次取消选中，按「打出」才真正出牌 -->
         <div
-          v-if="canDiscard && selected !== null && !showActionBar"
+          v-if="canDiscard && selectedIndex !== null && !showActionBar"
           class="pointer-events-none absolute inset-x-0 bottom-24 flex justify-center px-4"
         >
           <div
@@ -534,7 +581,7 @@ const dealerName = computed(() => {
             <button type="button" class="btn-gold rounded-xl px-4 py-1.5 text-sm font-semibold" @click="discardSelected">
               打出
             </button>
-            <button type="button" class="btn-ghost rounded-xl px-3 py-1.5 text-xs" @click="selected = null">取消</button>
+            <button type="button" class="btn-ghost rounded-xl px-3 py-1.5 text-xs" @click="clearSelection">取消</button>
           </div>
         </div>
 
@@ -544,8 +591,17 @@ const dealerName = computed(() => {
             :actions="game.legal"
             :claim-tile="game.snapshot?.legal?.claim_tile ?? null"
             :reason="game.snapshot?.legal?.reason"
+            :chow-open="game.chowSelecting"
+            :chow-picks="game.chowPicks"
+            :chow-candidates="game.chowCandidates"
+            :chow-valid="game.chowValid"
+            :chow-hint="game.chowHint"
             @act="onAct"
             @pass="onPass"
+            @open-chow="openChow"
+            @apply-chow="applyChow"
+            @confirm-chow="confirmChow"
+            @cancel-chow="cancelChow"
           />
         </div>
 
@@ -729,8 +785,11 @@ const dealerName = computed(() => {
     >
       <div class="w-full max-w-sm animate-riseIn rounded-2xl border border-vermilion-500/35 bg-felt-900/95 p-5 text-center shadow-table">
         <p class="text-[11px] tracking-[0.3em] text-vermilion-400/80">END GAME</p>
-        <h2 class="mt-1.5 text-lg font-semibold text-cream-100">结束本场牌局？</h2>
-        <p class="mt-2 text-left text-xs leading-relaxed text-ink-300/80">
+        <h2 class="mt-1.5 text-lg font-semibold text-cream-100">{{ endGameLabel }}？</h2>
+        <p v-if="roomStatus === 'finished'" class="mt-2 text-left text-xs leading-relaxed text-ink-300/80">
+          本场已经打完，每一局的积分都已入库。关闭后这桌会立刻从大厅消失。
+        </p>
+        <p v-else class="mt-2 text-left text-xs leading-relaxed text-ink-300/80">
           已经打完的局和积分都会保留；正在进行的这一局直接作废，不计分。
           全桌会立刻看到本场结算，这桌随即关闭、不再留在大厅里。
         </p>
@@ -744,7 +803,7 @@ const dealerName = computed(() => {
             @click="confirmEndGame"
           >
             <Flag class="h-4 w-4" />
-            结束牌局
+            {{ endGameLabel }}
           </button>
         </div>
       </div>

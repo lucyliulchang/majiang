@@ -19,6 +19,7 @@ from typing import ClassVar, Literal
 from pydantic import Field, model_validator
 
 from game.families.baishi.fan import FAN_DEFAULTS, FAN_NAMES, STACKABLE_FANS
+from game.families.generic.config import ALLOWED_CIRCLES_PER_GAME, CIRCLES_PER_GAME
 from game.families.generic.config import FanItem as _GenericFanItem
 from game.families.generic.config import PatternSwitches as _PatternSwitches
 from game.families.generic.config import ToggleValue, TurnTimeout
@@ -37,7 +38,7 @@ BAO_PAI_PATTERN_CHOICES = ("qing_yi_se", "hun_yi_se", "quan_zi", "quan_yao")
 
 
 def default_fan_table() -> list[FanItem]:
-    """07 §5 的 32 项番表。"""
+    """07 §5 的 34 项番表（数值一律取自 `fan.FAN_TABLE`，此处不复制任何番值）。"""
     return [
         FanItem(id=fid, name=name, fan=fan, exclusive_group=group, stackable=fid in STACKABLE_FANS)
         for fid, name, fan, group, _counting in FAN_DEFAULTS
@@ -117,6 +118,8 @@ class RuleConfig(_StrictModel):
     turn_timeout: TurnTimeout = Field(default_factory=lambda: TurnTimeout(enabled=False, seconds=0))
     pause: PauseToggle = Field(default_factory=PauseToggle)
     rounds_per_game: int = ROUNDS_PER_GAME
+    # 一场几圈（v1.1.0）：默认 4 圈 × 每圈 4 个庄次；开桌时可按房间覆盖
+    circles_per_game: int = CIRCLES_PER_GAME
     claim_window_seconds: int = 8
 
     @model_validator(mode="after")
@@ -136,7 +139,9 @@ class RuleConfig(_StrictModel):
             if not 1 <= value <= 10:
                 raise ValueError(f"{label}必须在 1-10 之间")
         if self.rounds_per_game != ROUNDS_PER_GAME:
-            raise ValueError("一圈固定 4 个庄次（北位下庄结束），不支持自定义局数")
+            raise ValueError("一圈固定 4 个庄次（北位下庄结束），每圈局数不支持自定义")
+        if self.circles_per_game not in ALLOWED_CIRCLES_PER_GAME:
+            raise ValueError("一场圈数只能选 1、2、4 或 8 圈")
         if not 3 <= self.claim_window_seconds <= 30:
             raise ValueError("碰杠胡询问窗口必须在 3-30 秒之间")
         if not self.fan_table:
@@ -235,6 +240,7 @@ class RuleConfig(_StrictModel):
                 if self.is_pattern_enabled(key)
             ],
             "rounds_per_game": self.rounds_per_game,
+            "circles_per_game": self.circles_per_game,
             "bao_pai": self.bao_pai.enabled,
             "self_draw_multiplier": self.self_draw_multiplier,
             "dealer_multiplier": {
@@ -247,10 +253,12 @@ class RuleConfig(_StrictModel):
 
 
 __all__ = [
+    "ALLOWED_CIRCLES_PER_GAME",
     "BAO_PAI_PATTERN_CHOICES",
     "BaoPaiOptions",
     "BaishiKongScore",
     "BaishiThirteenUnrelated",
+    "CIRCLES_PER_GAME",
     "DealerRule",
     "FanItem",
     "PauseToggle",

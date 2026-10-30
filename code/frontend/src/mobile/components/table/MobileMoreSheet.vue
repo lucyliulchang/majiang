@@ -18,11 +18,14 @@ const props = defineProps<{
   ruleName: string
   ruleBrief: RuleBrief | null
   canEndGame: boolean
+  /** 按钮文案：进行中是「结束本场牌局」，打满后是「关闭牌桌」（B-1） */
+  endGameLabel?: string
 }>()
 
 const emit = defineEmits<{ close: []; copy: []; exit: []; endGame: [] }>()
 
 const skins = useSkinsStore()
+const endText = computed(() => props.endGameLabel || '结束本场牌局')
 
 watch(
   () => props.open,
@@ -221,7 +224,7 @@ function previewDiscard(): void {
           @click="emit('endGame')"
         >
           <Flag class="h-4 w-4" />
-          结束本场牌局
+          {{ endText }}
         </button>
         <button
           type="button"

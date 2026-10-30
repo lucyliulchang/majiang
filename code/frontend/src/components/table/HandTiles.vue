@@ -2,45 +2,55 @@
 import { computed } from 'vue'
 
 import Tile from './Tile.vue'
-import { sortHand } from '../../utils/tile'
+import { handLayout } from '../../utils/tile'
 
 const props = withDefaults(
   defineProps<{
     tiles: number[]
     drawn?: number | null
-    selected?: number | null
+    /** 选中的位置（暗牌升序 + 摸牌末尾），null 表示未选；出牌用 */
+    selectedIndex?: number | null
+    /** 多选位置（吃牌选两张，v1.1.0 U-2）；与 selectedIndex 取并集高亮 */
+    selectedIndices?: number[]
     tenpai?: Record<string, number[]>
     interactive?: boolean
     showHint?: boolean
   }>(),
-  { drawn: null, selected: null, tenpai: () => ({}), interactive: true, showHint: false }
+  {
+    drawn: null,
+    selectedIndex: null,
+    selectedIndices: () => [],
+    tenpai: () => ({}),
+    interactive: true,
+    showHint: false
+  }
 )
 
 const emit = defineEmits<{
-  // 只上报「点选/取消选中」，出牌由牌桌上单独的「打出」按钮触发
-  select: [tile: number]
+  // 只上报「点选第几张」，出牌由牌桌上单独的「打出」按钮/键盘触发
+  select: [index: number]
 }>()
 
-const sorted = computed(() => {
-  const list = sortHand(props.tiles)
-  if (props.drawn === null || props.drawn === undefined) return { rest: list, drawn: null as number | null }
-  const index = list.indexOf(props.drawn)
-  if (index < 0) return { rest: list, drawn: null as number | null }
-  const rest = [...list]
-  rest.splice(index, 1)
-  return { rest, drawn: props.drawn }
-})
+const sorted = computed(() => handLayout(props.tiles, props.drawn))
 
 const tenpaiSet = computed(() => new Set(Object.keys(props.tenpai || {}).map(Number)))
 const waitCount = computed(() => {
   const map = props.tenpai || {}
   return Object.keys(map).length
 })
+/** 摸牌在整排里的位置：暗牌之后 */
+const drawnIndex = computed(() => (sorted.value.drawn === null ? -1 : sorted.value.rest.length))
 
-function handleClick(tile: number): void {
+/** 高亮口径：单选（出牌）+ 多选（吃牌选两张）取并集，互不影响 */
+const multiSet = computed(() => new Set(props.selectedIndices))
+function isSelected(index: number): boolean {
+  return props.selectedIndex === index || multiSet.value.has(index)
+}
+
+function handleClick(index: number): void {
   if (!props.interactive) return
   // 依次点选：再点同一张等于取消选中，统一由父级切换；出牌走「打出」按钮，避免误触连打出牌
-  emit('select', tile)
+  emit('select', index)
 }
 </script>
 
@@ -53,13 +63,13 @@ function handleClick(tile: number): void {
         type="button"
         class="rounded-[7px] focus:outline-none"
         :class="interactive ? 'cursor-pointer hover:-translate-y-1.5' : 'cursor-default'"
-        @click="handleClick(tile)"
+        @click="handleClick(index)"
       >
         <Tile
           :tile="tile"
           size="xl"
           eager
-          :selected="selected === tile"
+          :selected="isSelected(index)"
           :highlight="showHint && tenpaiSet.has(tile)"
         />
       </button>
@@ -70,13 +80,13 @@ function handleClick(tile: number): void {
         type="button"
         class="rounded-[7px] focus:outline-none"
         :class="interactive ? 'cursor-pointer hover:-translate-y-1.5' : 'cursor-default'"
-        @click="handleClick(sorted.drawn as number)"
+        @click="handleClick(drawnIndex)"
       >
         <Tile
           :tile="sorted.drawn as number"
           size="xl"
           eager
-          :selected="selected === (sorted.drawn as number)"
+          :selected="isSelected(drawnIndex)"
           :highlight="showHint && tenpaiSet.has(sorted.drawn as number)"
         />
       </button>

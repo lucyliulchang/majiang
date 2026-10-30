@@ -53,6 +53,7 @@ def create_room(
             family.family_code,
             payload.room_name,
             payload.template_id,
+            payload.circles,
         )
     )
 

@@ -14,7 +14,15 @@ const props = defineProps<{
   ruleBrief: RuleBrief | null
   wallCount: number
   roundNo: number
+  /** 一圈几个庄次（固定 4，04 §9.5 的 rounds_per_circle） */
   totalRounds: number
+  /** 本圈第几局（1–4）；缺省退回 roundNo（老快照） */
+  roundInCircle?: number | null
+  /** 本场第几圈 / 共几圈（v1.1.0）；totalCircles<=1 时只显示局数 */
+  circleNo?: number | null
+  totalCircles?: number | null
+  /** 本局是否连庄（庄家胡牌后庄位与局风不变） */
+  dealerContinue?: boolean
   connected: boolean
   /** 家庭徽标（05 §4.5）；观战/断线时也只读展示 */
   familyName?: string
@@ -24,9 +32,13 @@ const props = defineProps<{
   dealerName?: string | null
   /** 开桌的人且牌局进行中时，顶栏多一个「结束牌局」入口（提前收场） */
   canEndGame?: boolean
+  /** 按钮文案：进行中是「结束牌局」，打满后是「关闭牌桌」（B-1） */
+  endGameLabel?: string
 }>()
 
 const emit = defineEmits<{ exit: []; copy: []; endGame: [] }>()
+
+const endText = computed(() => props.endGameLabel || '结束牌局')
 
 const open = ref(false)
 const skins = useSkinsStore()
@@ -68,6 +80,22 @@ const roundWindText = computed(() => {
   const wind = props.roundWind
   if (wind === null || wind === undefined) return ''
   return `${WIND_TEXT[wind] || ''}风局`
+})
+
+// 圈 / 局进度（v1.1.0）：多圈时显示「第 2/4 圈 · 第 3/4 局」，单圈只显示局数
+const roundProgress = computed(() => {
+  const inCircle = props.roundInCircle ?? props.roundNo
+  const total = props.totalRounds || 4
+  const circles = props.totalCircles ?? 1
+  const circle = props.circleNo ?? 1
+  if (circles <= 1) {
+    return { num: inCircle, total, circleText: '' }
+  }
+  return {
+    num: inCircle,
+    total,
+    circleText: `第 ${circle} / ${circles} 圈`
+  }
 })
 
 // ---- 音效（仅 SFX，无 BGM）----
@@ -164,14 +192,14 @@ const modeText = computed(() =>
     </button>
 
     <div class="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-300/80 sm:gap-x-4">
-      <span class="whitespace-nowrap" :title="roundNo > totalRounds ? `一场 ${totalRounds} 个庄次，庄家胡牌连庄局数顺延` : ''">
+      <span class="whitespace-nowrap" :title="dealerContinue ? `一圈 ${totalRounds} 个庄次，庄家胡牌连庄局数顺延` : ''">
         <template v-if="roundWindText">{{ roundWindText }} · </template>
-        <template v-if="roundNo > totalRounds">
-          第 <b class="font-num text-cream-100">{{ roundNo }}</b> 局（连庄）
-        </template>
-        <template v-else>
-          第 <b class="font-num text-cream-100">{{ roundNo }}</b> / {{ totalRounds }} 局
-        </template>
+        <template v-if="roundProgress.circleText">{{ roundProgress.circleText }} · </template>
+        第 <b class="font-num text-cream-100">{{ roundProgress.num }}</b> / {{ roundProgress.total }} 局<template
+          v-if="dealerContinue"
+        >
+          （连庄）</template
+        >
       </span>
       <span v-if="dealerName" class="hidden whitespace-nowrap md:inline">庄家 {{ dealerName }}</span>
       <span class="whitespace-nowrap">牌墙 <b class="font-num text-gold-300">{{ wallCount }}</b></span>
@@ -356,16 +384,16 @@ const modeText = computed(() =>
         </transition>
       </div>
 
-      <!-- 开桌的人：不必等打满局数，随时可以结束本场 -->
+      <!-- 开桌的人：不必等打满局数，随时可以结束本场（打满后文案变「关闭牌桌」） -->
       <button
         v-if="canEndGame"
         type="button"
         class="flex items-center gap-1 rounded-lg border border-vermilion-500/35 bg-vermilion-500/10 px-2.5 py-1 text-vermilion-400 transition hover:border-vermilion-500/60 hover:bg-vermilion-500/20"
-        aria-label="结束本场牌局"
+        :aria-label="endText"
         @click="emit('endGame')"
       >
         <Flag class="h-3.5 w-3.5" />
-        <span class="hidden sm:inline">结束牌局</span>
+        <span class="hidden sm:inline">{{ endText }}</span>
       </button>
 
       <button type="button" class="btn-ghost flex items-center gap-1 rounded-lg px-2.5 py-1" @click="emit('exit')">
@@ -390,6 +418,12 @@ const modeText = computed(() =>
           <div class="flex justify-between"><dt>吃牌</dt><dd class="text-cream-100">{{ ruleBrief?.allow_chow ? '允许' : '不允许' }}</dd></div>
           <div class="flex justify-between"><dt>出牌限时</dt><dd class="text-cream-100">{{ timeoutText }}</dd></div>
           <div class="flex justify-between"><dt>杠分</dt><dd class="text-cream-100">{{ kongText }}</dd></div>
+          <div class="flex justify-between">
+            <dt>圈数</dt>
+            <dd class="text-cream-100">
+              {{ totalCircles ?? ruleBrief?.circles_per_game ?? 4 }} 圈 × {{ totalRounds }} 局
+            </dd>
+          </div>
           <div class="flex justify-between"><dt>听牌提示</dt><dd class="text-cream-100">{{ ruleBrief?.ting_hint ? '开启' : '关闭' }}</dd></div>
         </dl>
         <div class="mt-2.5 border-t border-cream-100/10 pt-2 text-[11px] text-ink-300/70">

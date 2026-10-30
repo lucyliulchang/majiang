@@ -18,12 +18,12 @@ import MobileRoomOverlays from '../components/table/MobileRoomOverlays.vue'
 import MobileScoreBoard from '../components/table/MobileScoreBoard.vue'
 import MobileSeatChip from '../components/table/MobileSeatChip.vue'
 import { useOrientation } from '../composables/useOrientation'
+import { useHandCursor } from '../../composables/useHandCursor'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
-import { useGameStore } from '../../stores/game'
+import { CHOW_PICK_LIMIT, useGameStore } from '../../stores/game'
 import { useSkinsStore } from '../../stores/skins'
 import type { LegalAction } from '../../types'
-import { tileName } from '../../utils/tile'
 
 /**
  * 手机版牌桌（横屏）。
@@ -43,7 +43,6 @@ const skins = useSkinsStore()
 const { exitFullscreen } = useOrientation()
 
 const code = String(route.params.code || '').toUpperCase()
-const selected = ref<number | null>(null)
 const dismissedRound = ref<number | null>(null)
 const chatOpen = ref(false)
 const spectateOpen = ref(false)
@@ -60,13 +59,6 @@ onBeforeUnmount(() => {
   game.leaveRoom()
   exitFullscreen()
 })
-
-watch(
-  () => game.result?.round_no,
-  () => {
-    selected.value = null
-  }
-)
 
 const phase = computed(() => game.phase)
 const inGame = computed(() => phase.value !== 'waiting')
@@ -108,6 +100,61 @@ function dismissResult(): void {
 }
 
 const canDiscard = computed(() => game.isMyTurn && game.hasAction('discard'))
+
+// 手牌游标：触屏点选与键盘（←/→ 选牌，空格/↑ 出牌，↓/Esc 取消）共用一套选中状态
+// 吃牌选两张走同一套组件的**多选**分支（U-2），出牌仍是单选
+const {
+  selectedIndex,
+  selectedName,
+  multiSelected,
+  select: selectTile,
+  clear: clearSelection,
+  setMulti,
+  clearMulti,
+  discardSelected
+} = useHandCursor({
+  hand: computed(() => game.hand),
+  drawn: computed(() => game.drawn),
+  active: computed(() => canDiscard.value || game.chowSelecting),
+  discard: (tile) => game.discard(tile),
+  multiActive: computed(() => game.chowSelecting),
+  multiLimit: CHOW_PICK_LIMIT,
+  onMultiChange: (tiles) => game.setChowPicks(tiles),
+  onNothingToDiscard: () => toast.info('先点一张牌，再按空格出牌')
+})
+
+// ---- 吃牌选两张（v1.1.0 U-2）：与桌面同一套交互，只是动作槽在底部 ----
+function openChow(): void {
+  game.beginChow()
+  setMulti(game.chowPicks)
+}
+
+function applyChow(tiles: number[]): void {
+  game.setChowPicks(tiles)
+  setMulti(tiles)
+}
+
+function cancelChow(): void {
+  game.cancelChow()
+  clearMulti()
+}
+
+function confirmChow(): void {
+  game.confirmChow()
+  clearMulti()
+}
+
+watch(
+  () => game.chowSelecting,
+  (open) => {
+    if (!open) clearMulti()
+  }
+)
+// 换局时手牌会重发，游标必须回到未选中
+watch(
+  () => game.result?.round_no,
+  () => clearSelection()
+)
 
 // 自己回合的「过」只是「不杠/不自摸，直接出牌」：本地收起动作条即可
 const passDismissed = ref(false)
@@ -170,20 +217,12 @@ function cancelSpectate(): void {
   spectateOpen.value = false
 }
 
-function onSelect(tile: number): void {
-  if (!canDiscard.value) return
-  selected.value = selected.value === tile ? null : tile
-}
-
-function discardSelected(): void {
-  if (selected.value === null || !canDiscard.value) return
-  game.discard(selected.value)
-  selected.value = null
-}
-
-const selectedName = computed(() => (selected.value === null ? '' : tileName(selected.value)))
-
 function onAct(action: LegalAction): void {
+  // 吃不再"点一下就提交"：进选牌态，由玩家指定用哪两张手牌（U-2）
+  if (action.action === 'chow') {
+    openChow()
+    return
+  }
   game.act(action)
 }
 
@@ -209,8 +248,9 @@ function exitRoom(): void {
   void router.push({ name: 'lobby' })
 }
 
-function backToLobby(): void {
-  game.leaveRoom()
+/** 回大厅：房间还没关掉时房主先幂等关房（REST），关不上也不拦人，大厅可以再关 */
+async function backToLobby(): Promise<void> {
+  await game.exitToLobby()
   void router.push({ name: 'lobby' })
 }
 
@@ -229,7 +269,10 @@ const myTurnTimerVisible = computed(
   () => Boolean(game.snapshot?.deadline) && Boolean(game.ruleBrief?.turn_timeout.enabled)
 )
 
-const canEndGame = computed(() => game.isHost && inGame.value)
+/** 房态口径与后端一致（`RoomActor.status`）：只要不是 waiting 就能收场，finished 是「关闭牌桌」 */
+const roomStatus = computed(() => game.snapshot?.status ?? 'waiting')
+const canEndGame = computed(() => game.isHost && roomStatus.value !== 'waiting')
+const endGameLabel = computed(() => (roomStatus.value === 'finished' ? '关闭牌桌' : '结束牌局'))
 
 const bottomView = computed(() => (isSpectator.value ? spectateTarget.value : mySeatView.value))
 const myMelds = computed(() => bottomView.value?.melds || [])
@@ -263,8 +306,12 @@ const dealerName = computed(() => {
         :rule-brief="game.ruleBrief"
         :wall-count="game.snapshot.wall_count"
         :round-no="game.snapshot.round_no"
-        :total-rounds="game.snapshot.game_total_rounds"
-        :round-wind="game.snapshot.round_wind ?? (game.snapshot.round_no ? game.snapshot.round_no - 1 : null)"
+        :total-rounds="game.snapshot.rounds_per_circle ?? 4"
+        :round-in-circle="game.snapshot.round_in_circle ?? null"
+        :circle-no="game.snapshot.circle_no ?? 1"
+        :total-circles="game.snapshot.total_circles ?? 1"
+        :dealer-continue="Boolean(game.snapshot.dealer_continue)"
+        :round-wind="game.snapshot.round_wind ?? (game.snapshot.round_no ? (game.snapshot.round_no - 1) % 4 : null)"
         :dealer-name="dealerName"
         :connected="game.connected"
         :family-name="game.snapshot.room.family_name"
@@ -331,7 +378,7 @@ const dealerName = computed(() => {
           <!-- 事件横幅 -->
           <div
             v-if="game.banner"
-            class="mj-banner pointer-events-none absolute left-1/2 top-1 z-10 max-w-[80%] truncate rounded-full border px-3 py-1 text-[11px]"
+            class="mj-banner pointer-events-none absolute left-1/2 top-1 z-10 max-w-[80%] truncate rounded-full border px-3.5 py-1.5 text-[13px]"
             :class="
               game.banner.kind === 'win'
                 ? 'border-vermilion-500/50 bg-vermilion-500/25 text-cream-50'
@@ -453,11 +500,12 @@ const dealerName = computed(() => {
           v-if="!isSpectator || spectateTarget"
           :tiles="game.hand"
           :drawn="game.drawn"
-          :selected="selected"
+          :selected-index="selectedIndex"
+          :selected-indices="multiSelected"
           :tenpai="game.tenpai"
-          :interactive="canDiscard"
+          :interactive="canDiscard || game.chowSelecting"
           :show-hint="hintEnabled && canDiscard"
-          @select="onSelect"
+          @select="selectTile"
         />
         <button
           v-else
@@ -477,12 +525,21 @@ const dealerName = computed(() => {
         :actions="game.legal"
         :claim-tile="game.snapshot?.legal?.claim_tile ?? null"
         :reason="game.snapshot?.legal?.reason"
+        :chow-open="game.chowSelecting"
+        :chow-picks="game.chowPicks"
+        :chow-candidates="game.chowCandidates"
+        :chow-valid="game.chowValid"
+        :chow-hint="game.chowHint"
         @act="onAct"
         @pass="onPass"
+        @open-chow="openChow"
+        @apply-chow="applyChow"
+        @confirm-chow="confirmChow"
+        @cancel-chow="cancelChow"
       />
 
       <div
-        v-else-if="canDiscard && selected !== null"
+        v-else-if="canDiscard && selectedIndex !== null"
         class="flex items-center gap-2 rounded-xl border border-gold-400/30 bg-felt-950/85 px-2.5 py-1.5"
       >
         <span class="pl-1 text-[10px] text-ink-300/80">已选</span>
@@ -490,7 +547,7 @@ const dealerName = computed(() => {
         <button type="button" class="mj-press btn-gold rounded-lg px-3.5 py-1.5 text-[13px] font-semibold" @click="discardSelected">
           打出
         </button>
-        <button type="button" class="mj-press btn-ghost rounded-lg px-2.5 py-1.5 text-[11px]" @click="selected = null">取消</button>
+        <button type="button" class="mj-press btn-ghost rounded-lg px-2.5 py-1.5 text-[11px]" @click="clearSelection">取消</button>
       </div>
 
       <div
@@ -551,6 +608,7 @@ const dealerName = computed(() => {
       :rule-name="game.snapshot?.room.rule_name || '本局规则'"
       :rule-brief="game.ruleBrief"
       :can-end-game="canEndGame"
+      :end-game-label="endGameLabel"
       @close="moreOpen = false"
       @copy="copyCode"
       @exit="exitRoom"
@@ -576,6 +634,8 @@ const dealerName = computed(() => {
       :end-confirm-open="endConfirmOpen"
       :finished="game.finished"
       :room-closed="game.roomClosed"
+      :end-game-label="endGameLabel"
+      :end-game-final="roomStatus === 'finished'"
       @exit="exitRoom"
       @approve="game.approveJoin"
       @cancel-end="endConfirmOpen = false"

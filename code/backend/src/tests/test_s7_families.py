@@ -211,6 +211,31 @@ def test_sichuan_lack_suit_counts_melds(hand):
     assert engine.evaluate_win(engine._ctx(0, win_tile=4)) is not None
 
 
+def test_sichuan_hu_does_not_short_circuit_other_seats(hand):
+    """血战到底：一家点胡后本局继续，不能把还在犹豫的座位按终态 pass 收掉。"""
+    engine = prepare(
+        engine_of("sichuan"),
+        hand,
+        {
+            0: "123m456m789m123s55p",  # 14 张，打 5 筒
+            1: "123m456m789m11p34p",  # 缺条，听 5 筒（345p + 11p 将）
+            2: "55p123m456m789m11s",  # 能碰 5 筒
+            3: "123m456m789m123p1s",
+        },
+    )
+    engine.apply_action(0, {"action": "discard", "tiles": [13]})
+    window = engine.claim
+    assert window is not None and 1 in window.options and 2 in window.options
+
+    engine.apply_action(1, {"action": "hu"})
+    assert engine.claim is not None and engine.phase == "claim", "血战里胡不结束本局，不能短路"
+    assert not engine.winners
+
+    engine.apply_action(2, {"action": "pass"})
+    assert len(engine.winners) == 1
+    assert engine.phase != "settled", "还剩两家没胡，牌局继续"
+
+
 def test_sichuan_two_winners_and_conservation(hand):
     engine = prepare(
         engine_of("sichuan"),

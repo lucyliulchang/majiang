@@ -14,6 +14,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common import mysqlCommon  # noqa: E402
+from realtime import persist  # noqa: E402
 from realtime.room import RoomActor  # noqa: E402
 from game.families.generic.config import (  # noqa: E402
     KongScore,
@@ -174,8 +175,9 @@ async def test_host_can_end_game_early(s5_env):
         assert finished["data"]["ended_by_seat"] == ownerSeat
         assert len(finished["data"]["scores"]) == 4
 
-        # 房态清空：不会留着半局没人能动的牌
-        assert actor.status == "waiting"
+        # 房态清空：不会留着半局没人能动的牌（收尾后房间状态统一是 closed）
+        assert actor.status == "closed"
+        assert actor.finalized is True
         assert actor.engine is None
         assert all(not slot.ready for slot in actor.slots if slot)
 
@@ -268,3 +270,160 @@ async def test_chat_rate_limit(s5_env):
         assert error["data"]["code"] == "CHAT_TOO_FAST"
     finally:
         actor._clear_timers()
+
+
+# ---------------------------------------------------------------- B-1 收尾（唯一出口）
+async def _open_table(actor, s5_env) -> None:
+    """四人准备 + 房主开局（收尾类用例共用的起手式）。"""
+    for loginID in s5_env["members"]:
+        await actor.handle(loginID, {"type": "seat.ready", "data": {}})
+    await actor.handle(s5_env["owner"], {"type": "game.start", "data": {}})
+
+
+def _force_last_round(actor, monkeypatch) -> None:
+    """摆成「最后一局刚结算、本场最后一圈已打满」：收尾口径与牌力无关，不必真打满。"""
+    actor.engine.phase = "settled"
+    monkeypatch.setattr(actor, "_next_dealer_state", lambda: (0, 3, actor.circle_no, True))
+
+
+def _restore_open(actor) -> None:
+    actor._clear_timers()
+    if actor._close_task is not None:
+        actor._close_task.cancel()
+        actor._close_task = None
+    mysqlCommon.update_mj_room(mysqlCommon.MJ_ROOM_TABLE, actor.room_id, {"roomStatus": "OPEN"})
+
+
+async def test_natural_finish_closes_room_and_leaves_lobby(s5_env, monkeypatch):
+    """打满一圈（自然结束）→ 场次 FINISHED、房间 CLOSED，大厅列表不再有这桌。"""
+    actor, sockets = build_actor(s5_env)
+    owner = s5_env["owner"]
+    try:
+        await _open_table(actor, s5_env)
+        gameID = actor.game_id
+        assert gameID
+        _force_last_round(actor, monkeypatch)
+
+        await actor.handle(owner, {"type": "game.next", "data": {}})
+
+        finished = sockets[owner].last("event.game_finished")
+        assert finished is not None
+        assert finished["data"]["final"] is True
+        assert len(finished["data"]["scores"]) == 4
+
+        # 1) 落库：场次收口、房间 CLOSED（closedYMDHMS 非空）
+        assert mysqlCommon.query_mj_game_by_id(gameID)["gameStatus"] == "FINISHED"
+        room = mysqlCommon.query_mj_room_by_id(actor.room_id)
+        assert room["roomStatus"] == "CLOSED"
+        assert room["closedYMDHMS"]
+
+        # 2) 大厅列表只列 OPEN：这桌立刻消失
+        listed = mysqlCommon.query_mj_room_list(s5_env["family_id"])
+        assert all(int(row["recID"]) != actor.room_id for row in listed)
+
+        # 3) 不立刻广播 room_closed：牌桌先看完最终结算，等最后一个人断线/60s 兜底
+        assert sockets[owner].last("event.room_closed") is None
+        assert actor.closed is False
+        assert actor.status == "finished"
+        assert actor.should_reap() is False  # 还有连接在
+        assert actor._close_task is not None
+    finally:
+        _restore_open(actor)
+
+
+async def test_game_finish_after_natural_finish_is_idempotent(s5_env, monkeypatch):
+    """打满后再点"关闭牌桌"：幂等成功（无 NOT_PLAYING），库中仍是一条 CLOSED。"""
+    actor, sockets = build_actor(s5_env)
+    owner = s5_env["owner"]
+    try:
+        await _open_table(actor, s5_env)
+        _force_last_round(actor, monkeypatch)
+        await actor.handle(owner, {"type": "game.next", "data": {}})
+
+        await actor.handle(owner, {"type": "game.finish", "data": {}})
+
+        # 收摊：广播 room_closed，演员标记关闭（WS 循环据此退出）
+        assert sockets[owner].last("event.room_closed") is not None
+        assert actor.closed is True
+        assert actor.status == "closed"
+        assert actor.finalized is True
+        codes = [message["data"]["code"] for message in sockets[owner].messages if message["type"] == "error"]
+        assert "NOT_PLAYING" not in codes
+        assert "CLOSE_FAILED" not in codes
+
+        # 重复点击：仍然幂等（不报错、库中仍是一条 CLOSED）
+        await actor.handle(owner, {"type": "game.finish", "data": {}})
+        codes = [message["data"]["code"] for message in sockets[owner].messages if message["type"] == "error"]
+        assert codes == []
+        room = mysqlCommon.query_mj_room_by_id(actor.room_id)
+        assert room["roomStatus"] == "CLOSED"
+        assert int(room["recID"]) == actor.room_id
+    finally:
+        _restore_open(actor)
+
+
+async def test_settled_round_does_not_false_alarm_on_write(s5_env):
+    """结算落库成功时不得给房主假报「这局数据没存上」。
+
+    口径：`persist.save_round` 成功返回新局 recID；`_on_settled` 只在拿到 None
+    （线程池里抛异常）时才发 `error{DB_WRITE_FAILED}`。回归 I6 手测发现的假告警。
+    """
+    actor, sockets = build_actor(s5_env)
+    owner = s5_env["owner"]
+    try:
+        await _open_table(actor, s5_env)
+        engine = actor.engine
+        engine.kong_happened = True  # 有杠荒庄：与胡牌局走同一条落库路径
+        engine._settle_draw()
+        assert engine.result is not None
+        await actor._on_settled()
+
+        codes = [
+            message["data"]["code"]
+            for message in sockets[owner].messages
+            if message["type"] == "error"
+        ]
+        assert "DB_WRITE_FAILED" not in codes
+        rounds = mysqlCommon.queryTableGeneral(
+            mysqlCommon.MJ_GAME_ROUND_TABLE,
+            condList=[["gameID", "=", actor.game_id]],
+            columns="recID",
+            limitNum=5,
+        )
+        assert len(rounds) == 1
+    finally:
+        actor._clear_timers()
+
+
+async def test_close_room_failure_reports_close_failed_and_can_retry(s5_env, monkeypatch):
+    """`close_room` 落库失败：回 CLOSE_FAILED，内存不关、库里仍 OPEN，重试成功。"""
+    actor, sockets = build_actor(s5_env)
+    owner = s5_env["owner"]
+
+    def _boom(*args, **kwargs):
+        raise persist.PersistError("DB_WRITE_FAILED", "数据保存失败（关闭房间），请重试", 500)
+
+    try:
+        await _open_table(actor, s5_env)
+        gameID = actor.game_id
+        monkeypatch.setattr(persist, "close_room", _boom)
+
+        await actor.handle(owner, {"type": "game.finish", "data": {}})
+
+        error = sockets[owner].last("error")
+        assert error is not None
+        assert error["data"]["code"] == "CLOSE_FAILED"
+        # 不跳转、不收摊：内存房态还在，库里仍 OPEN（不留幽灵房）
+        assert actor.closed is False
+        assert actor.should_reap() is False
+        assert mysqlCommon.query_mj_room_by_id(actor.room_id)["roomStatus"] == "OPEN"
+
+        # 落库恢复后重试：同一个入口成功关房
+        monkeypatch.undo()
+        await actor.handle(owner, {"type": "game.finish", "data": {}})
+        assert actor.closed is True
+        assert sockets[owner].last("event.room_closed") is not None
+        assert mysqlCommon.query_mj_game_by_id(gameID)["gameStatus"] == "ABORTED"
+        assert mysqlCommon.query_mj_room_by_id(actor.room_id)["roomStatus"] == "CLOSED"
+    finally:
+        _restore_open(actor)

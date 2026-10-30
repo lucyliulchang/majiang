@@ -14,7 +14,10 @@
 - `三暗刻`/`四暗刻` 自成 `anke` 组，只与彼此互斥，可与对对胡累加；
 - 风刻（门风刻/圈风刻）不占任何组，可与任意番种累加，可叠加至 +2；
 - 箭刻（中/发/白）每种一个刻子或杠各计 1 番，最多 3 番，不占任何组，可与任意番种累加；
-- 十三幺不判独赢；七小对不判将牌（全文字七对例外，可叠独赢）。
+- 十三幺不判独赢；七小对不判将牌（全文字七对例外，可叠独赢）；
+- 258赢（看 `win_tile`）与 断幺（看 `all_tiles()`）是**牌型无关的全局番**，
+  由 `global_fans()` 统一产出、在牌型 `calc_fan()` 出口追加（不逐个牌型挂），
+  因此七对/13不靠/十三幺也照常判定（十三幺天然不成立）。
 """
 
 from __future__ import annotations
@@ -30,13 +33,14 @@ from game.tiles import TILE_KINDS, is_honor, is_suit, rank_of, suit_of, tile_nam
 if TYPE_CHECKING:
     from game.families.baishi.config import RuleConfig
 
-#: 07 §5 的 32 项番表（id → 名称、番值、互斥组、是否计数）
+#: 07 §5 的 34 项番表（id → 名称、番值、互斥组、是否计数）
 FAN_TABLE: tuple[tuple[str, str, int, str | None, bool], ...] = (
     ("ping_hu", "平胡", 1, "structure", False),
     ("men_qian", "门清", 1, "first", False),
     ("que_men", "缺门", 1, None, False),
     ("jiang_pai", "将牌", 1, None, False),
     ("du_ying", "独赢", 1, None, False),
+    ("er_wu_ba_ying", "258赢", 1, None, False),
     ("qiang_gang_hu", "抢杠胡", 10, None, False),
     ("yi_ban_gao", "一般高", 1, None, True),
     ("zi_mei_hua", "姊妹花", 2, None, True),
@@ -53,6 +57,7 @@ FAN_TABLE: tuple[tuple[str, str, int, str | None, bool], ...] = (
     ("shi_san_yao", "十三幺", 100, "quan", False),
     ("hun_yi_se", "混一色", 20, "flush", False),
     ("qing_yi_se", "清一色", 30, "flush", False),
+    ("duan_yao", "断幺", 1, None, False),
     ("quan_yao", "全幺", 50, "quan", False),
     ("quan_yao_qi_dui", "全幺七对", 60, "quan", False),
     ("quan_zi", "全文字", 100, "quan", False),
@@ -217,29 +222,41 @@ def is_thirteen_orphans(ctx: HandContext) -> bool:
 
 
 def unrelated_pair(ctx: HandContext) -> int | None:
-    """13不靠的将牌（07 §6.3.4）：中发白齐、无东南西北、三门数牌各 3 张且同门同一组。"""
+    """13不靠的将牌（07 §6.3.4 宽松口径，I0 冻结的 7 步判定）。
+
+    1. 14 张且无任何副露（门清；暗杠同样不允许）；
+    2. 恰好一对将牌：`counts == 2` 只出现一次，且没有 3 张以上的牌；
+    3. 中发白必含：各 ≥1（其中一种恰为将牌时自然为 2 张）；
+    4. 风牌每种 ≤1（扣将后；成对时只能是将牌）；
+    5. 数牌每门 0–3 张、同门全部落在同一组（147/258/369）、不得重复同一张；
+    6. 全部牌都被上述规则覆盖（总数守恒，无多余牌）；
+    7. 返回该将牌。
+    """
     if ctx.melds or sum(ctx.counts) != 14:
         return None
     for pair in range(TILE_KINDS):
         if ctx.counts[pair] < 2:
             continue
+        # 将牌不受「同门同组 / 不重复」约束，先扣除 2 张，再看剩余 12 张
         rest = list(ctx.counts)
         rest[pair] -= 2
-        if any(rest[tile] != 1 for tile in DRAGON_SET):
-            continue
-        if any(rest[tile] for tile in (27, 28, 29, 30)):
-            continue
+        if any(count > 1 for count in rest):
+            continue  # 剩余牌里不允许再出现对子/三张（恰好一对将）
+        if any(ctx.counts[tile] < 1 for tile in DRAGON_SET):
+            continue  # 中发白必含（将牌可为其中一种）
+        if any(rest[tile] > 1 for tile in (27, 28, 29, 30)):
+            continue  # 风牌每种最多 1 张，成对时只能是将牌
         ok = True
         for suit in range(3):
             base = suit * 9
-            ranks = [rank for rank in range(9) if rest[base + rank]]
-            if len(ranks) != 3 or any(rest[base + rank] != 1 for rank in ranks):
-                ok = False
+            ranks = tuple(rank for rank in range(9) if rest[base + rank])
+            if any(rest[base + rank] > 1 for rank in ranks):
+                ok = False  # 同门不得重复同一张牌
                 break
-            if not any(tuple(ranks) == group for group in UNRELATED_GROUPS):
-                ok = False
+            if ranks and not any(set(ranks) <= set(group) for group in UNRELATED_GROUPS):
+                ok = False  # 同门必须落在 147 / 258 / 369 同一组内（0–3 张，可为该组的子集）
                 break
-        if ok:
+        if ok and sum(rest) == 12:  # 全覆盖：14 张 = 将 2 + 中发白 3 + 风 0–4 + 数牌 0–9
             return pair
     return None
 
@@ -292,6 +309,39 @@ def is_all_terminals(ctx: HandContext) -> bool:
 def is_all_honors(ctx: HandContext) -> bool:
     tiles = ctx.all_tiles()
     return bool(tiles) and all(is_honor(tile) for tile in tiles)
+
+
+def is_all_simples(ctx: HandContext) -> bool:
+    """断幺（07 §6.4.8）：手牌 + **全部副露**都不含 1/9 数牌、也不含任何字牌。"""
+    tiles = ctx.all_tiles()
+    if not tiles:
+        return False
+    return all(is_suit(tile) and rank_of(tile) not in (0, 8) for tile in tiles)
+
+
+# ---------------------------------------------------------------- 赢张类 / 全局番
+
+
+def er_wu_ba_ying_hit(ctx: HandContext) -> list[FanHit]:
+    """258赢（07 §6.11）：**最后赢张**为数牌 2/5/8；与将牌无关，一手只计 1 次。"""
+    tile = ctx.win_tile
+    if tile is None or not is_suit(tile):
+        return []
+    return [FanHit("er_wu_ba_ying")] if rank_of(tile) in (1, 4, 7) else []
+
+
+def duan_yao_hit(ctx: HandContext) -> list[FanHit]:
+    """断幺（07 §6.4.8）：整手牌（含副露）全为 2–8 数牌。"""
+    return [FanHit("duan_yao")] if is_all_simples(ctx) else []
+
+
+def global_fans(ctx: HandContext) -> list[FanHit]:
+    """与牌型结构无关的全局番（258赢 / 断幺）。
+
+    由各牌型 `calc_fan()` 出口统一追加（`baishi/patterns.py:_with_global_fans`），
+    所以七对、13不靠、十三幺也照常判定；十三幺的赢张必为幺九字牌，天然不成立。
+    """
+    return [*er_wu_ba_ying_hit(ctx), *duan_yao_hit(ctx)]
 
 
 def situational_hits(ctx: HandContext) -> list[FanHit]:
@@ -645,8 +695,12 @@ __all__ = [
     "best_shape_fans",
     "chow_fans",
     "du_ying_hit",
+    "duan_yao_hit",
+    "er_wu_ba_ying_hit",
     "flush_fan",
+    "global_fans",
     "is_all_honors",
+    "is_all_simples",
     "is_all_terminals",
     "is_seven_pairs",
     "is_thirteen_orphans",

@@ -11,6 +11,8 @@ class RoomCreateRequest(BaseModel):
     family_code: str = ""
     room_name: str = Field(min_length=1, max_length=64)
     template_id: int
+    # 一场几圈（v1.1.0）：不传则用模板默认值（4 圈）；只允许 1/2/4/8，由 service 校验
+    circles: int | None = None
 
 
 class RoomOut(BaseModel):

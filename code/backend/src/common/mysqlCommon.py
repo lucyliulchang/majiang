@@ -1813,26 +1813,41 @@ def update_mj_rule_template_fields(recID, dataSet, operatorLoginID = ""):
     return result
 
 
+ROOM_CLOSE_UPDATED = 1  # OPEN → CLOSED，本次真的改了库
+ROOM_CLOSE_ALREADY = 0  # 本来就是 CLOSED：重复关闭，幂等成功
+ROOM_CLOSE_MISSING = -2  # 房间不存在（被删/recID 错）：没东西可关
+ROOM_CLOSE_FAILED = -1  # SQL 失败：库不可用等，调用方必须当错误处理
+
+
 def update_mj_room_close(roomID, operatorLoginID = ""):
-    """关房：只对 OPEN 生效（重复关闭幂等），返回受影响行数，失败 -1"""
-    result = 0
+    """关房：只对 OPEN 生效（重复关闭幂等）。
+
+    返回值区分四种结局（见上面四个常量），供 `persist.close_room` 判幂等：
+      `1` 命中并关闭 / `0` 本来就是 CLOSED / `-2` 房间不存在 / `-1` SQL 失败。
+    只写 `roomStatus` / `closedYMDHMS` / `modifyID` / `modifyYMDHMS` 四个字段。
+    """
     _requireDB()
+    roomID = toIntSafe(roomID)
     now = misc.getTime()
     sqlStr = (
         "UPDATE %s SET roomStatus = 'CLOSED', closedYMDHMS = %%s, modifyID = %%s, "
         "modifyYMDHMS = %%s WHERE recID = %%s AND roomStatus = 'OPEN'"
     ) % MJ_ROOM_TABLE
     try:
-        result = mysqlDB.executeWrite(
-            sqlStr, (now, operatorLoginID, now, toIntSafe(roomID))
-        )
+        affected = mysqlDB.executeWrite(sqlStr, (now, operatorLoginID, now, roomID))
     except DBUnavailableError:
         raise
     except Exception as e:
         if _DEBUG:
             _LOG.error("update_mj_room_close:%s", e)
-        result = -1
-    return result
+        return ROOM_CLOSE_FAILED
+    if affected > 0:
+        return ROOM_CLOSE_UPDATED
+    # 0 行有两种可能：房间已 CLOSED（幂等），或房间根本不存在 —— 再查一次分清
+    row = query_mj_room_by_id(roomID)
+    if not row:
+        return ROOM_CLOSE_MISSING
+    return ROOM_CLOSE_ALREADY
 
 
 def update_mj_room_template(roomID, templateID, ruleFamilyCode, ruleSnapshot, operatorLoginID = ""):

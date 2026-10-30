@@ -58,6 +58,14 @@ const winnerIsDealer = computed(
   () => props.dealerSeat !== null && props.result.winner_seat === props.dealerSeat
 )
 
+/**
+ * 是否本局庄家（U-3）：只看快照里的 dealer_seat，荒庄/连庄都成立；
+ * 纯渲染判断，不改 FinalHand 类型与后端。
+ */
+function isDealer(seat: number | null | undefined): boolean {
+  return props.dealerSeat !== null && seat !== null && seat !== undefined && seat === props.dealerSeat
+}
+
 // ---- 胡牌手牌：赢家暗牌 + 副露，共 14 张（点炮/抢杠的胡张已并入暗牌） ----
 const winnerHand = computed<FinalHand | null>(() => {
   const hands = props.result.final_hands || []
@@ -117,7 +125,16 @@ function signed(value: number): string {
       <!-- 胡牌手牌：赢家暗牌 + 副露，一共 14 张；金框是胡张，副露按组分开 -->
       <div v-if="winnerHand" class="mt-4 rounded-xl border border-gold-400/25 bg-gold-400/[0.06] p-3">
         <div class="mb-2 flex items-center justify-between gap-2">
-          <p class="text-sm text-gold-300">胡牌手牌（{{ winnerTileCount }} 张）</p>
+          <p class="flex min-w-0 items-center gap-1 text-sm text-gold-300">
+            <span
+              v-if="isDealer(winnerHand.seat)"
+              class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-gold-400 text-[10px] font-bold leading-none text-felt-950"
+              title="庄家"
+            >
+              庄
+            </span>
+            <span class="truncate">胡牌手牌（{{ winnerTileCount }} 张）</span>
+          </p>
           <p v-if="winnerHand.melds.length" class="text-xs text-ink-300/60">
             副露 {{ winnerHand.melds.length }} 组
           </p>
@@ -222,7 +239,17 @@ function signed(value: number): string {
               : 'border-cream-100/10 bg-felt-900/40'
           "
         >
-          <p class="truncate text-sm text-ink-300/80" :style="{ color: seat.color }">{{ seat.display_name }}</p>
+          <!-- 名字前「庄」徽标：复用 PlayerSeat 的 isDealer 徽标（金底深字、圆形），8 字昵称靠 truncate 收口 -->
+          <p class="flex min-w-0 items-center gap-1 text-sm text-ink-300/80" :style="{ color: seat.color }">
+            <span
+              v-if="isDealer(seat.seat)"
+              class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-gold-400 text-[10px] font-bold leading-none text-felt-950"
+              title="庄家"
+            >
+              庄
+            </span>
+            <span class="truncate">{{ seat.display_name }}</span>
+          </p>
           <p
             class="mt-1 font-num text-xl font-bold"
             :class="(result.score_delta[seat.seat] ?? 0) >= 0 ? 'text-jade-400' : 'text-vermilion-400'"

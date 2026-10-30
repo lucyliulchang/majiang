@@ -1,0 +1,21 @@
+{
+  "checks": [
+    {
+      "name": "大厅出现目标牌桌卡片",
+      "ok": true,
+      "detail": "卡片数 1"
+    },
+    {
+      "name": "关桌后卡片立即消失",
+      "ok": true,
+      "detail": "剩余 0"
+    },
+    {
+      "name": "刷新大厅后仍不含该桌（已落库 CLOSED）",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "room": "369091",
+  "room_id": 149
+}

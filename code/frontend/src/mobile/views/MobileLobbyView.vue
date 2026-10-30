@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   BookOpen,
@@ -56,7 +56,10 @@ function familyQuery(): string {
   return familyCode.value ? `?family_code=${encodeURIComponent(familyCode.value)}` : ''
 }
 
-async function load(): Promise<void> {
+/**
+ * 拉大厅数据。`silent=true` 用于自动刷新：不显示骨架、不弹错误，避免每 30s 打扰一次。
+ */
+async function load(silent = false): Promise<void> {
   // 家庭未就绪时不发请求：避免用「上一个家庭」的空参数拿到别人的数据
   if (!familyCode.value) {
     rooms.value = []
@@ -64,7 +67,7 @@ async function load(): Promise<void> {
     loading.value = false
     return
   }
-  loading.value = true
+  if (!silent) loading.value = true
   try {
     const [roomList, stat] = await Promise.all([
       api.get<RoomInfo[]>(`/rooms${familyQuery()}`),
@@ -73,13 +76,35 @@ async function load(): Promise<void> {
     rooms.value = roomList
     stats.value = stat
   } catch (error) {
-    toast.error((error as Error).message)
+    if (!silent) toast.error((error as Error).message)
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
-onMounted(load)
+// ---- 大厅自愈（B-1）：切回前台立刻刷新 + 每 30s 轮询，别人关掉的牌桌不会再挂着 ----
+const POLL_INTERVAL_MS = 30000
+let pollTimer: number | undefined
+
+function onVisibilityChange(): void {
+  if (document.visibilityState === 'visible') void load(true)
+}
+
+function stopAutoRefresh(): void {
+  if (pollTimer !== undefined) {
+    window.clearInterval(pollTimer)
+    pollTimer = undefined
+  }
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+}
+
+onMounted(() => {
+  void load()
+  pollTimer = window.setInterval(() => void load(true), POLL_INTERVAL_MS)
+  document.addEventListener('visibilitychange', onVisibilityChange)
+})
+
+onBeforeUnmount(stopAutoRefresh)
 
 // 切家庭：大厅数据整份重拉，任何旧列表都不保留（无缓存串数据）
 watch(familyCode, () => {

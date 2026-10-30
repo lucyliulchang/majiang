@@ -103,9 +103,20 @@ function safeParse(raw: string): any {
   }
 }
 
-export function sendMessage(type: string, data: Record<string, unknown> = {}): void {
-  if (!socket || socket.readyState !== WebSocket.OPEN) return
-  socket.send(JSON.stringify({ type, data }))
+/**
+ * 发一条 WS 消息。
+ *
+ * 返回 `false` 表示**没发出去**（连接未 OPEN 或 send 抛错）——调用方必须据此兜底
+ * （例如结束牌局时改走 REST），绝不能像旧版那样静默 return 让用户以为点了就生效。
+ */
+export function sendMessage(type: string, data: Record<string, unknown> = {}): boolean {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return false
+  try {
+    socket.send(JSON.stringify({ type, data }))
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function closeSocket(): void {

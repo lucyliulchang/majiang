@@ -60,10 +60,12 @@ def make_engine(
     dealer_seat: int | None = None,
     round_no: int = 1,
     rng=None,
+    circle_no: int = 1,
 ) -> GameEngine:
     """从族注册表取 `generic` 引擎（S6 起测试不再直接 new 骨架类）。
 
-    `dealer_seat` 缺省时由局号推导（第 n 局庄家 = 座位 n-1，03 §3.4）。
+    `dealer_seat` 缺省时由局号推导（第 n 局庄家 = 座位 n-1，03 §3.4）；
+    `circle_no` 为 v1.1.0 的圈序（一圈 4 个庄次）。
     """
     seats = [
         SeatState(seat=i, login_id=f"1380000000{i}", display_name=f"玩家{i}", color="#C9A063")
@@ -75,6 +77,7 @@ def make_engine(
         seats,
         round_no=round_no,
         dealer_seat=dealer_seat,
+        circle_no=circle_no,
         rng=rng,
     )
 
@@ -111,6 +114,33 @@ S5_MEMBERS = (
     ("13800000004", "弟弟"),
 )
 S5_FAMILY_CODE = "s5test"
+
+
+def ensureS5RoomOpen(s5_env) -> dict:
+    """保证会话级共享房处于 OPEN。
+
+    v1.1.0（I1）起「打满一圈 / 结束牌局」会把房真正落库 CLOSED，
+    而 `s5_env` 是 session 级、被多个测试模块复用：一旦某个用例把房收掉，
+    后续模块就会拿到已关的房间（`getRoomByCode` → ROOM_CLOSED、
+    WS 握手 → ROOM_NOT_FOUND），这属于用例间污染而不是产品缺陷。
+    这里在用例开始前补开一张新房并回写到 `s5_env`，用例内部仍可自行关房。
+    """
+    from common import mysqlCommon
+    from processor import roomService
+
+    room = s5_env["room"]
+    row = mysqlCommon.query_mj_room_by_id(room["id"])
+    if row and str(row.get("roomStatus") or "").upper() != "CLOSED":
+        return room
+    newRoom = roomService.createRoom(
+        s5_env["owner"],
+        s5_env["family_id"],
+        s5_env["family_code"],
+        room.get("room_name") or "S5 测试房",
+        s5_env["template_id"],
+    )
+    s5_env["room"] = newRoom
+    return newRoom
 
 
 @pytest.fixture(scope="session")
@@ -163,7 +193,7 @@ def s5_env(mysql_ready):
         S5_OWNER, familyID, S5_FAMILY_CODE, "S5 测试房", int(template.get("recID") or 0)
     )
 
-    yield {
+    s5 = {
         "family_id": familyID,
         "family_code": S5_FAMILY_CODE,
         "owner": S5_OWNER,
@@ -172,8 +202,21 @@ def s5_env(mysql_ready):
         "room": room,
     }
 
-    # 尽力清理：只软删本次房间，不动物业数据
-    try:
-        mysqlCommon.delete_mj_soft(mysqlCommon.MJ_ROOM_TABLE, room["id"], "pytest")
-    except Exception:  # noqa: BLE001 清理失败不影响用例结论
-        pass
+    yield s5
+
+    # 尽力清理：只软删本次（及中途补开的）房间，不动物业数据
+    for roomID in {room["id"], s5["room"]["id"]}:
+        try:
+            mysqlCommon.delete_mj_soft(mysqlCommon.MJ_ROOM_TABLE, roomID, "pytest")
+        except Exception:  # noqa: BLE001 清理失败不影响用例结论
+            pass
+
+
+@pytest.fixture(autouse=True)
+def _keepS5RoomOpen(request):
+    """用到 `s5_env` 的用例进入前，保证共享房仍是 OPEN（见 `ensureS5RoomOpen`）。"""
+    if "s5_env" not in request.fixturenames:
+        yield
+        return
+    ensureS5RoomOpen(request.getfixturevalue("s5_env"))
+    yield
