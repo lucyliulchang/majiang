@@ -113,7 +113,10 @@ export interface RuleConfig {
   discard_pay_mode: 'single' | 'all'
   dealer_continue_on_win: boolean
   dealer_continue_on_draw: boolean
+  /** 一圈的局数（固定 4 个庄次） */
   rounds_per_game: number
+  /** 一场几圈（v1.1.0）：1/2/4/8，默认 4；老配置缺省按 4 处理 */
+  circles_per_game?: number
   claim_window_seconds: number
 }
 
@@ -127,6 +130,8 @@ export interface RuleBrief {
   ting_hint: boolean
   patterns: string[]
   rounds_per_game: number
+  /** 一场几圈（v1.1.0）；缺省按 4 圈 */
+  circles_per_game?: number
 }
 
 export interface RuleFamily {
@@ -200,6 +205,10 @@ export interface JoinRequest {
 
 export interface LegalAction {
   action: 'discard' | 'chow' | 'pong' | 'kong' | 'hu' | 'pass'
+  /**
+   * 吃时是**本方两张手牌**（不含被吃的那张），且只是**推荐组合（默认高亮）**，非唯一解：
+   * 玩家可另选两张，服务端按顺子合法性裁决（非法返回 `BAD_CHOW`）；碰/杠是固定组合。
+   */
   tiles?: number[]
   kong_kind?: string
   label?: string
@@ -289,6 +298,8 @@ export interface RoundResult {
 
 export interface Snapshot {
   room: {
+    /** 房间主键：WS 不通时前端走 `POST /api/rooms/{id}/close` 兜底（B-1） */
+    room_id?: number
     room_code: string
     room_name: string
     host_login_id: string
@@ -313,6 +324,16 @@ export interface Snapshot {
   round_no: number
   /** 本局局风 0 东 / 1 南 / 2 西 / 3 北；按庄次推进，庄家胡牌连庄时不变（04 §9.5） */
   round_wind?: number
+  /** 本场第几圈（v1.1.0）：1 起算；老快照缺省按 1 */
+  circle_no?: number
+  /** 本场共几圈（v1.1.0）：由规则 `circles_per_game` 决定 */
+  total_circles?: number
+  /** 一圈几个庄次（固定 4） */
+  rounds_per_circle?: number
+  /** 本圈第几局（1–4）；庄家连庄时停在同一值 */
+  round_in_circle?: number
+  /** 本局是否连庄 */
+  dealer_continue?: boolean
   dealer_seat: number | null
   /** 暂停态（增量字段，缺省视为未暂停） */
   paused?: { paused: boolean; by_seat: number | null; note: string | null }

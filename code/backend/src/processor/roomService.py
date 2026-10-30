@@ -264,17 +264,39 @@ def listMessages(loginID: str, roomID: int, limit: int = 50) -> list[dict]:
 # ---------------------------------------------------------------- 写入
 
 
+ALLOWED_CIRCLES = (1, 2, 4, 8)
+
+
+def _applyCirclesOverride(snapshot: dict, circles: int | None) -> None:
+    """开桌时覆盖「一场几圈」（v1.1.0）：只改本次房间快照，不动模板本身。"""
+    if circles is None:
+        return
+    value = int(circles)
+    if value not in ALLOWED_CIRCLES:
+        raise _err("RULE_CIRCLES_INVALID", "一场圈数只能选 1、2、4 或 8 圈")
+    config = snapshot.get("config")
+    if isinstance(config, dict):
+        config["circles_per_game"] = value
+    options = snapshot.get("options")
+    if isinstance(options, dict):
+        options["circles_per_game"] = value
+
+
 def createRoom(
     loginID: str,
     familyID: int,
     familyCode: str,
     roomName: str,
     templateID: int,
+    circles: int | None = None,
 ) -> dict:
     """开桌（04 §6 #25）。
 
-    校验顺序：成员 → 模板可见/启用 → 族就绪 → 规则可解析 → 生成邀请码 → 一个事务写房。
+    校验顺序：成员 → 模板可见/启用 → 族就绪 → 规则可解析 → 圈数覆盖 → 生成邀请码 → 一个事务写房。
     任何一步失败都在写库之前抛出，`mj_room` 不会留下半条记录。
+
+    `circles`（v1.1.0）：一场几圈，可选 1/2/4/8；不传则沿用模板默认（4 圈）。
+    圈数只覆盖本次开桌的快照，不改模板本身。
     """
     _assertMember(loginID, familyID, requireEnabled=True)
 
@@ -283,6 +305,7 @@ def createRoom(
         raise _err("BAD_REQUEST", "房间名称不能为空")
     # 模板 → 快照只在这里生成一次；之后改模板不影响本房间（03 §1、§11）
     templateRow, _config, snapshot = ruleService.openableTemplate(loginID, familyID, templateID)
+    _applyCirclesOverride(snapshot, circles)
 
     ruleFamilyCode = _text(templateRow, "ruleFamilyCode")
 

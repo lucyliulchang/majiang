@@ -56,6 +56,23 @@ export function sortHand(tiles: number[]): number[] {
 }
 
 /**
+ * 手牌展示顺序：暗牌升序 + 单独抽出的摸牌（放最右侧，金线隔开）。
+ * `HandTiles` / `MobileHand` 与键盘游标共用这一份口径，避免「看得见的顺序」和「光标走的位置」不一致。
+ */
+export function handLayout(
+  tiles: number[],
+  drawn?: number | null
+): { rest: number[]; drawn: number | null } {
+  const list = sortHand(tiles)
+  if (drawn === null || drawn === undefined) return { rest: list, drawn: null }
+  const index = list.indexOf(drawn)
+  if (index < 0) return { rest: list, drawn: null }
+  const rest = [...list]
+  rest.splice(index, 1)
+  return { rest, drawn }
+}
+
+/**
  * 05 §6.1 的 35 个资源键：34 张牌 + 牌背。
  * 顺序即皮肤管理页 35 格网格的展示顺序（万 → 筒 → 条 → 字 → 牌背）。
  */

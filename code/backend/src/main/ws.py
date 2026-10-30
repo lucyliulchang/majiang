@@ -175,5 +175,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str = "", code: str = 
             actor.detach(user.login_id, websocket)
         if not actor.closed:
             await actor.push_all()
-        if not actor.conns and settings.seat_reserve_seconds >= 0:
+        if actor.should_reap():
+            # 打满收场 + 最后一个连接断开：延迟回收的触发点之一（另一个是 60s 兜底定时器）
+            async with actor.lock:
+                await actor.shutdown(actor.host_login_id)
+            logger.info("打满收场且已无连接，回收房间 room=%s", room_code)
+        elif not actor.conns and settings.seat_reserve_seconds >= 0:
             logger.info("房间无在线连接 room=%s（座位保留中）", room_code)

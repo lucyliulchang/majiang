@@ -25,6 +25,7 @@ from common import mysqlCommon
 from common.bizCommon import BizError
 from common.loggingCommon import get_logger
 from game.families import registry
+from game.families.generic.config import CIRCLES_PER_GAME
 from processor import familyService
 
 logger = get_logger("mahjong.rule")
@@ -129,6 +130,7 @@ _FIELD_ERROR_CODE = {
     "ting_hint": "RULE_SWITCH_UNSUPPORTED",
     "draw_penalty": "RULE_DRAW_PENALTY_INVALID",
     "rounds_per_game": "RULE_ROUNDS_INVALID",
+    "circles_per_game": "RULE_CIRCLES_INVALID",
     "claim_window_seconds": "RULE_CLAIM_WINDOW_INVALID",
     "allow_chow": "RULE_SWITCH_UNSUPPORTED",
 }
@@ -144,6 +146,7 @@ _MESSAGE_KEYWORD_CODE = (
     ("荒庄", "RULE_DRAW_PENALTY_INVALID"),
     ("局数", "RULE_ROUNDS_INVALID"),
     ("庄次", "RULE_ROUNDS_INVALID"),
+    ("圈数", "RULE_CIRCLES_INVALID"),
     ("响应窗口", "RULE_CLAIM_WINDOW_INVALID"),
     ("询问窗口", "RULE_CLAIM_WINDOW_INVALID"),
     ("牌型", "RULE_PATTERN_EMPTY"),
@@ -300,6 +303,7 @@ def buildSnapshot(templateRow: dict, familyRow: dict, config) -> dict:
 def _snapshotOptions(config) -> dict:
     options: dict = {
         "rounds_per_game": getattr(config, "rounds_per_game", 4),
+        "circles_per_game": getattr(config, "circles_per_game", CIRCLES_PER_GAME),
         "claim_window_seconds": getattr(config, "claim_window_seconds", 8),
         "allow_chow": bool(getattr(config, "allow_chow", True)),
     }

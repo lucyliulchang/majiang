@@ -23,8 +23,10 @@ logger = logging.getLogger("mahjong.rule.generic")
 
 _SLUG = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
-# 一圈固定 4 个庄次（北位下庄即圈结束，03 §3.4），不支持自定义局数
+# 一圈固定 4 个庄次（北位下庄即圈结束，03 §3.4）；一场默认 4 圈，开桌可选 1/2/4/8 圈
 ROUNDS_PER_GAME = 4
+CIRCLES_PER_GAME = 4
+ALLOWED_CIRCLES_PER_GAME = (1, 2, 4, 8)
 
 # 已作废的配置项：旧模板里可能残留，加载时忽略并记 warning（03 §4.1 注）
 LEGACY_KEYS = ("dealer_continue_on_win", "dealer_continue_on_draw")
@@ -206,6 +208,8 @@ class RuleConfig(_StrictModel):
     )
     discard_pay_mode: Literal["single", "all"] = "single"
     rounds_per_game: int = ROUNDS_PER_GAME
+    # 一场几圈（v1.1.0）：默认 4 圈 × 每圈 4 个庄次；开桌时可按房间覆盖
+    circles_per_game: int = CIRCLES_PER_GAME
     claim_window_seconds: int = 8
 
     @model_validator(mode="before")
@@ -220,7 +224,9 @@ class RuleConfig(_StrictModel):
         if self.fan_cap is not None and not 0 <= self.fan_cap <= 30:
             raise ValueError("封顶番数必须在 0-30 之间，留空表示不封顶")
         if self.rounds_per_game != ROUNDS_PER_GAME:
-            raise ValueError("一圈固定 4 个庄次（北位下庄结束），不支持自定义局数")
+            raise ValueError("一圈固定 4 个庄次（北位下庄结束），每圈局数不支持自定义")
+        if self.circles_per_game not in ALLOWED_CIRCLES_PER_GAME:
+            raise ValueError("一场圈数只能选 1、2、4 或 8 圈")
         if not 3 <= self.claim_window_seconds <= 30:
             raise ValueError("碰杠胡询问窗口必须在 3-30 秒之间")
 
@@ -317,10 +323,13 @@ class RuleConfig(_StrictModel):
                 if self.is_pattern_enabled(key)
             ],
             "rounds_per_game": self.rounds_per_game,
+            "circles_per_game": self.circles_per_game,
         }
 
 
 __all__ = [
+    "ALLOWED_CIRCLES_PER_GAME",
+    "CIRCLES_PER_GAME",
     "FAN_NAMES",
     "LEGACY_KEYS",
     "PATTERN_NAMES",

@@ -5,7 +5,9 @@
 S5 口径：
   - 身份统一用 `loginID`（04 §11：user_id(int) → login_id(string)）；
   - 落库一律 `run_in_threadpool(persist.*)`：协程里绝不直接触库（01 §8.2）；
-  - 落库失败不阻断对局（内存态优先），只记日志 + 给房主一条 `error{DB_WRITE_FAILED}`。
+  - 落库失败不阻断对局（内存态优先），只记日志 + 给房主一条 `error{DB_WRITE_FAILED}`；
+    例外是 `close_room` / `close_game` 这类**不可丢**的收尾写入（B-1）：失败必须上抛
+    `PersistError`，由调用方回 `CLOSE_FAILED`，避免「内存已关、库里还开」的幽灵房。
 """
 
 import asyncio
@@ -19,6 +21,7 @@ from config.localSettings import settings
 from common.loggingCommon import get_logger
 from game.engine import EngineError, GameEngine, SeatState, draw_seats
 from game.families import registry
+from game.families.generic.config import CIRCLES_PER_GAME
 from game.tiles import tile_name
 from realtime import persist
 from realtime.snapshot import build_snapshot, welcome_payload
@@ -26,6 +29,51 @@ from schemas.rule import RuleConfig
 from schemas.ws import make_message
 
 logger = get_logger("mahjong.room")
+
+# 一圈固定 4 个庄次（北位下庄即本圈结束）；一场默认 4 圈，开桌时可按桌覆盖（v1.1.0）
+ROUNDS_PER_CIRCLE = 4
+
+
+def nextRoundState(
+    dealerSeat: int,
+    roundWind: int,
+    circleNo: int,
+    nextDealer: int,
+    roundsPerCircle: int = ROUNDS_PER_CIRCLE,
+    totalCircles: int = CIRCLES_PER_GAME,
+) -> tuple[int, int, int, bool]:
+    """下一局的 `(庄家座位, 局风, 圈序, 本场是否结束)`（纯函数，便于单测）。
+
+    - 连庄（`nextDealer == dealerSeat`）：庄位与局风都不动，圈序不变；
+    - 下庄：局风 +1；攒满一圈的 4 个庄次即本圈结束，圈序 +1 且局风回到东风；
+    - 圈序超过 `totalCircles` 即本场收场。
+    座位整场只抽一次，换圈不重抽，庄家照座位顺延（北位之后回到东位）。
+    """
+    if nextDealer == dealerSeat:
+        return dealerSeat, roundWind, circleNo, False
+    nextWind = roundWind + 1
+    if nextWind < max(1, int(roundsPerCircle)):
+        return nextDealer, nextWind, circleNo, False
+    nextCircle = circleNo + 1
+    if nextCircle > max(1, int(totalCircles)):
+        return nextDealer, 0, circleNo, True
+    return nextDealer, 0, nextCircle, False
+
+
+# 打满一圈后的收尾宽限期：先让全桌看完最终结算，再广播 room_closed 收连接
+FINAL_CLOSE_GRACE_SECONDS = 60
+
+# 询问窗口的"防卡死"长兜底：不限时的房间里没人点，也不能永远停在这一张牌上。
+# 这不是"出牌限时"，也不下发 claim_deadline（牌桌上不该出现倒计时压力）；
+# 只在整窗长时间无人响应时按"过"收窗，让牌局继续（04 §9.3）。
+CLAIM_SAFETY_SECONDS = 180
+
+
+def _asPersistError(error: Exception) -> persist.PersistError:
+    """把线程池里冒出来的任意异常统一成 `PersistError`（本来就是则原样返回）。"""
+    if isinstance(error, persist.PersistError):
+        return error
+    return persist.PersistError("DB_WRITE_FAILED", "数据保存失败，请重试", 500)
 
 
 @dataclass
@@ -99,6 +147,13 @@ class RoomActor:
         self.status = "waiting"
         # 房主收摊后为 True：WS 循环据此结束，避免连接挂在已销毁的演员上
         self.closed = False
+        # B-1：本场已经收场（自然打满/房主结束），不再接受开新局；与 closed 分开是因为
+        # 「打满」要先让全桌看完最终结算，过一会（或最后一个连接断开）才真正 shutdown。
+        self.finalized = False
+        # `mj_room.roomStatus='CLOSED'` 是否已确认落库（幂等：只写一次，失败不置位）
+        self._closedInDb = False
+        # 打满后的兜底回收定时器（60s），由 shutdown 取消
+        self._close_task: asyncio.Task | None = None
         self.engine: GameEngine | None = None
         self.game_id: int | None = None
         self.last_result: dict | None = None
@@ -109,8 +164,12 @@ class RoomActor:
         self.paused_by_seat: int | None = None
         self.paused_by_login_id: str | None = None
         self.paused_note: str | None = None
-        # 本场抽座结果（每场首局抽一次，圈内 4 局不重抽，03 §3.4）
+        # 本场抽座结果（每场首局抽一次，整场不重抽，03 §3.4）
         self.seat_draw: dict | None = None
+        # 本场第几圈（v1.1.0）：一圈 4 个庄次，一场圈数由 `rule.circles_per_game` 决定
+        self.circle_no = 1
+        # 本局是否连庄（庄家胡牌后庄位与局风不变）：只用于展示「连庄」角标
+        self.dealer_continue = False
 
         self._gen = 0
         self._turn_task: asyncio.Task | None = None
@@ -387,8 +446,13 @@ class RoomActor:
             logger.info("观战名额保留到期释放 room=%s login=%s", self.code, login_id)
 
     # ---------------------------------------------------------------- 落库（线程池）
-    async def _persist(self, func, *args):
-        """把同步落库丢进线程池；失败只记日志并返回 None（不阻断对局，01 §7.4）。"""
+    async def _persist(self, func, *args, required: bool = False):
+        """把同步落库丢进线程池。
+
+        默认失败只记日志并返回 None（不阻断对局，01 §7.4）；`required=True` 用于
+        收尾类写入（`close_room` / `close_game`）：失败一律转成 `PersistError` 上抛，
+        由调用方回 `CLOSE_FAILED` 并保留内存房态，绝不能「内存已关、库里还开」。
+        """
         try:
             return await run_in_threadpool(func, *args)
         except Exception as error:  # noqa: BLE001 落库失败不能拖垮牌局
@@ -398,6 +462,10 @@ class RoomActor:
                 getattr(func, "__name__", str(func)),
                 error,
             )
+            if required:
+                if isinstance(error, persist.PersistError):
+                    raise
+                raise _asPersistError(error) from error
             return None
 
     async def _notifyWriteFailed(self) -> None:
@@ -706,6 +774,10 @@ class RoomActor:
         if login_id != self.host_login_id:
             await self.send_error(login_id, "NOT_HOST", "只有房主可以开桌")
             return
+        if self.finalized:
+            # 本场已经收场（打满/房主结束）：这桌不再接受新牌局，回大厅重新开桌
+            await self.send_error(login_id, "ROOM_CLOSED", "这桌已经结束了，回大厅再开一桌吧")
+            return
         if self.status == "playing" and self.engine and self.engine.phase != "settled":
             await self.send_error(login_id, "PLAYING", "牌局正在进行中")
             return
@@ -781,7 +853,15 @@ class RoomActor:
             for index, slot in enumerate(self.slots)
             if slot is not None
         ]
-        self.engine = registry.create_engine(self.rule_family_code or "generic", self.rule, seats, round_no=1)
+        self.circle_no = 1
+        self.dealer_continue = False
+        self.engine = registry.create_engine(
+            self.rule_family_code or "generic",
+            self.rule,
+            seats,
+            round_no=1,
+            circle_no=self.circle_no,
+        )
         # 抽座记录落库（mj_game.seatDrawJson）：便于复现「谁掷了多少点」
         self.seat_draw = draw
         # 开局落库：game + 4 条 player 同一事务；失败也不阻止打牌（内存态优先）
@@ -844,16 +924,20 @@ class RoomActor:
             )
         )
 
-    def _next_dealer_state(self) -> tuple[int, int, bool]:
-        """结算后下一局的 `(庄家座位, 局风, 本圈是否结束)`。
+    def _next_dealer_state(self) -> tuple[int, int, int, bool]:
+        """结算后下一局的 `(庄家座位, 局风, 圈序, 本场是否结束)`。
 
-        庄家是否连庄由族的 `next_dealer(result)` 决定：返回庄家自己 → 庄家与局风都不动，
-        只把局号 +1；返回下家 → 庄家换人、局风 +1，局风攒满 `rounds_per_game` 即圈结束。
+        庄家是否连庄由族的 `next_dealer(result)` 决定：返回庄家自己 → 庄位与局风都不动，
+        局号照常 +1（前端据此显示「连庄」）；返回下家 → 庄家换人、局风 +1。
+        局风攒满一圈的 4 个庄次（北位下庄）即本圈结束：
+          - 还没打满 `rule.circles_per_game` 圈 → 圈序 +1、局风回到东风；
+          - 已经打满 → 本场收场。
+        座位整场只抽一次，换圈不重抽，庄家照座位顺延（北位之后回到东位）。
         未结算（`engine.result is None`，如无杠重发）时按换庄算，仅用于兜底。
         """
         engine = self.engine
         if engine is None:
-            return 0, 0, True
+            return 0, 0, self.circle_no, True
         dealerSeat = int(engine.dealer_seat)
         roundWind = int(engine.round_wind)
         try:
@@ -861,10 +945,14 @@ class RoomActor:
         except Exception:  # 族实现异常不该把牌桌卡住：退回「下家坐庄」
             logger.exception("next_dealer 失败 room=%s，按换庄处理", self.code)
             nextDealer = (dealerSeat + 1) % 4
-        if nextDealer == dealerSeat:
-            return dealerSeat, roundWind, False
-        nextWind = roundWind + 1
-        return nextDealer, nextWind, nextWind >= int(self.rule.rounds_per_game)
+        return nextRoundState(
+            dealerSeat,
+            roundWind,
+            self.circle_no,
+            nextDealer,
+            roundsPerCircle=int(getattr(self.rule, "rounds_per_game", ROUNDS_PER_CIRCLE) or ROUNDS_PER_CIRCLE),
+            totalCircles=int(getattr(self.rule, "circles_per_game", CIRCLES_PER_GAME) or CIRCLES_PER_GAME),
+        )
 
     async def _next_round(self, login_id: str) -> None:
         if self.slot_of_login(login_id) is None:
@@ -879,10 +967,18 @@ class RoomActor:
         if login_id != self.host_login_id:
             await self.send_error(login_id, "NOT_HOST", "只有房主可以开始下一局")
             return
-        # 圈结束只看庄次：第 4 个庄次（北位）下庄即收场；庄家胡牌连庄时庄次不变
-        dealerSeat, roundWind, finished = self._next_dealer_state()
+        if self.finalized:
+            # 已收场：不再推进新局（重试关房的入口是 game.finish，不是 game.next）
+            await self.send_error(login_id, "ROOM_CLOSED", "这桌已经结束了，回大厅再开一桌吧")
+            return
+        # 圈结束只看庄次：第 4 个庄次（北位）下庄即本圈结束；打满 `circles_per_game` 圈才收场
+        dealerSeat, roundWind, circleNo, finished = self._next_dealer_state()
         if finished:
-            await self._finish_game()
+            try:
+                await self._finish_game()
+            except persist.PersistError:
+                # 收尾落库失败：房态停在 finished，房主可重试（再点"下一局"或"关闭牌桌"）
+                await self.send_error(login_id, "CLOSE_FAILED", "关房失败，请在大厅重试")
             return
         for slot in self.slots:
             if slot is not None:
@@ -890,6 +986,8 @@ class RoomActor:
         # 局号照常 +1（历史一局一条记录），庄家与局风由结算决定：连庄保持、下庄顺延。
         # 无杠重发在同一局内由引擎自行处理（不发 game.next），因此这里只推进局号。
         roundNo = self.engine.round_no + 1
+        self.dealer_continue = dealerSeat == int(self.engine.dealer_seat)
+        self.circle_no = circleNo
         self.engine = registry.create_engine(
             self.rule_family_code or "generic",
             self.rule,
@@ -897,13 +995,29 @@ class RoomActor:
             round_no=roundNo,
             dealer_seat=dealerSeat,
             round_wind=roundWind,
+            circle_no=circleNo,
         )
         self.last_result = None
         await self._after(self.engine.start_round())
 
     async def _finish_game(self) -> None:
+        """打满所选圈数（一场结束）：收尾路径之一（另一条是 `_end_game` 的提前收场）。
+
+        B-1 定稿（唯一口径，不保留"立即 shutdown"的第二种写法）：
+          1. 场次落库 FINISHED；
+          2. 广播 `event.game_finished{final:true}`，让全桌先看完最终总分；
+          3. 立刻落库 `mj_room.roomStatus='CLOSED'` —— 大厅马上就看不到这桌；
+          4. **不**立刻广播 `event.room_closed`：标记 `finalized`，交给"最后一个连接断开"
+             （`main/ws.py` 的 finally）或 60s 兜底定时器执行 `shutdown`。
+
+        落库失败直接抛 `PersistError`：房态停在 `finished`、库里仍 OPEN，房主可以再点
+        一次"关闭牌桌"重试，绝不会出现"内存关了、库里还开"的幽灵房。
+        """
+        if self.finalized:
+            return
         if self.game_id is not None:
-            await self._persist(persist.close_game, self.game_id)
+            await self._persist(persist.close_game, self.game_id, required=True)
+            self.game_id = None
         self.status = "finished"
         scores = [
             {"seat": slot.seat, "name": slot.display_name, "total": 0}
@@ -913,15 +1027,23 @@ class RoomActor:
         if self.engine is not None:
             for entry in scores:
                 entry["total"] = self.engine.seats[entry["seat"]].total_score
-        await self.broadcast(make_message("event.game_finished", {"scores": scores}))
+        await self.broadcast(
+            make_message("event.game_finished", {"scores": scores, "final": True})
+        )
         await self.push_all()
+        await self._persist_closed(self.host_login_id)
+        self.finalized = True
+        self._schedule_close()
 
     async def _end_game(self, login_id: str) -> None:
-        """`game.finish`：开桌的人可以提前收场（不必等打满 rounds_per_game）。
+        """`game.finish`：开桌的人可以结束本场（不必等打满 `circles_per_game` 圈）。幂等。
 
         家庭局的现实：有人要走、时间不够时，房主一句话就能收摊，而不是拖着继续打。
-        已打完的局与积分全部保留，只有正在进行的这一局作废；收场后这桌随即关房，
-        不会以「4/4 等待开局」的样子继续挂在大厅里。
+        已打完的局与积分全部保留，只有正在进行的这一局作废。四种状态各自的口径：
+          - `playing`：正常收场（场次 ABORTED）→ 落库 CLOSED → shutdown；
+          - `finished`：自然打满后再点一次 "关闭牌桌" —— 幂等收摊成功，不报错；
+          - `closed` / 已 finalized：重复点击幂等成功（只补一次 shutdown）；
+          - `waiting`：没有牌局可结束，提示回大厅关桌。
         """
         slot = self.slot_of_login(login_id)
         if slot is None:
@@ -930,27 +1052,93 @@ class RoomActor:
         if login_id != self.host_login_id:
             await self.send_error(login_id, "NOT_HOST", "只有开桌的人可以结束牌局")
             return
-        if self.engine is None or self.status != "playing":
-            await self.send_error(login_id, "NOT_PLAYING", "牌局还没开始")
+        if self.finalized or self.status in ("finished", "closed"):
+            # 已经收场：幂等成功（重复点击、3s 超时兜底都会走到这里）
+            try:
+                await self._close_room(login_id)
+            except persist.PersistError:
+                await self.send_error(login_id, "CLOSE_FAILED", "关房失败，请在大厅重试")
             return
+        if self.engine is None or self.status != "playing":
+            await self.send_error(
+                login_id, "NOT_PLAYING", "牌局还没开始，回大厅关闭牌桌即可"
+            )
+            return
+        # 先标记收场：万一落库失败，重试也不会被上面的状态守卫挡住（幂等可重试）
+        self.finalized = True
         await self.system_chat(f"{slot.display_name} 结束了本场牌局")
         await self._abort_game(slot)
-        # 收摊：房间置 CLOSED（大厅只列 OPEN），牌桌上的人收起连接回大厅
-        await self._persist(persist.close_room, self.room_id, slot.login_id)
-        await self.shutdown(slot.login_id)
+        try:
+            await self._close_room(login_id)
+        except persist.PersistError:
+            # 内存已收场、库里仍 OPEN：给房主一条明确的失败提示（前端不跳转，可重试）
+            await self.send_error(login_id, "CLOSE_FAILED", "关房失败，请在大厅重试")
+
+    # ---------------------------------------------------------------- 关房（唯一出口）
+    async def _persist_closed(self, operator_login_id: str) -> None:
+        """把 `mj_room` 置 CLOSED（幂等）：写成功过就不再写，失败上抛 PersistError。"""
+        if self._closedInDb:
+            return
+        await self._persist(
+            persist.close_room, self.room_id, operator_login_id, required=True
+        )
+        self._closedInDb = True
+
+    async def _close_room(self, operator_login_id: str = "") -> None:
+        """唯一收尾出口：落库 CLOSED → `status="closed"` → `shutdown`（幂等）。
+
+        `persist.close_room` 失败直接抛 `PersistError`，此时**不动内存房态**：
+        调用方回 `error{CLOSE_FAILED}`，房主可原地重试，或回大厅关桌。
+        """
+        await self._persist_closed(operator_login_id)
+        self.finalized = True
+        self.status = "closed"
+        await self.shutdown(operator_login_id)
+
+    def _schedule_close(self, delay: float = FINAL_CLOSE_GRACE_SECONDS) -> None:
+        """打满后的兜底回收：最后一个人不肯断线，也要在 `delay` 秒后把演员收掉。"""
+        if self.closed:
+            return
+        task = self._close_task
+        if task is not None and not task.done():
+            return
+        self._close_task = asyncio.create_task(self._close_after(delay))
+
+    def should_reap(self) -> bool:
+        """打满收场后「库里已 CLOSED 且一个连接都不剩」：可以立刻把演员收掉。
+
+        落库没成功（`_closedInDb=False`）时**不**回收：留着内存房态，房主还能重试关房，
+        避免出现"内存没了、库里还 OPEN"的第二种幽灵房。
+        """
+        return bool(self._closedInDb and not self.conns and not self.closed)
+
+    async def _close_after(self, delay: float) -> None:
+        await asyncio.sleep(max(0.0, delay))
+        self._close_task = None
+        if self.closed:
+            return
+        async with self.lock:
+            if self.closed:
+                return
+            await self.shutdown(self.host_login_id)
 
     async def shutdown(self, operator_login_id: str = "") -> None:
         """关房收摊：广播 `event.room_closed` → 释放观战 → 从注册表移除演员。
 
-        `mj_room.roomStatus` 由调用方落库（WS 的 `game.finish` 与 HTTP 关房各一次），
-        这里只管内存房态与连接：牌桌上的人收到事件后断开，不再重连。
+        `mj_room.roomStatus` 由调用方落库（`_close_room` 与 HTTP 关房各一次），
+        这里只管内存房态与连接：牌桌上的人收到事件后断开，不再重连。幂等。
         """
         from realtime.manager import room_manager  # 局部导入：manager 反过来依赖本模块
 
         if self.closed:
             return
         self.closed = True
+        self.finalized = True
         self._clear_timers()
+        task = self._close_task
+        self._close_task = None
+        if task is not None and not task.done() and task is not asyncio.current_task():
+            task.cancel()
         self.turn_deadline = None
         self.claim_deadline = None
         # 大厅直接关房时牌局可能还在进行：场次标中断，别留一条永远「进行中」的僵尸记录
@@ -1081,6 +1269,8 @@ class RoomActor:
     async def _after(self, events: list[dict]) -> None:
         for event in events:
             await self.broadcast(make_message(event["type"], event["data"]))
+        # 即使没有事件也要推快照：过胡（pass 在胡阶段）不产生事件、也不关闭窗口，
+        # 但该玩家必须立刻看到补发的碰/杠/吃选项（04 §9.5 两段式）。
         await self.push_all()
         if self.engine is not None and self.engine.phase == "settled":
             await self._on_settled()
@@ -1110,8 +1300,8 @@ class RoomActor:
             "fan_items": settled.fan_items,
             "score_delta": settled.score_delta,
             "breakdown": settled.breakdown,
-            # 圈结束看庄次（庄家胡牌连庄时局号会超过圈数，不能拿局号比）
-            "is_last_round": self._next_dealer_state()[2],
+            # 本场结束看庄次与圈序（连庄会让局号超过每圈 4 局，不能拿局号比）
+            "is_last_round": self._next_dealer_state()[3],
             # S6 追加（04 §9.5 的 result 结构，只增字段不删字段）
             "winners": settled.winners,
             "fan_raw": settled.fan_raw,
@@ -1191,9 +1381,16 @@ class RoomActor:
         if engine.phase == "claim":
             limit = self._claim_window_seconds()
             self.turn_deadline = None
-            self.claim_deadline = now + limit if limit else None
             if limit:
+                self.claim_deadline = now + limit
                 self._claim_task = asyncio.create_task(self._claim_timeout(gen, limit))
+            else:
+                # 不限时：牌桌不显示倒计时（claim_deadline 保持 None），
+                # 但挂一条防卡死长兜底，避免所有人都不点就永远停在这张牌上（04 §9.3）
+                self.claim_deadline = None
+                self._claim_task = asyncio.create_task(
+                    self._claim_timeout(gen, CLAIM_SAFETY_SECONDS, safety=True)
+                )
         elif engine.phase == "discard" and getattr(self.rule.turn_timeout, "enabled", False):
             seconds = self.rule.turn_timeout.seconds
             self.turn_deadline = now + seconds
@@ -1204,10 +1401,11 @@ class RoomActor:
             self.claim_deadline = None
 
     def _claim_window_seconds(self) -> int:
-        """吃/碰/杠/胡 的响应窗口秒数；0 = 不计时（跟「出牌限时」同一个总开关）。
+        """吃/碰/杠/胡 的响应窗口秒数；0 = 不给倒计时（跟「出牌限时」同一个总开关）。
 
         默认不限时：家庭局里漏看一眼提示就被自动「过」掉，比慢一点难受得多。
         房主开局选了限时，响应仍按规则里的 `claim_window_seconds`（3-30 秒）询问。
+        返回 0 时仍会挂一条 `CLAIM_SAFETY_SECONDS` 的防卡死兜底（不下发 deadline）。
         """
         if not getattr(getattr(self.rule, "turn_timeout", None), "enabled", False):
             return 0
@@ -1220,7 +1418,7 @@ class RoomActor:
         self._turn_task = None
         self._claim_task = None
 
-    async def _claim_timeout(self, gen: int, seconds: int) -> None:
+    async def _claim_timeout(self, gen: int, seconds: float, safety: bool = False) -> None:
         await asyncio.sleep(seconds)
         if gen != self._gen:
             return
@@ -1231,7 +1429,9 @@ class RoomActor:
             events = self.engine.timeout_claim()
             if not events:
                 return
-            await self.broadcast(make_message("event.claim_timeout", {"message": "超时未响应，按过处理"}))
+            # 限时窗口说"超时"；不限时的长兜底说"长时间无人响应"，别让家人以为被限时催了
+            text = "长时间无人响应，本张牌按过处理" if safety else "超时未响应，按过处理"
+            await self.broadcast(make_message("event.claim_timeout", {"message": text}))
             await self._after(events)
 
     async def _turn_timeout(self, gen: int, seconds: int) -> None:

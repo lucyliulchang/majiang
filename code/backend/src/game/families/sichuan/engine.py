@@ -200,6 +200,13 @@ class SichuanEngine(GameEngine):
         return self._record_win(seat, "rob_kong", tile, breakdown, kong_seat)
 
     # ------------------------------------------------------------------ 一炮多响
+    def _hu_ends_round(self) -> bool:
+        """血战到底：一家胡牌后本局继续（胡家出局、其余照打），因此不能"胡即收口"短路。
+
+        短路会把仍在犹豫的座位按终态 pass 收掉，而这里的吃碰杠在本局继续时是有意义的。
+        """
+        return False
+
     def _resolve_claim(self) -> list[dict]:
         window = self.claim
         if window is None:

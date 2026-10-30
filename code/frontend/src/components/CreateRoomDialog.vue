@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Check, Loader2, X } from 'lucide-vue-next'
 
@@ -20,6 +20,10 @@ const selectedId = ref<number | null>(null)
 const name = ref('')
 const loading = ref(true)
 const saving = ref(false)
+/** 一场几圈（v1.1.0）：每圈固定 4 个庄次，整场默认 4 圈；可在开桌时按桌覆盖 */
+const CIRCLE_OPTIONS = [1, 2, 4, 8]
+const circles = ref(4)
+const circlesTouched = ref(false)
 
 const familyQuery = computed(() =>
   auth.currentFamilyCode ? `?family_code=${encodeURIComponent(auth.currentFamilyCode)}` : ''
@@ -64,6 +68,23 @@ const ruleDetail = computed(() => {
     rounds: config.rounds_per_game ?? '—'
   }
 })
+
+/** 模板里配置的默认圈数（老模板没有该字段时按 4 圈） */
+function templateCircles(template: RuleTemplate | null): number {
+  const value = Number((template?.config as { circles_per_game?: number } | undefined)?.circles_per_game)
+  return CIRCLE_OPTIONS.includes(value) ? value : 4
+}
+
+// 换模板时跟随模板默认圈数；用户手动选过就不再覆盖
+watch(selectedId, (id) => {
+  if (circlesTouched.value) return
+  circles.value = templateCircles(rules.value.find((item) => item.id === id) || null)
+})
+
+function pickCircles(value: number): void {
+  circlesTouched.value = true
+  circles.value = value
+}
 
 function describe(template: RuleTemplate): string {
   const config = template.config as unknown as {
@@ -140,7 +161,8 @@ async function submit(): Promise<void> {
     const room = await api.post<RoomInfo>('/rooms', {
       family_code: auth.currentFamilyCode || '',
       room_name: name.value.trim(),
-      template_id: selectedId.value
+      template_id: selectedId.value,
+      circles: circles.value
     })
     emit('created', room)
   } catch (error) {
@@ -251,11 +273,36 @@ async function submit(): Promise<void> {
           </div>
         </div>
 
+        <div v-if="!loading">
+          <div class="mb-2 flex items-center justify-between gap-2">
+            <span class="text-xs text-ink-300/85">打几圈</span>
+            <span class="text-[11px] text-ink-300/60">每圈 4 个庄次，庄家胡牌连庄会多打</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            <button
+              v-for="option in CIRCLE_OPTIONS"
+              :key="option"
+              type="button"
+              class="rounded-lg border px-3 py-1.5 text-xs transition"
+              :class="
+                circles === option
+                  ? 'border-gold-400/60 bg-gold-400/12 text-cream-100'
+                  : 'border-cream-100/12 bg-cream-100/[0.03] text-ink-300/80 hover:border-gold-400/30'
+              "
+              @click="pickCircles(option)"
+            >
+              {{ option }} 圈
+              <span class="ml-1 text-[10px] text-ink-300/55">约 {{ option * 4 }} 局</span>
+            </button>
+          </div>
+        </div>
+
         <div v-if="ruleDetail && familyReady" class="rounded-xl border border-cream-100/10 bg-felt-950/40 p-3 text-[11px] text-ink-300/80">
           <p class="mb-1 text-xs text-gold-300">这套规则会怎么算</p>
           <p class="leading-relaxed">
             {{ ruleDetail.fanMode }}，命中 {{ ruleDetail.fanCount }} 个可选番种；
-            {{ ruleDetail.tingHint }}；一场 {{ ruleDetail.rounds }} 局。
+            {{ ruleDetail.tingHint }}；每圈 {{ ruleDetail.rounds }} 个庄次，本桌 {{ circles }} 圈（计划
+            {{ (Number(ruleDetail.rounds) || 4) * circles }} 局）。
           </p>
         </div>
       </div>

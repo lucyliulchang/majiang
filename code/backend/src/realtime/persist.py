@@ -84,11 +84,14 @@ def open_game(
     return gameID
 
 
-def save_round(gameID: int, familyID: int, settled) -> None:
+def save_round(gameID: int, familyID: int, settled) -> int:
     """一局结算落库：`mj_game_round` 与 `mj_game_player.totalScore` 同事务。
 
     totalScore 用 `UPDATE ... SET totalScore = totalScore + ?` 做自增，避免并发下
     「读旧值再写回」丢分；任一语句失败则整局回滚（不会出现「有局无分」或「有分无局」）。
+
+    返回新局 `recID`（>0）：`RoomActor._on_settled` 用 `None` 判定写失败，
+    若这里不给返回值，房主每局都会收到一条假的「这局数据没存上」提示。
     """
     roundNo = int(getattr(settled, "round_no", 1) or 1)
     # 局风看局序（第 1 局东…第 4 局北），与谁是庄家无关（03 §3.4）
@@ -128,6 +131,7 @@ def save_round(gameID: int, familyID: int, settled) -> None:
             if affected <= 0:
                 raise _writeFailed("结算计分")
     logger.info("结算落库 game=%s round=%s delta=%s", gameID, roundNo, scoreDelta)
+    return recID
 
 
 def close_game(gameID: int) -> None:
@@ -153,12 +157,26 @@ def abort_game(gameID: int) -> None:
 
 
 def close_room(roomID: int, operatorLoginID: str = "") -> None:
-    """关房：房间从大厅列表消失（只对 OPEN 生效，重复关闭幂等）。"""
+    """关房：房间从大厅列表消失（只对 OPEN 生效，重复关闭幂等）。
+
+    由 `mysqlCommon.update_mj_room_close` 的四种结局区分处理（B-1）：
+      - 命中 1 行：正常关闭；
+      - 本来就 CLOSED：幂等成功，不报错（重复点"结束牌局"/超时兜底都会走到这里）；
+      - 房间不存在：抛 `PersistError(ROOM_NOT_FOUND)`，别把失败当成功；
+      - SQL 失败：抛 `PersistError(DB_WRITE_FAILED)`，由调用方决定是否提示重试。
+    """
     if not roomID:
-        return
+        raise PersistError("ROOM_NOT_FOUND", "房间不存在或已关闭", 404)
     affected = mysqlCommon.update_mj_room_close(roomID, operatorLoginID)
-    if affected < 0:
-        raise _writeFailed("关闭房间")
+    if affected == mysqlCommon.ROOM_CLOSE_UPDATED:
+        logger.info("关房落库 room=%s by=%s", roomID, operatorLoginID or "system")
+        return
+    if affected == mysqlCommon.ROOM_CLOSE_ALREADY:
+        logger.info("关房落库 room=%s 已是 CLOSED（幂等）", roomID)
+        return
+    if affected == mysqlCommon.ROOM_CLOSE_MISSING:
+        raise PersistError("ROOM_NOT_FOUND", "房间不存在或已关闭", 404)
+    raise _writeFailed("关闭房间")
 
 
 def save_message(

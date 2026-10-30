@@ -19,6 +19,15 @@ if TYPE_CHECKING:
 FAMILY = "baishi"
 
 
+def _with_global_fans(ctx: HandContext, hits: list[FanHit]) -> list[FanHit]:
+    """牌型求番出口：统一追加「赢张类 / 花色类全局番」（258赢、断幺，07 §6.4.8 §6.11）。
+
+    这类番与牌型结构无关，所以不逐个牌型挂，避免四处漏判；`global_fans()` 只读
+    `ctx.win_tile` / `ctx.all_tiles()`，各牌型复用不会重复计数（每次 calc_fan 只调一次）。
+    """
+    return [*hits, *baishi_fan.global_fans(ctx)]
+
+
 class BaishiStandardPattern:
     """4 面子 + 1 将；一手牌多解时逐解取最高总分（07 §6.1）。"""
 
@@ -29,7 +38,7 @@ class BaishiStandardPattern:
         return bool(baishi_fan.shapes(ctx, cap=1))
 
     def calc_fan(self, ctx: HandContext, rule: "RuleConfig") -> list[FanHit]:
-        return baishi_fan.best_shape_fans(ctx, rule)
+        return _with_global_fans(ctx, baishi_fan.best_shape_fans(ctx, rule))
 
 
 class BaishiSevenPairsPattern:
@@ -42,11 +51,11 @@ class BaishiSevenPairsPattern:
         return baishi_fan.is_seven_pairs(ctx)
 
     def calc_fan(self, ctx: HandContext, rule: "RuleConfig") -> list[FanHit]:
-        return baishi_fan.seven_pairs_fans(ctx)
+        return _with_global_fans(ctx, baishi_fan.seven_pairs_fans(ctx))
 
 
 class BaishiThirteenUnrelatedPattern:
-    """13不靠（07 §6.3.4）：中发白齐 + 三门数牌各 3 张同组。"""
+    """13不靠（07 §6.3.4 宽松口径）：中发白必含 + 数牌每门 0–3 张同组 + 恰好一对将。"""
 
     id = "thirteen_unrelated"
     name = "13不靠"
@@ -58,7 +67,7 @@ class BaishiThirteenUnrelatedPattern:
         pair = baishi_fan.unrelated_pair(ctx)
         if pair is None:
             return []
-        return baishi_fan.thirteen_unrelated_fans(ctx, pair)
+        return _with_global_fans(ctx, baishi_fan.thirteen_unrelated_fans(ctx, pair))
 
 
 class BaishiThirteenOrphansPattern:
@@ -71,7 +80,7 @@ class BaishiThirteenOrphansPattern:
         return baishi_fan.is_thirteen_orphans(ctx)
 
     def calc_fan(self, ctx: HandContext, rule: "RuleConfig") -> list[FanHit]:
-        return baishi_fan.thirteen_orphans_fans(ctx)
+        return _with_global_fans(ctx, baishi_fan.thirteen_orphans_fans(ctx))
 
 
 register_pattern(BaishiStandardPattern, FAMILY)

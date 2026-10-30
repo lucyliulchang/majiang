@@ -662,41 +662,63 @@ async def test_kong_draw_settles_and_persists(s5_env):
         actor._clear_timers()
 
 
+async def _play_draw_rounds(actor, rounds: int) -> list[tuple[int, int, int]]:
+    """连打 `rounds` 局「有杠荒庄」（不依赖具体牌型），返回每局的 (局号, 庄位, 局风)。"""
+    seen: list[tuple[int, int, int]] = []
+    for _ in range(rounds):
+        engine = actor.engine
+        seen.append((engine.round_no, engine.dealer_seat, engine.round_wind))
+        for seat in engine.seats:
+            if seat != engine.turn:
+                engine.seats[seat].counts = empty_counts()
+        engine.kong_happened = True
+        engine.front = engine.back + 1
+        tile = next(
+            index for index, count in enumerate(engine.seats[engine.turn].counts) if count > 0
+        )
+        await actor.handle(
+            actor.slots[engine.turn].login_id,
+            {"type": "game.action", "data": {"action": "discard", "tiles": [tile]}},
+        )
+        assert engine.phase == "settled"
+        await actor.handle(actor.host_login_id, {"type": "game.next", "data": {}})
+    return seen
+
+
 @pytest.mark.usefixtures("s5_env")
 async def test_four_rounds_close_the_circle(s5_env):
-    """北位（座位 3）庄家下庄即圈结束：一圈恰好 4 局，局风东→南→西→北（03 §3.4）。"""
+    """北位（座位 3）庄家下庄即**本圈**结束：一圈 4 局，局风东→南→西→北（03 §3.4）。
+
+    v1.1.0 起一场默认 4 圈，所以打完 4 局只是换圈：局号继续、局风回到东风、座位不重抽。
+    """
     actor, sockets = _build_actor(s5_env)
     try:
         await _ready_and_start(actor, sockets)
-        seen: list[tuple[int, int, int]] = []
-        for roundNo in (1, 2, 3, 4):
-            engine = actor.engine
-            assert engine.round_no == roundNo
-            seen.append((engine.round_no, engine.dealer_seat, engine.round_wind))
-
-            # 有杠荒庄快速结算，避免依赖具体牌型
-            for seat in engine.seats:
-                if seat != engine.turn:
-                    engine.seats[seat].counts = empty_counts()
-            engine.kong_happened = True
-            engine.front = engine.back + 1
-            tile = next(
-                index
-                for index, count in enumerate(engine.seats[engine.turn].counts)
-                if count > 0
-            )
-            await actor.handle(
-                actor.slots[engine.turn].login_id,
-                {"type": "game.action", "data": {"action": "discard", "tiles": [tile]}},
-            )
-            assert engine.phase == "settled"
-            await actor.handle(actor.host_login_id, {"type": "game.next", "data": {}})
+        seen = await _play_draw_rounds(actor, 4)
 
         assert seen == [(1, 0, 0), (2, 1, 1), (3, 2, 2), (4, 3, 3)]
+        assert actor.status == "playing"
+        assert actor.circle_no == 2
+        assert actor.engine.round_no == 5
+        assert actor.engine.round_wind == 0
+        assert actor.engine.dealer_seat == 0
+        assert sockets[s5_env["owner"]].last("event.game_finished") is None
+        # 整场只抽一次座（换圈不重抽）
+        assert sockets[s5_env["owner"]].count("event.seats_drawn") == 1
+    finally:
+        actor._clear_timers()
+
+
+@pytest.mark.usefixtures("s5_env")
+async def test_single_circle_game_finishes_after_four_rounds(s5_env):
+    """圈数=1 的房间：打完 4 个庄次即收场（老口径，开桌时选 1 圈）。"""
+    actor, sockets = _build_actor(s5_env, RuleConfig(circles_per_game=1))
+    try:
+        await _ready_and_start(actor, sockets)
+        await _play_draw_rounds(actor, 4)
+
         assert actor.status == "finished"
         assert sockets[s5_env["owner"]].last("event.game_finished") is not None
-        # 圈内始终只抽一次座
-        assert sockets[s5_env["owner"]].count("event.seats_drawn") == 1
     finally:
         actor._clear_timers()
 

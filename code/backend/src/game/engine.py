@@ -20,7 +20,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
-from game.claims import ClaimWindow, chow_options, chow_tiles
+from game.claims import ClaimWindow, chow_options, chow_tiles, is_chow
 from game.fan import ScoreBreakdown, best_win
 from game.hand import HandContext, Meld, lack_suit_satisfied
 from game.patterns import collect_wins, winning_tiles
@@ -244,6 +244,7 @@ class GameEngine:
         round_no: int = 1,
         dealer_seat: int | None = None,
         round_wind: int | None = None,
+        circle_no: int = 1,
         rng: random.Random | None = None,
     ):
         self.rule = rule
@@ -252,6 +253,8 @@ class GameEngine:
         # 第 n 局庄家 = 座位 n-1，局风 = 第 n 局（03 §3.4）；显式传入时以传入值为准
         self.dealer_seat = dealer_of_round(round_no) if dealer_seat is None else dealer_seat
         self.round_wind = round_wind_of(round_no) if round_wind is None else round_wind
+        # 本场第几圈（v1.1.0）：一圈 4 个庄次，一场默认 4 圈；圈序只用于显示与收场判定
+        self.circle_no = max(1, int(circle_no))
         self.rng = rng
 
         self.wall: list[int] = []
@@ -463,6 +466,7 @@ class GameEngine:
                     "round_no": self.round_no,
                     "dealer_seat": self.dealer_seat,
                     "round_wind": self.round_wind,
+                    "circle_no": self.circle_no,
                     "wall_count": self.remaining,
                     "deal": dict(self.deal),
                 },
@@ -506,7 +510,8 @@ class GameEngine:
     def legal_actions(self, seat: int) -> dict:
         if self.phase == "claim" and self.claim and seat in self.claim.options:
             return {
-                "actions": self.claim.options[seat],
+                # 两段式（04 §9.5）：可胡时先只给 hu/pass，过胡后才补发吃碰杠
+                "actions": self.claim.available(seat),
                 "claim_tile": self.claim.tile,
                 "claim_from": self.claim.from_seat,
                 "reason": self.claim.reason,
@@ -554,6 +559,11 @@ class GameEngine:
         rule = self.rule
         options: dict = {
             "rounds_per_game": getattr(rule, "rounds_per_game", MAX_ROUNDS),
+            "rounds_per_circle": MAX_ROUNDS,
+            # 与 generic.config.CIRCLES_PER_GAME 一致；此处不 import 该模块：
+            # game.families.__init__ 会反向导入本模块，避免循环依赖
+            "circles_per_game": getattr(rule, "circles_per_game", 4),
+            "circle_no": self.circle_no,
             "claim_window_seconds": getattr(rule, "claim_window_seconds", 8),
             "allow_chow": bool(getattr(rule, "allow_chow", True)),
         }
@@ -728,22 +738,46 @@ class GameEngine:
         kind = action.get("action")
         if kind not in ("pass", "hu", "pong", "kong", "chow"):
             raise EngineError("BAD_ACTION", "这里只能过、胡、碰、杠或者吃")
-        if kind != "pass" and not any(
-            option["action"] == kind for option in window.options[seat]
-        ):
+        if (window.responses.get(seat) or {}).get("action") == kind:
+            return []  # 幂等：同一动作重复提交按当前状态返回（04 §9.3）
+        # 只认当前这一段真正开放的动作：胡阶段提交吃碰杠 = BAD_ACTION，绝不静默吃掉胡
+        if kind not in {option["action"] for option in window.available(seat)}:
+            if window.hu_stage(seat):
+                raise EngineError("BAD_ACTION", "这张牌要先决定胡不胡，过胡后才轮到吃碰杠")
             raise EngineError("BAD_ACTION", f"这张牌你不能「{kind}」")
 
+        # 吃的两张由客户端指定（04 §9.3）：**提交时就校验**，别等收窗仲裁时才抛——
+        # 那时窗口已关闭、动作已入 responses，牌局会停在 claim 相位没法推进。
+        if kind == "chow" and not is_chow(
+            window.tile, list(action.get("tiles") or []), self.seat_state(seat).counts
+        ):
+            raise EngineError("BAD_CHOW", "吃牌的两张必须与被吃的牌组成顺子")
+
         window.record(seat, {"action": kind, "tiles": action.get("tiles", [])})
-        if not window.is_complete():
-            return []
-        return self._resolve_claim()
+        if window.is_complete():
+            return self._resolve_claim()
+        if kind == "hu" and self._hu_ends_round() and not window.other_hu_pending(seat):
+            # 胡是最高优先级，且再没有人可能胡这张牌：其余座位只剩吃碰杠或已过胡，
+            # 它们等多久都不影响结果，直接按终态 pass 收口——避免"胡了却要等别人点过"卡住。
+            for other in window.pending():
+                window.record(other, {"action": "pass"}, final=True)
+            return self._resolve_claim()
+        return []
+
+    def _hu_ends_round(self) -> bool:
+        """一家胡牌是否立刻结束本局（单赢家族为真；血战到底这类"胡了继续打"的族为假）。"""
+        return True
 
     def timeout_claim(self) -> list[dict]:
-        """询问窗口超时：未响应的座位按"过"处理。"""
+        """询问窗口超时：未响应的座位按"过"处理。
+
+        处于胡阶段的座位在这里一并按**终态** pass 收口——超时等于"胡也不要、吃碰也不要"，
+        避免窗口因为"过胡了但没继续操作"而永远不关闭。
+        """
         if self.phase != "claim" or self.claim is None:
             return []
         for seat in self.claim.pending():
-            self.claim.record(seat, {"action": "pass"})
+            self.claim.record(seat, {"action": "pass"}, final=True)
         return self._resolve_claim()
 
     def _resolve_claim(self) -> list[dict]:
@@ -801,8 +835,11 @@ class GameEngine:
 
     def _do_chow(self, seat: int, window: ClaimWindow, partners: list[int]) -> list[dict]:
         state = self.seat_state(seat)
-        if len(partners) != 2 or any(state.counts[p] <= 0 for p in partners):
-            raise EngineError("BAD_CHOW", "吃牌的组合不合法")
+        partners = list(partners or [])
+        # 落库前再校验一次（提交时已经拦过）：副露一旦写进 melds 就不可逆，
+        # 这里宁可抛 BAD_CHOW 也绝不留下"三张牌凑不成顺子"的副露（04 §9.3）。
+        if not is_chow(window.tile, partners, state.counts):
+            raise EngineError("BAD_CHOW", "吃牌的两张必须与被吃的牌组成顺子")
         for partner in partners:
             state.counts[partner] -= 1
         state.melds.append(
@@ -1077,6 +1114,7 @@ class GameEngine:
                 "round_no": self.round_no,
                 "dealer_seat": self.dealer_seat,
                 "round_wind": self.round_wind,
+                "circle_no": self.circle_no,
                 "wall_count": self.remaining,
                 "reason": "no_kong",
                 "restarts": self.restarts,
@@ -1141,6 +1179,7 @@ class GameEngine:
                     "round_no": self.round_no,
                     "dealer_seat": self.dealer_seat,
                     "round_wind": self.round_wind,
+                    "circle_no": self.circle_no,
                     "winner_seat": winner,
                     "win_type": win_type,
                     "winning_tile": tile,

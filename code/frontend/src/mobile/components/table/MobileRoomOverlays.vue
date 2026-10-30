@@ -8,7 +8,7 @@ import type { JoinRequest } from '../../../types'
  * 牌桌的全屏浮层集合：进桌等待/被拒、房主审批、结束确认、整场结算、房间已关闭。
  * 抽出来只是为了让 MobileRoomView 专心做布局，别再堆六层弹窗。
  */
-defineProps<{
+const props = defineProps<{
   joinPending: boolean
   joinPendingInfo: { room_name?: string; family_name?: string; message?: string } | null
   joinDenied: string
@@ -16,6 +16,10 @@ defineProps<{
   endConfirmOpen: boolean
   finished: GameFinished | null
   roomClosed: boolean
+  /** 结束确认的按钮文案：进行中是「结束牌局」，打满后是「关闭牌桌」（B-1） */
+  endGameLabel?: string
+  /** true = 本场已打满（房间即将/已经 CLOSED），确认文案换成"关闭牌桌"口径 */
+  endGameFinal?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -100,8 +104,11 @@ const emit = defineEmits<{
   <div v-if="endConfirmOpen" class="fixed inset-0 z-[70] flex items-center justify-center bg-felt-950/90 px-5" @click.self="emit('cancelEnd')">
     <div class="w-full max-w-sm rounded-2xl border border-vermilion-500/35 bg-felt-900/95 p-5 text-center">
       <p class="text-[10px] tracking-[0.3em] text-vermilion-400/80">END GAME</p>
-      <h2 class="mt-1.5 text-lg font-semibold text-cream-100">结束本场牌局？</h2>
-      <p class="mt-2 text-left text-[12px] leading-relaxed text-ink-300/80">
+      <h2 class="mt-1.5 text-lg font-semibold text-cream-100">{{ props.endGameLabel || '结束牌局' }}？</h2>
+      <p v-if="props.endGameFinal" class="mt-2 text-left text-[12px] leading-relaxed text-ink-300/80">
+        本场已经打完，每一局的积分都已入库。关闭后这桌会立刻从大厅消失。
+      </p>
+      <p v-else class="mt-2 text-left text-[12px] leading-relaxed text-ink-300/80">
         已经打完的局和积分都会保留；正在进行的这一局直接作废、不计分。全桌会立刻看到本场结算，这桌随即关闭。
       </p>
       <div class="mt-5 flex gap-2">
@@ -113,7 +120,7 @@ const emit = defineEmits<{
           class="mj-press flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-vermilion-500 py-2.5 text-sm font-semibold text-cream-50"
           @click="emit('confirmEnd')"
         >
-          结束牌局
+          {{ props.endGameLabel || '结束牌局' }}
         </button>
       </div>
     </div>

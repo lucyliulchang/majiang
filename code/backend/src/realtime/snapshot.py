@@ -4,12 +4,15 @@
 未选目标时只收公共状态（hand=[]、drawn=null、legal.actions=[]）。
 """
 
+from game.families.generic.config import CIRCLES_PER_GAME
 from game.tiles import tiles_from_counts
 
 
 def _room_view(actor) -> dict:
     """`room` 段（欢迎包与快照共用，04 §9.5 字段）。"""
     return {
+        # 房间主键：前端 3s 超时兜底要直接调 `POST /api/rooms/{id}/close`（B-1）
+        "room_id": actor.room_id,
         "room_code": actor.code,
         "room_name": actor.name,
         "host_login_id": actor.host_login_id,
@@ -100,6 +103,13 @@ def build_snapshot(actor, viewer_seat: int | None, viewer_login_id: str = "") ->
         # 局风 = 庄次（0 东 → 3 北）：每换一次庄 +1，庄家胡牌连庄时保持不变，
         # 因此连庄局里 round_wind 不一定等于 round_no - 1（03 §3.4）
         "round_wind": engine.round_wind if engine else 0,
+        # 圈序（v1.1.0）：一圈 4 个庄次，一场圈数由规则 `circles_per_game` 决定；
+        # `round_in_circle` 是本圈第几局（1–4，连庄时停在同一值不出来）
+        "circle_no": engine.circle_no if engine else int(getattr(actor, "circle_no", 1) or 1),
+        "total_circles": max(1, int(getattr(rule, "circles_per_game", CIRCLES_PER_GAME) or CIRCLES_PER_GAME)),
+        "rounds_per_circle": max(1, int(getattr(rule, "rounds_per_game", 4) or 4)),
+        "round_in_circle": (engine.round_wind + 1) if engine else 0,
+        "dealer_continue": bool(getattr(actor, "dealer_continue", False)),
         # 生效选项：开关关闭时只有 enabled，不下发从属值（03 §10）
         "rule_options": engine.snapshot_options() if engine else {},
         # 暂停（04 §9.4）：房态字段，柏氏等支持 pause 的族才可能为 true
@@ -108,7 +118,9 @@ def build_snapshot(actor, viewer_seat: int | None, viewer_login_id: str = "") ->
             "by_seat": getattr(actor, "paused_by_seat", None),
             "note": getattr(actor, "paused_note", None),
         },
-        "game_total_rounds": rule.rounds_per_game,
+        # 计划总局数 = 每圈局数 × 圈数（连庄会让实际局数更多，展示用本圈进度即可）
+        "game_total_rounds": max(1, int(getattr(rule, "rounds_per_game", 4) or 4))
+        * max(1, int(getattr(rule, "circles_per_game", CIRCLES_PER_GAME) or CIRCLES_PER_GAME)),
         "hand": [],
         "drawn": None,
         "turn": None,

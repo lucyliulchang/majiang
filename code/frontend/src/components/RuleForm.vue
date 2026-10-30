@@ -17,6 +17,16 @@ const props = defineProps<{ config: RuleConfig; capability?: Record<string, any>
 const cfg = computed(() => props.config as unknown as Record<string, any>)
 const cap = computed<Record<string, any>>(() => props.capability || {})
 
+// 圈数（v1.1.0）：老模板没有该字段时补成默认 4 圈，避免下拉框空选
+watch(
+  () => cfg.value.circles_per_game,
+  (value) => {
+    const circles = Number(value)
+    if (![1, 2, 4, 8].includes(circles)) cfg.value.circles_per_game = 4
+  },
+  { immediate: true }
+)
+
 // 默认不限时（seconds=0）；一旦打开限时，先把秒数补到合法区间，避免提交被后端拒
 watch(
   () => props.config?.turn_timeout?.enabled,
@@ -144,12 +154,18 @@ function patternActive(id: string): boolean {
           <span class="mt-1 block text-[11px] text-ink-300/55">仅开启出牌限时时生效；关闭限时后吃碰杠胡不限时、不自动过</span>
         </label>
 
-        <div class="block">
-          <span class="mb-1 block text-xs text-ink-300/80">一场打几局</span>
-          <p class="field flex items-center opacity-70">
-            {{ config.rounds_per_game }} 局（一圈 4 个庄次，固定）
-          </p>
-        </div>
+        <label class="block">
+          <span class="mb-1 block text-xs text-ink-300/80">一场打几圈</span>
+          <select v-model.number="config.circles_per_game" class="field">
+            <option :value="1">1 圈（约 4 局）</option>
+            <option :value="2">2 圈（约 8 局）</option>
+            <option :value="4">4 圈（约 16 局，默认）</option>
+            <option :value="8">8 圈（约 32 局）</option>
+          </select>
+          <span class="mt-1 block text-[11px] text-ink-300/55">
+            每圈固定 {{ config.rounds_per_game }} 个庄次（东西南北各坐一次）；庄家胡牌连庄会让实际局数更多
+          </span>
+        </label>
 
         <label v-if="hasKey('discard_pay_mode')" class="block">
           <span class="mb-1 block text-xs text-ink-300/80">点炮怎么付</span>
