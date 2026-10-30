@@ -7,8 +7,10 @@
 #
 # 安全边界（硬约束）：
 #   - 不加列、不改表结构，只写 roomStatus / closedYMDHMS / modifyID / modifyYMDHMS 四个字段；
-#   - 只动白名单 recID（默认 4,5），且必须同时满足 roomStatus='OPEN' AND closedYMDHMS IS NULL，
+#   - 只动白名单 recID（默认 4,5），且必须同时满足 roomStatus='OPEN' 且 closedYMDHMS 为空，
 #     已经修过的房不会被二次改写；
+#     注意：生产 OPEN 房的 closedYMDHMS 落的是空串 ''（自动生成代码按默认值 "" 写入），
+#     不是 NULL，因此判空必须写成 (closedYMDHMS IS NULL OR closedYMDHMS = '')；
 #   - 先 mysqldump 备份 mj_room，再演练（DRY_RUN=1，默认执行）确认影响行数。
 #
 # 用法：
@@ -30,7 +32,7 @@ STAMP=$(date +%Y%m%d_%H%M%S)
 # 库时间口径：YYYYMMDDHHMMSS（见 common/miscCommon.getTime）
 NOW=$(date +%Y%m%d%H%M%S)
 
-WHERE="recID IN (${REC_IDS}) AND roomStatus = 'OPEN' AND closedYMDHMS IS NULL"
+WHERE="recID IN (${REC_IDS}) AND roomStatus = 'OPEN' AND (closedYMDHMS IS NULL OR closedYMDHMS = '')"
 
 mkdir -p "$BACKUP_DIR"
 BACKUP_FILE="$BACKUP_DIR/mj_room_${STAMP}.sql"
@@ -45,7 +47,7 @@ mysql -t "$DB" -e "SELECT recID, roomCode, roomName, hostLoginID, roomStatus, cl
   FROM mj_room WHERE recID IN (${REC_IDS}) ORDER BY recID"
 
 BEFORE=$(mysql -N -B "$DB" -e "SELECT COUNT(*) FROM mj_room WHERE ${WHERE}")
-echo "== 符合修复条件（OPEN 且 closedYMDHMS IS NULL）的房间数：${BEFORE}"
+echo "== 符合修复条件（OPEN 且 closedYMDHMS 为空）的房间数：${BEFORE}"
 
 if [ "$DRY_RUN" = "1" ]; then
   echo
@@ -80,5 +82,5 @@ mysql -t "$DB" -e "SELECT COUNT(*) AS openRooms FROM mj_room
 echo
 echo "== 回滚方式"
 echo "   整表恢复：mysql ${DB} < ${BACKUP_FILE}"
-echo "   逐条反向：UPDATE mj_room SET roomStatus='OPEN', closedYMDHMS=NULL, modifyID='ops',"
+echo "   逐条反向：UPDATE mj_room SET roomStatus='OPEN', closedYMDHMS='', modifyID='ops',"
 echo "             modifyYMDHMS='${NOW}' WHERE recID IN (${REC_IDS});"
