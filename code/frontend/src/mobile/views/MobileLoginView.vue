@@ -14,7 +14,7 @@ const auth = useAuthStore()
 const form = reactive({ loginId: '', passwd: '' })
 const error = ref('')
 const serverOk = ref<boolean | null>(null)
-const version = ref('1.1.0')
+const version = ref('1.1.1')
 
 onMounted(async () => {
   // 注册/找回成功后回填账号（05 §4.1.1、§4.1.2）
@@ -118,7 +118,13 @@ async function submit(): Promise<void> {
         />
         {{ serverOk === null ? '正在连接服务…' : serverOk ? '服务正常' : '服务不可达' }}
       </span>
-      <span>手机版 v{{ version }}</span>
+      <span class="flex items-center gap-2">
+        <span
+          class="rounded-full border border-gold-400/35 bg-gold-400/10 px-1.5 py-0.5 text-[10px] leading-none text-gold-300/85"
+          >软件开发测试</span
+        >
+        <span>手机版 v{{ version }}</span>
+      </span>
     </template>
   </MobileAuthShell>
 </template>

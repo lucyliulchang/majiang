@@ -6,9 +6,9 @@
 > 前一步验收未通过，不要开始下一步。
 > 每步结束统一输出：**改动文件清单 + 验收结果 + 遗留问题**。
 >
-> 与 [step-prompts.md](step-prompts.md) 的关系：S0–S10 是 v1.0.x 的重制步骤（已完成并上线）；本文 **I0–I8 是 v1.1.0 的运行反馈修复步骤**，接在 S10 之后。
+> 与 [step-prompts.md](step-prompts.md) 的关系：S0–S10 是 v1.0.x 的重制步骤（已完成并上线）；本文 **I0–I8 是 v1.1.0 的运行反馈修复步骤**（接在 S10 之后），**I9–I12 是 2026-10-31 第二轮追加步骤**（一只幺 / 13不靠 判番 / 牌面人声报牌 / 胡张标记）。
 
-## 当前状态（2026-10-30）
+## 当前状态（2026-10-31）
 
 | 步骤 | 范围 | 版本 | 状态 |
 | --- | --- | --- | --- |
@@ -22,8 +22,16 @@
 | **I6** | 全量回归与手测 | v1.1.0 | 已完成（验收报告：[v1.1.0-验收报告.md](v1.1.0-验收报告.md)） |
 | **I7** | 发版与验收回写 | v1.1.0 | 待开始 |
 | **I8** | 一场时长：默认 4 圈、开桌可选（F-1） | v1.1.0 | 已实施（I6 已回归，待 I7 发版） |
+| **I9** | 柏氏番表 35 项：一只幺（R-5） | v1.1.0 | **已实施（2026-10-31；番表 35 项 + 用例 35 全绿，`pytest tests/test_baishi_s7.py -q` 90 passed）** |
+| **I10** | 十三不靠不再计门清与独赢（R-6） | v1.1.0 | 待开始 |
+| **I11** | 牌面人声报牌音效（S-1） | v1.1.0 | 待开始 |
+| **I12** | 结算页明显标记胡牌的那张牌（V-1） | v1.1.0 | **已实施（2026-10-31；`winning_tile_index` + 四档「胡」角标，`pytest -q` 373 passed，`npm run typecheck` / `npm run build` 通过，取证见 `plan/I12-evidence/`）** |
 
 **下一步**：I7（生产发版 + 文档回写）。I1–I5 与 I8 的代码已在工作区但未提交；I6 全量回归结论见 [v1.1.0-验收报告.md](v1.1.0-验收报告.md)（`pytest` 363 passed / 0 failed，无阻塞发版问题）。
+
+> **2026-10-31 第二轮追加**：I9–I12 四步的**文档口径已全部定稿**（07 v1.10、08 修订、04 §9.5、05 §4.5、改进台账 R-5/R-6/S-1/V-1、06 §8C），**待用户批准后**按 I9 → I10 → I11 / I12 顺序实施。
+> 实施顺序要求：**I9 与 I10 同改 `fan.py`，必须串行**；**I11 与 I12 无文件冲突，可并行**。
+> 四步与 I7 的关系：I9–I12 与 I7 **同版本（1.1.0）发布**，建议在 I7 之前完成 I9–I12，再统一发版；若先发 I7，则 I9–I12 走 `1.1.1` 并另起一次发版。
 
 **优先级建议**：I1（Bug，影响大厅可用性）> I2（规则正确性）> I3 > I4 > I5 > I6 > I7。
 I1 可先单独发一次热修；若时间紧，允许 I1 与 I2 分两次上线，但版本号仍统一为 `1.1.0`（I1 为 `1.1.0-rc1`，全量发版为 `1.1.0`）。
@@ -57,6 +65,10 @@ I1 可先单独发一次热修；若时间紧，允许 I1 与 I2 分两次上线
 - I6 · 全量回归与手测
 - I7 · 发版与验收回写
 - I8 · 一场时长（默认 4 圈，开桌可选）
+- I9 · 柏氏番表 35 项：一只幺（R-5）
+- I10 · 十三不靠不再计门清与独赢（R-6）
+- I11 · 牌面人声报牌音效（S-1）
+- I12 · 结算页明显标记胡牌的那张牌（V-1）
 
 ---
 
@@ -531,6 +543,254 @@ I1 通过（`room.py` 的收尾口径已稳定）；I0 已冻结「圈风刻仍�
 
 ---
 
+## I9 · 柏氏番表 35 项：一只幺（R-5）
+
+> **什么时候做**：**文档已批准后**立即做。与 I10 同改 `fan.py`，**必须串行**（先 I9 后 I10，或反之，但不可并行）。
+> 口径已确认（用户 2026-10-31）：**一只幺 = 胡牌后的 14 张牌里面只有一只幺**；成立路径 = 恰有一组 123 / 789 顺子（端张为幺），其余全为 2–8 数牌。
+
+````text
+【家庭麻将 · v1.1.1 · I9 · 柏氏番表 35 项：一只幺（R-5）】
+
+## 目标
+柏氏番表由 34 项增加到 35 项，新增番种「一只幺」：**胡牌后的 14 张牌（含副露）里只有一只幺牌**（数牌 1、9 与字牌）时计 1 番，不占任何互斥组、非计数型；与「断幺」天然互斥。
+
+## 前置
+- 文档已批准：[07-柏氏规则细则.md](07-柏氏规则细则.md) 已是 v1.10（§5 已含 `yi_zhi_yao` 行、§6.4.9 条款、§12 Q12、§13 用例 35）。
+- 口径已由用户确认，无需再问：按**张数**计、统计范围是胡牌后的整手 14 张牌（含副露摊平）。
+
+## 必须先读
+- plan/07-柏氏规则细则.md §5（番表 35 项）、§6.4.8（断幺）、§6.4.9（一只幺）、§12 Q12、§13 用例 35
+- plan/改进和错误修复文档.md §2A R-5
+- plan/03-规则族设计.md §7.1、§7.2、§7.3 L11
+- code/backend/src/game/families/baishi/fan.py（`FAN_TABLE` `:36-72`、`is_all_simples()` `:314-319`、`duan_yao_hit()` `:333-335`、`global_fans()` `:338-344`、`__all__` `:683-719`）
+- code/backend/src/game/families/baishi/config.py（`default_fan_table()` `:40-45`、`FAN_MAX` `:31-34`）
+- code/backend/src/game/families/baishi/presets.py（`baishi_default` `:48-56`）、`__init__.py` docstring
+- code/backend/src/game/families/baishi/selfcheck.py（`REQUIRED_CASES` `:14-52`）
+- code/backend/src/tests/test_baishi_s7.py（`:99-136` 番表一致性断言、`:860-904` 断幺用例）
+- code/backend/src/game/hand.py（`HandContext`：`:49-91`、`all_tiles()`、`is_honor`、`rank_of`）
+
+## 任务
+1. `fan.py` 的 `FAN_TABLE` 增一行 `("yi_zhi_yao", "一只幺", 1, None, False)`，**必须插在 `duan_yao` 之后**（07 §5 的表格行序 ≡ `FAN_TABLE` 元组序，markdown 比对测试按序断言）。
+2. 判定：新增 `yi_zhi_yao_hit(ctx)` —— 用 `ctx.all_tiles()`（手牌 + 全部副露摊平 = 胡牌后的 14 张牌）**逐张**统计「幺牌」张数：数牌 rank ∈ {0, 8}（1、9）或 `is_honor(tile)`（东南西北中发白）。张数**恰好为 1** 时返回 `[FanHit("yi_zhi_yao")]`。
+   - ⚠️ **必须逐张计，不要按「组」归类**：幺牌除了出现在 将(2) / 刻(3) / 杠(4) 外，还会出现在 **123 / 789 顺子的端张**（`fan.py:154` 的顺子起点条件 `first % 9 <= 6` 允许 123 与 789）—— 只统计成组的牌会漏判、导致该番永不命中。
+   - ⚠️ **按张数、不按「种」**：「1 万 + 东」是 2 张幺（2 种），不成立。
+3. 挂接：在 `global_fans()` 里与 `duan_yao_hit(ctx)` 并列追加 `*yi_zhi_yao_hit(ctx)`；`__all__` 导出新函数。不要在具体牌型函数里逐处挂接。
+4. 文案同步：`config.py` `default_fan_table()` docstring、`presets.py` 的 `baishi_default` description、`__init__.py` docstring 里的「34 项」改为「35 项」。
+5. 自检：`selfcheck.REQUIRED_CASES` 增 `07-13-35`（一只幺，含正例与反例）。
+6. 测试（`tests/test_baishi_s7.py`）：
+   - `:99-110` 的 `len(RULE.fan_table) == 34` → `35`、`len(FAN_TABLE) == 34` → `35`；`:113-136` 的 markdown 比对断言 `len(rows) == 34` → `35`（解析器按 07 §5 表格顺序逐项比对，**表头与列数不得改动**）；
+   - 新增用例：
+     - 正例：`123万 456万 678万 234筒 55筒`（幺 = 1 万）→ 一只幺 1；`789万 234万 456万 567条 22条`（幺 = 9 万）→ 一只幺 1；
+     - 反例：`123万 789万 456万 234筒 55筒`（2 张）→ 0；`123万 123筒 456万 234筒 55筒`（2 张）→ 0；东东作将（2 张）→ 0；东东东成刻（3 张）→ 0；明杠东（4 张）→ 0；全 2–8 数牌（0 张）→ 0（那是断幺）；
+     - 副露：吃出来的 123 顺子同样贡献 1 张幺；副露含 123 顺子 + 暗牌无幺 → 一只幺 1；
+     - 恒 0：七对 / 十三幺 / 全幺 / 全文字 / 13不靠；与断幺互斥。
+7. 种子：`python tools/seedPresets.py --env <env>`，确认预置模板 `baishi_default` 的 `fan_table` 为 35 项。
+8. 文档回写：07 状态行与修订历史、03 §7.1/§7.2/§7.3、06 §8C 勾选、改进台账 R-5 的「修复方案/验收标准」补实际实现细节。
+
+## 验收清单
+- [ ] `len(FAN_TABLE) == 35`、`len(RULE.fan_table) == 35`；07 §5 表格与 `FAN_TABLE` **逐项顺序一致**（`test_baishi_fan_table_matches_07_section_5_markdown` 通过）。
+- [ ] 一只幺正反例全绿（**按张数**、**顺子端张计入**、副露计入、与断幺互斥、七对与 `quan` 组恒 0）。
+- [ ] 07 §6.4.9 / §12 Q12 / §13-35 三处口径与实现一致（均为「胡牌后 14 张牌里恰好 1 张幺牌」）。
+- [ ] 断幺、258赢、连六、13不靠 等既有番种用例全部仍通过（`pytest tests/test_baishi_s7.py -q` 全绿）。
+- [ ] `python tools/seedPresets.py` 后预置模板 35 项。
+- [ ] `pytest -q` 无新增失败。
+
+## 硬约束
+- 番表项数、id、名称、番值、互斥组、计数标记必须与 07 §5 表格**逐字一致**（否则 markdown 比对测试直接失败）。
+- 新番种一律 **1 番 / 互斥组 `None` / 非计数型**；不臆造倍率。
+- **统计范围是胡牌后的整手 14 张牌**（含副露摊平），不是"手牌 13 张"、也不是"不含副露"。
+- 不改其它番种的数值与判定；不改协议、不改前端（番表由 `config.fan_table` 动态渲染）。
+- 不回溯历史局的 `fanItemsJson`；旧房 `ruleSnapshot` 冻结旧配置。
+- 与 I10 同改 `fan.py`，不可并行。
+
+## 完成后必须输出
+1. 改动文件清单 + `FAN_TABLE` 新增行与 07 §5 新增行的逐字对照。
+2. 一只幺判定实现说明（逐张统计口径 + 顺子端张如何被计入）。
+3. `pytest tests/test_baishi_s7.py -q` 与全量 `pytest -q` 结果（总数/通过/失败）。
+4. 遗留问题。
+````
+
+---
+
+## I10 · 十三不靠不再计门清与独赢（R-6）
+
+> **什么时候做**：I9 之后（与 I9 同改 `fan.py`，必须串行）。
+
+````text
+【家庭麻将 · v1.1.1 · I10 · 十三不靠不再计门清与独赢（R-6）】
+
+## 目标
+13不靠 的判番范围里删去「门清 1 番」与「独赢 1 番」：13不靠 仍为 10 番，仍计将牌、缺门、混一色/清一色；典型手牌由 13–14 番降为 11–12 番。
+
+## 前置
+I9 已通过（`fan.py` 已改过一轮，避免同文件冲突）。
+
+## 必须先读
+- plan/07-柏氏规则细则.md §6.3.4（第 4 条 13不靠 判番范围）、§6.6（门清）、§6.7（将牌）、§6.8（独赢）、§12 Q13、§13 用例 36
+- plan/改进和错误修复文档.md §2A R-6
+- plan/03-规则族设计.md §7.3 L5
+- code/backend/src/game/families/baishi/fan.py（`thirteen_unrelated_fans()` `:610-624`、`situational_hits()` `:347-363`、`unrelated_pair()` `:224-261`、`thirteen_orphans_fans()` `:594-607`）
+- code/backend/src/tests/test_baishi_s7.py（`:319-386` 13不靠 用例）
+- code/backend/src/game/families/baishi/selfcheck.py
+
+## 任务
+1. `thirteen_unrelated_fans()`：
+   - 删除 `hits.append(FanHit("du_ying"))`；
+   - 把 `hits.extend(situational_hits(ctx))` 改为**只保留非 `men_qian` 的命中**（例如 `hits.extend(hit for hit in situational_hits(ctx) if hit.id != "men_qian")`）；
+   - **不得整体删掉 `situational_hits(ctx)` 调用** —— 它同时产出天胡、地胡、杠上开花、海底捞月、抢杠胡 5 个番种。
+2. `FAN_TABLE` **不改**：`men_qian` / `du_ying` 仍是其它牌型要用的番种，只是 13不靠 不再命中。
+3. `thirteen_orphans_fans()`（十三幺）**不改**：十三幺仍为 102 番（100 + 幺将 1 + 门清 1）。
+4. 测试（`tests/test_baishi_s7.py` `:319-386`）改写：
+   - `ids["du_ying"] == 1` → `"du_ying" not in ids`；
+   - `ids["men_qian"] == 1` → `"men_qian" not in ids`；
+   - `fan_total == 14` → `== 12`（缺门变体），三门齐变体 13 → 11；
+   - 新增断言：命中清一色/混一色时相应减 2；13不靠 的牌型成立条件不变（有副露仍不成立）。
+5. 自检：`selfcheck.REQUIRED_CASES` 增 `07-13-36`。
+6. 回归重点：标准胡的 `men_qian` / `du_ying` 仍照常判定（07 §13-19、§13-20 用例全绿）；天胡/地胡/杠上开花/海底捞月/抢杠胡 5 个番种的用例全绿。
+7. 文档回写：07 状态行与修订历史（v1.10 已写，实施后把状态标为"已实施"）、03 §7.3 L5、06 §8C 勾选、改进台账 R-6 补实现细节。
+
+## 验收清单
+- [ ] `147m258p369s5z6z7z9m9m`（三门齐）→ 13不靠 10 + 将牌 1 = **11 番**，`men_qian` 与 `du_ying` 均不在 ids 中。
+- [ ] 其缺门变体 → **12 番**。
+- [ ] 命中清一色/混一色时相应再减 2。
+- [ ] 十三幺仍 102 番；标准胡的门清/独赢不受影响；天胡/地胡/杠上开花/海底捞月/抢杠胡 5 个番种用例全绿。
+- [ ] `pytest tests/test_baishi_s7.py -q` 与 `pytest -q` 全绿。
+- [ ] `selfcheck.REQUIRED_CASES` 含 `07-13-36`。
+
+## 硬约束
+- **只删 13不靠 的两条命中**，不动 `men_qian` / `du_ying` 番种本身，也不动其它牌型。
+- 13不靠 的**牌型成立条件不变**（有副露仍不成立）；取消的是"门清番"，不是"允许副露"。
+- 番表项数与内容不变（35 项）；本步不碰 `FAN_TABLE`。
+- 不改协议、不改前端、不加 DDL。
+
+## 完成后必须输出
+1. 改动文件清单 + `thirteen_unrelated_fans()` 改动前后对照。
+2. 13不靠 三种情形（三门齐 / 缺门 / 单花色）的番值明细表。
+3. `pytest -q` 结果与回归结论。
+````
+
+---
+
+## I11 · 牌面人声报牌音效（S-1）
+
+> **什么时候做**：I9 / I10 之后。与 I12 无文件冲突（`src/audio/*` vs `src/components/table/*`、`src/views/*`），**可并行**。
+
+````text
+【家庭麻将 · v1.1.1 · I11 · 牌面人声报牌音效（S-1）】
+
+## 目标
+出牌后除原有落牌底噪外，叠加播放该张牌的女声报牌音（34 个：一万～九万、一筒～九筒、一条～九条、东南西北中发白），逐张区分。现有 15 个 SFX 与 6 个叫牌音**全部保留不变**。协议零改动。
+
+## 前置
+- 08-音效设计.md 已修订（§1.2 放开限制、§2.1 触发口径、§3 规则 6 全局 250ms 间隔、§4.5 实现路径、§6.2 资源规格、§6.3 授权风险登记、§8 验收 13–19）。
+- 素材在 `plan/majiang_sound/women_mp3/`（40 个 mp3，取其中 34 个牌面音）。
+
+## 必须先读
+- plan/08-音效设计.md §1.2、§2.1、§3（含规则 6）、§4.5、§6.2、§6.3、§8 第 13–19 条
+- plan/改进和错误修复文档.md §3A S-1
+- code/frontend/src/audio/soundKeys.ts（`SoundKey` `:9-24`、`SoundSpec` `:29-38`、`SOUND_SPECS` `:40-56`、`sfxUrl()` `:70-72`）
+- code/frontend/src/audio/audioManager.ts（常量 `:11-16`、`loadOne()` `:202-234`、`preloadSounds()` `:240-246`、`playSound()` `:364-418`、`makeRoom()` `:278-290`、`unavailable` 降级）
+- code/frontend/src/audio/useGameSounds.ts（`handleSoundEvent()` `:26-90`，`event.discarded` 在 `:63-65`）
+- code/frontend/src/utils/tile.ts（`tileKey()` `:92-98`）
+- code/frontend/src/stores/game.ts（`:6-7`、`:204-206`、`:273-275`）
+- code/deploy/nginx-majiang.conf（`*/audio/sfx/` 的缓存规则 `:56-61`、`:82-87`）
+
+## 任务
+1. **资源**：新建 `code/frontend/public/audio/voice/`，从 `plan/majiang_sound/women_mp3/` 复制 **34 个**牌面 mp3（`1wan…9wan`、`1tong…9tong`、`1tiao…9tiao`、`dongfeng/nanfeng/xifeng/beifeng/zhong/fa/bai`）。**不要复制** `hu`/`pong`/`chow`/`kong_*` 6 个叫牌音。
+2. **来源登记**：在 `voice/` 下写 `LICENSE.md`，原样登记：来源仓库 `1RGameSol/Mahjong-1`（<https://github.com/1RGameSol/Mahjong-1>）、路径 `Assets/Resources/Sound/g_*.ogg`、**源仓库未提供 LICENSE、权利归属不明**、**用户已于 2026-10-31 明确接受该风险并要求直接发布**、替换时保持文件名不变即可不改代码。同时在 `public/audio/sfx/LICENSE.md` 增一条指向 `voice/` 的登记。
+3. **映射**：新建 `code/frontend/src/audio/voiceMap.ts`，导出 `VOICE_BASENAME_BY_TILE`（长度 34 的数组，tile 0–33 → 基名）与 `voiceUrlOf(tile)`（`${import.meta.env.BASE_URL}audio/voice/${base}.mp3`）。素材基名与 `tileKey()`（`1m`/`east`）**不同**，必须显式映射，不得复用 `tileKey()`。
+4. **播放**：`audioManager.ts` 增 `playVoice(base, options?)` —— 复用**同一套**并发/优先级/淡出/降级内核，优先级 **P3**、默认音量 55；**新增人声全局 250ms 最短间隔**（与既有"同键 150ms 去重"并列，两者都要生效）；资源未加载时按需加载并沿用既有语义（**本次静音**、`console.debug` 一次）；加载失败标记 `unavailable`。
+5. **加载策略**：**不把 34 个加入 `SOUND_KEYS`**（`preloadSounds()` 仍只拉 15 个 SFX）；进桌后用 `requestIdleCallback`（无则 `setTimeout`）**分批预热**，每批 4 个；`navigator.connection.saveData` 为真时**不预热**。
+6. **接线**：`useGameSounds.ts` 的 `event.discarded` 分支 —— 在 `play('discard')` **之后**叠加 `playVoice(voiceUrlOf(data.tile))`（底噪保留、人声叠加）；`data.tile` 缺失或越界时静默跳过，不报错。
+7. **nginx**：`code/deploy/nginx-majiang.conf` 为 `*/audio/voice/` 补与 `*/audio/sfx/` 同款的 30 天 `max-age` 规则。
+8. **构建**：确认 `vite.config.ts` 的 `base`（`/mjmobile/` 或 `/majiangapp/`）下 `public/audio/voice/` 原样进入产物；`npm run build` 与 `npm run build:mobile` 各跑一次。
+9. 文档回写：08 §4.5 与 §6.3 补实际实现细节（文件清单、体积实测）、06 §8C 勾选、改进台账 S-1 补实现细节。
+
+## 验收清单
+- [ ] 出 1 万 / 2 筒 / 东风 / 中 / 白，语音逐张可辨，**与落牌底噪同时存在**。
+- [ ] 34 张牌面全部命中，无错配（不出万牌音、不错花色、字牌不出数牌音）。
+- [ ] 连续快速打出两张**不同**牌时人声不叠成噪音（250ms 间隔生效）；同一张牌 150ms 内连出被去重。
+- [ ] 关闭音效总开关 → 人声与 15 个 SFX **全部**静音；重新打开/刷新后恢复；音量滑块对人声同样生效。
+- [ ] 删除 `voice/` 中任意一个 mp3 → 该牌面静音、其余 33 个正常、控制台无 `error`、对局可打完；删除整个目录时 15 个 SFX 仍全部正常。
+- [ ] `hu`（P0）后 200ms 内的报牌被抑制、不叠响；胡牌后下一手出牌仍正常报牌。
+- [ ] Network 面板：进桌预加载仍只有 15 个 SFX；报牌为按需/空闲预热的增量请求；`voice/` 目录 ≤400 KB。
+- [ ] `npm run typecheck` 与 `npm run build`、`npm run build:mobile` 均通过；**协议零改动**（`git diff` 中无 WS 事件/字段变更）。
+
+## 硬约束
+- **不改协议**：不新增 WS 事件或字段，只消费既有 `event.discarded.tile`。
+- **不改现有 15 个 SFX 与 6 个叫牌音**：叫牌音一律保留现有合成音。
+- **不扩 `SoundKey` 联合类型**：动态键走 `voiceMap.ts`；否则预加载会一次拉 49 个文件、`audioState.total` 失控。
+- **不加数据库列、不加用户偏好字段**：随既有总开关与音量生效。
+- 人声音量不得盖过 `hu`（P0）；替换同名资源必须改名或加 `?v=`（30 天强缓存）。
+- 版权风险已由用户接受，但**必须在 `voice/LICENSE.md` 与 08 §6.3 双处留痕**，不得省略。
+
+## 完成后必须输出
+1. 改动文件清单 + 34 个资源的 tile→基名→文件对照表。
+2. 体积实测（`voice/` 合计、单文件最大）与首屏请求数对比。
+3. 验收清单逐条结论（含删文件降级测试）。
+4. 版权留痕位置（`voice/LICENSE.md` 与 08 §6.3）。
+````
+
+---
+
+## I12 · 结算页明显标记胡牌的那张牌（V-1）
+
+> **什么时候做**：I9 / I10 之后。与 I11 无文件冲突，**可并行**。
+
+````text
+【家庭麻将 · v1.1.1 · I12 · 结算页明显标记胡牌的那张牌（V-1）】
+
+## 目标
+胡牌结算时，能一眼看出**是哪张牌胡的**：该张牌加金色「胡」角标 + 双层描金；覆盖自摸、点炮、抢杠胡；同值多张只标一张；结算页（桌面 + 手机）与战绩回放页三处一致。
+
+## 前置
+- 04-协议设计.md §9.5 已补 `result.final_hands` 结构与 `final_hands[].winning_tile_index`；05-UI设计.md §4.5 已补「胡」角标规格。
+
+## 必须先读
+- plan/04-协议设计.md §9.5（`result.final_hands`）、§11、§12 第 18 条
+- plan/05-UI设计.md §4.5（「胡」角标规格表）、§验收第 25 条
+- plan/改进和错误修复文档.md §3B V-1
+- code/backend/src/game/engine.py（`final_hands_snapshot()` `:124-157`）
+- code/frontend/src/types.ts（`FinalHand` `:261-277`、`RoundResult` `:279-297`、战绩 `rounds[].final_hands` `:391-403`）
+- code/frontend/src/components/table/Tile.vue（props `:7-35`、class `:95-107`、角标区 `:108-113`、皮肤图渲染 `:115-125`）
+- code/frontend/src/components/table/ResultModal.vue（props `:9-20`、`winnerHand` `:69-78`、渲染 `:142-163`、脚注 `:164`、庄徽标 `:129-135`）
+- code/frontend/src/views/HistoryView.vue（`:322-350`）、code/frontend/src/mobile/views/MobileHistoryView.vue（`:315-332`）
+
+## 任务
+1. **后端**：`engine.py::final_hands_snapshot()` 增 `winning_tile_index`（`int | None`）—— 胡张在**排序后** `concealed` 中的下标；同值多张取**最后一次出现**；点炮/抢杠的胡张必须在 `tiles.sort()` **之后**再计算索引；非赢家为 `null`。
+2. **协议**：04 §9.5 已写好结构（**只增字段、不改既有字段名与语义**）；`mj_game_round.finalHandsJson` 是 JSON 列，**无需 DDL**；旧局缺该字段时前端回退为「`concealed` 中最后一张同值牌」，与后端口径一致。
+3. **类型**：`code/frontend/src/types.ts` 的 `FinalHand` 增 `winning_tile_index?: number | null`（可选，旧局缺省不影响解析）。
+4. **视觉**：`Tile.vue` 增 `winTile?: boolean` prop —— 牌身 `ring-2 ring-gold-400`；**右上角**金色「胡」角标（`h-3.5 w-3.5 rounded-full bg-gold-400 text-[9px] font-bold leading-none text-felt-950 ring-1 ring-cream-50/70 absolute -top-[4px] -right-[4px] pointer-events-none`）。副露红点 `mark` 在**左上**，两者不重叠。角标必须存在（皮肤图模式 `<img class="object-contain">` 会留白，1px 描边会被吃掉）。
+5. **尺寸档位**：`sm`（结算页）14px；`xs`（战绩详情）缩为 `h-2.5 w-2.5 text-[7px]`；`micro`（手机战绩）缩为 12px。桌面与手机共用 `components/table/Tile.vue`，按 `size` 自动切换。
+6. **结算页**：`ResultModal.vue` 新增 `winTileIndex` computed —— 优先取 `final_hand.winning_tile_index`，缺失时回退「`concealed` 中最后一张与 `winning_tile` 同值的牌」；暗牌循环改传 `:win-tile="index === winTileIndex"`；脚注由「金框为胡张」改为「**带「胡」角标的是胡张**」。
+7. **战绩页**：`HistoryView.vue` 与 `MobileHistoryView.vue` 同步补标记（建议抽一个共用 helper，例如 `frontend/src/utils/finalHand.ts` 的 `winTileIndexOf(finalHand)`，供结算页与战绩页复用，保证口径唯一）。
+8. **不需要改动**：`RoomView.vue`（`:769-778`）与 `MobileRoomView.vue`（`:618-627`）的挂载与 props 已含 `result`。
+9. 文档回写：04 §9.5 / §12-18、05 §4.5 / §验收-25 补实际实现细节、06 §8C 勾选、改进台账 V-1 补实现细节。
+
+## 验收清单
+- [ ] 后端：点炮 / 自摸 / 抢杠三种情形下 `final_hands[].winning_tile_index` 均指向排序后的正确那张牌；非赢家为 `null`。
+- [ ] 结算页胡牌手牌区**只有一张**牌带金色「胡」角标，且正是胡牌的那张；副露里的胡张也被标记；与副露红点不重叠。
+- [ ] 同值多张时只标一张；旧局（无 `winning_tile_index`）回放时标记仍指向正确的同值牌，不指错。
+- [ ] 桌面 1280×800、手机 375×667 与横屏 667×375、战绩详情（`xs`）、手机战绩（`micro`）四处角标均清晰可见；皮肤图模式下不被图片吞掉。
+- [ ] 结算面板脚注文案已改为「带「胡」角标的是胡张」；标题行的胡张名保留。
+- [ ] `pytest -q` 全绿（含 `final_hands_snapshot` 的断言）；`npm run typecheck` 与 `npm run build` 通过。
+- [ ] `git diff` 确认**除新增可选字段外无协议变更、无 DDL**。
+
+## 硬约束
+- **只增字段**：`winning_tile_index` 是新增可选字段，不改既有字段名与语义；不加数据库列。
+- **前后端口径必须一致**：均为「排序后最后一张同值牌」；否则旧局战绩会指错牌。
+- `mark` 与 `highlight` 都用 `ring-1` + 不同 `ring-color`（Tailwind 同一 `--tw-ring-color` 变量会互相覆盖），因此 `winTile` 必须用 `ring-2` + 独立角标，**不得与 `mark`/`highlight` 共用 ring 颜色**。
+- 不改 `FinalHand` 的既有字段，不改结算面板整体布局（375px 宽不能因角标换行）。
+- 桌面与手机不得只改一处。
+
+## 完成后必须输出
+1. 改动文件清单 + `winning_tile_index` 的三种情形取值示例。
+2. 角标的四档尺寸对照表（sm / xs / micro / 环视）。
+3. `pytest -q`、`npm run typecheck`、`npm run build` 结果与手测截图说明。
+````
+
+---
+
 ## 附：步骤依赖与产出
 
 | 步骤 | 依赖 | 主要产出 | 可否独立上线 |
@@ -544,3 +804,9 @@ I1 通过（`room.py` 的收尾口径已稳定）；I0 已冻结「圈风刻仍�
 | I6 | I1–I5、I8 | 验收报告 | 否（内部） |
 | I7 | I6 | 生产发布 + 文档回写 | — |
 | I8 | I1 | 圈数配置/快照/开桌/顶栏 | 是（与 I1–I5 同版） |
+| I9 | 文档批准 | 番表 35 项（一只幺）+ 用例 35 | 是（与 I10 同版） |
+| I10 | I9 | 13不靠 判番调整 + 用例 36 | 是（与 I9 同版） |
+| I11 | 文档批准 | 34 个牌面人声音效 + voiceMap + playVoice | 是（协议零改动） |
+| I12 | 文档批准 | `winning_tile_index` + 「胡」角标 | 是（只增可选字段） |
+
+> I9–I12 与 I7 的关系见「当前状态」下的说明：四步同属 `1.1.0`，建议在 I7 之前完成并同版发布。

@@ -126,6 +126,9 @@ def final_hands_snapshot(states: list["SeatState"], winners: list[dict]) -> list
 
     点炮胡 / 抢杠胡的胡张不在 `counts` 里（只在 HandContext.extra_tile），按赢家补进去；
     自摸时 `counts` 已含胡张。暗杠也按真实牌面留痕——战绩详情只对本家成员开放。
+
+    `winning_tile_index`（v1.1.0）：胡张在**排序后** `concealed` 中的下标，同值多张取**最后一次出现**；
+    非赢家为 `None`。索引必须在 `tiles.sort()` **之后**计算（点炮 / 抢杠的胡张是补进去的）。
     """
     win_map: dict[int, dict] = {}
     for item in winners:
@@ -137,11 +140,19 @@ def final_hands_snapshot(states: list["SeatState"], winners: list[dict]) -> list
     for state in states:
         tiles = tiles_from_counts(state.counts)
         info = win_map.get(state.seat)
+        winning_tile_index: int | None = None
         if info is not None:
             tile = info.get("winning_tile")
-            if tile is not None and info.get("win_type") != "self_draw":
-                tiles.append(int(tile))
+            if tile is not None:
+                if info.get("win_type") != "self_draw":
+                    tiles.append(int(tile))
                 tiles.sort()
+                win_value = int(tile)
+                # 同值多张取最后一次出现：前后端口径唯一约定（04 §9.5）
+                for index in range(len(tiles) - 1, -1, -1):
+                    if tiles[index] == win_value:
+                        winning_tile_index = index
+                        break
         result.append(
             {
                 "seat": state.seat,
@@ -152,6 +163,7 @@ def final_hands_snapshot(states: list["SeatState"], winners: list[dict]) -> list
                 "is_winner": info is not None,
                 "win_type": (info or {}).get("win_type"),
                 "winning_tile": (info or {}).get("winning_tile"),
+                "winning_tile_index": winning_tile_index,
             }
         )
     return result

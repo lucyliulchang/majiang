@@ -274,6 +274,8 @@ export interface FinalHand {
   is_winner: boolean
   win_type: string | null
   winning_tile: number | null
+  /** 胡张在**排序后** `concealed` 中的下标；同值多张取最后一次出现（04 §9.5）。旧局缺省 → 前端回退同值定位 */
+  winning_tile_index?: number | null
 }
 
 export interface RoundResult {

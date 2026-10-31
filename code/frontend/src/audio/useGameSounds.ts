@@ -7,12 +7,25 @@
 import { audioManager } from './audioManager'
 import type { SoundKey } from './soundKeys'
 import { soundPrefs } from './soundPrefs'
+import { voiceUrlOf } from './voiceMap'
 
 /** 一局只播一次 settled（多赢家不叠加）；round_started 时重置 */
 let settledRoundKey = ''
 
 function play(key: SoundKey, gain = 1): void {
   audioManager.play(key, { gain })
+}
+
+/**
+ * 牌面报牌（人声，08 §2.1 / §4.5）：底噪保留、人声叠加。
+ * `tile` 缺失或越界时静默跳过，不报错。
+ */
+function playVoiceOf(tile: unknown): void {
+  const value = Number(tile)
+  if (!Number.isInteger(value)) return
+  const url = voiceUrlOf(value)
+  if (!url) return
+  audioManager.playVoice(url)
 }
 
 function chatPanelFocused(): boolean {
@@ -61,7 +74,9 @@ export function handleSoundEvent(type: string, data: any, selfSeat: number | nul
       if (selfSeat !== null && Number(data?.seat) === selfSeat && data?.phase === 'discard') play('turn')
       return
     case 'event.discarded':
+      // 底噪（discard）保留，人声叠加在其上（08 §2.1）
       play('discard')
+      playVoiceOf(data?.tile)
       return
     case 'event.drawn':
       // 自己 100%，他人 40%；观战者（self_seat=null）按他人处理

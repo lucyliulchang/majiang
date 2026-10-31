@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 
 import { api } from '../api/http'
 import { closeSocket, openSocket, sendMessage, setMessageHandler, setStatusHandler } from '../api/ws'
-import { notifyConnectionRestored, preloadSounds, stopAll } from '../audio/audioManager'
+import { notifyConnectionRestored, preloadSounds, preloadVoices, stopAll } from '../audio/audioManager'
 import { handleSoundEvent, handleSoundMessage, resetGameSounds } from '../audio/useGameSounds'
 import { useToast } from '../composables/useToast'
 import type { ChatMessage, JoinRequest, LegalAction, SeatView, Snapshot, SpectateView } from '../types'
@@ -288,6 +288,8 @@ export const useGameStore = defineStore('game', () => {
       joinDenied.value = ''
       // 进桌即预加载 15 个 SFX（Promise.allSettled，单个失败不影响其他）
       void preloadSounds()
+      // 牌面报牌人声不进预加载清单：进桌后空闲时段分批预热（每批 4 个）
+      preloadVoices()
       return
     }
     if (type === 'room.join_pending') {

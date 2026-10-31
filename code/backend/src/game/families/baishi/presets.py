@@ -1,6 +1,6 @@
 """柏氏族预置模板（07 §10）：`baishi_default`。
 
-一条模板即 07 §10 的默认 config：34 项番表、累计不乘积、不封顶、起胡 1 番、
+一条模板即 07 §10 的默认 config：35 项番表、累计不乘积、不封顶、起胡 1 番、
 自摸 ×2 + 庄家 ×2、点炮三家各付、包牌独付、杠分 1/2/1 三家各付、不限时、可暂停。
 """
 
@@ -49,7 +49,7 @@ PRESETS: tuple[PresetTemplate, ...] = (
     PresetTemplate(
         template_code="baishi_default",
         template_name="柏氏标准",
-        description="34 项番表累计不乘积、不封顶、起胡 1 番、自摸×2+庄家×2、包牌独付、杠分 1/2/1",
+        description="35 项番表累计不乘积、不封顶、起胡 1 番、自摸×2+庄家×2、包牌独付、杠分 1/2/1",
         config=preset_configs()["baishi_default"],
         sort_order=10,
     ),

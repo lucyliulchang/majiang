@@ -8,7 +8,8 @@ import Tile from '../components/table/Tile.vue'
 import { api } from '../api/http'
 import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
-import type { GameDetail, GameSummary, StatsInfo } from '../types'
+import type { FinalHand, GameDetail, GameSummary, StatsInfo } from '../types'
+import { winTileRefOf } from '../utils/finalHand'
 
 const toast = useToast()
 const auth = useAuthStore()
@@ -51,9 +52,16 @@ onMounted(load)
 function isGuestGame(game: GameSummary | GameDetail): boolean {
   return Boolean(game.family_code) && game.family_code !== familyCode.value
 }
-
 function guestFamilyName(game: GameSummary | GameDetail): string {
   return game.family_name || game.family_code || '其他家庭'
+}
+
+/**
+ * 胡张落点（v1.1.0 · 04 §9.5）：优先用后端 `winning_tile_index`，
+ * 旧局缺该字段时回退为「暗牌中最后一张同值牌」——与后端口径一致，不会指错牌。
+ */
+function winRef(hand: FinalHand) {
+  return winTileRefOf(hand)
 }
 
 // 切家庭：战绩与统计整份重拉，明细抽屉一并关掉（避免看到别家的对局）
@@ -332,7 +340,13 @@ async function openDetail(id: number): Promise<void> {
                   >
                     {{ hand.display_name }}
                   </span>
-                  <Tile v-for="(tile, tileIndex) in hand.concealed" :key="`c-${tileIndex}`" :tile="tile" size="xs" />
+                  <Tile
+                    v-for="(tile, tileIndex) in hand.concealed"
+                    :key="`c-${tileIndex}`"
+                    :tile="tile"
+                    size="xs"
+                    :win-tile="tileIndex === winRef(hand).concealedIndex"
+                  />
                   <span
                     v-for="(meld, meldIndex) in hand.melds"
                     :key="`m-${meldIndex}`"
@@ -344,6 +358,7 @@ async function openDetail(id: number): Promise<void> {
                       :tile="tile"
                       size="xs"
                       :mark="meld.claim_tile === tile"
+                      :win-tile="meldIndex === winRef(hand).meldIndex && meldTileIndex === winRef(hand).meldTileIndex"
                     />
                   </span>
                 </div>

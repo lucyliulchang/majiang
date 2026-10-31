@@ -20,7 +20,7 @@ FAMILY = "baishi"
 
 
 def _with_global_fans(ctx: HandContext, hits: list[FanHit]) -> list[FanHit]:
-    """牌型求番出口：统一追加「赢张类 / 花色类全局番」（258赢、断幺，07 §6.4.8 §6.11）。
+    """牌型求番出口：统一追加「赢张类 / 花色类全局番」（258赢、断幺、一只幺，07 §6.4.8 §6.4.9 §6.11）。
 
     这类番与牌型结构无关，所以不逐个牌型挂，避免四处漏判；`global_fans()` 只读
     `ctx.win_tile` / `ctx.all_tiles()`，各牌型复用不会重复计数（每次 calc_fan 只调一次）。

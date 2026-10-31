@@ -18,7 +18,7 @@ from pathlib import Path
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 
 # basicSettings.py -> config -> src -> backend，即 code/backend
 BACKEND_DIR = Path(__file__).resolve().parents[2]

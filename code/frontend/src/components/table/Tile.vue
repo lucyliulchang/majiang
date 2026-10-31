@@ -16,6 +16,8 @@ const props = withDefaults(
     idle?: boolean
     /** 标注「这张来自别人打出的牌」（吃/碰/明杠的副露用） */
     mark?: boolean
+    /** 标注「这张就是胡牌的那张」（结算页 / 战绩页，金色「胡」角标 + 双层描金，05 §4.5） */
+    winTile?: boolean
     /** 首屏手牌用 eager，其余交给浏览器懒加载（05 §6.3） */
     eager?: boolean
     /** 指定皮肤（皮肤管理页的实时预览用；不影响全局当前皮肤） */
@@ -29,6 +31,7 @@ const props = withDefaults(
     dim: false,
     idle: false,
     mark: false,
+    winTile: false,
     eager: false,
     skinCode: ''
   }
@@ -39,14 +42,14 @@ const props = withDefaults(
  * 这样 `<img>` 用 object-contain 铺满时不会出现上下留白，牌面也不会被拉伸。
  */
 const SIZES = {
-  micro: { box: 'w-[20px] h-[27px] rounded-[2px]', pad: 'p-[1px]', dot: 'w-[2px] h-[2px]', main: 'text-[10px]', sub: 'text-[6px]', bar: 'w-[1.5px]', gap: 'gap-[0.5px]' },
-  xs: { box: 'w-[17px] h-[23px] rounded-[2px]', pad: 'p-[1px]', dot: 'w-[2px] h-[2px]', main: 'text-[9px]', sub: 'text-[6px]', bar: 'w-[1.5px]', gap: 'gap-[1px]' },
-  sm: { box: 'w-[24px] h-[33px] rounded-[3px]', pad: 'p-[2px]', dot: 'w-[3px] h-[3px]', main: 'text-[11px]', sub: 'text-[7px]', bar: 'w-[2px]', gap: 'gap-[2px]' },
-  md: { box: 'w-[32px] h-[44px] rounded-[4px]', pad: 'p-[3px]', dot: 'w-[4px] h-[4px]', main: 'text-[15px]', sub: 'text-[9px]', bar: 'w-[2.5px]', gap: 'gap-[2px]' },
+  micro: { box: 'w-[20px] h-[27px] rounded-[2px]', pad: 'p-[1px]', dot: 'w-[2px] h-[2px]', main: 'text-[10px]', sub: 'text-[6px]', bar: 'w-[1.5px]', gap: 'gap-[0.5px]', badge: 'h-3 w-3 text-[8px] -top-[2px] -right-[2px]' },
+  xs: { box: 'w-[17px] h-[23px] rounded-[2px]', pad: 'p-[1px]', dot: 'w-[2px] h-[2px]', main: 'text-[9px]', sub: 'text-[6px]', bar: 'w-[1.5px]', gap: 'gap-[1px]', badge: 'h-2.5 w-2.5 text-[7px] -top-[2px] -right-[2px]' },
+  sm: { box: 'w-[24px] h-[33px] rounded-[3px]', pad: 'p-[2px]', dot: 'w-[3px] h-[3px]', main: 'text-[11px]', sub: 'text-[7px]', bar: 'w-[2px]', gap: 'gap-[2px]', badge: 'h-3.5 w-3.5 text-[9px] -top-[4px] -right-[4px]' },
+  md: { box: 'w-[32px] h-[44px] rounded-[4px]', pad: 'p-[3px]', dot: 'w-[4px] h-[4px]', main: 'text-[15px]', sub: 'text-[9px]', bar: 'w-[2.5px]', gap: 'gap-[2px]', badge: 'h-3.5 w-3.5 text-[9px] -top-[4px] -right-[4px]' },
   // 手机牌桌专用：38×52 刚好让 14 张排在 iPhone 横屏一屏内
-  hand: { box: 'w-[38px] h-[52px] rounded-[4px]', pad: 'p-[3px]', dot: 'w-[5px] h-[5px]', main: 'text-[18px]', sub: 'text-[10px]', bar: 'w-[3px]', gap: 'gap-[2px]' },
-  lg: { box: 'w-[42px] h-[57px] rounded-[5px]', pad: 'p-[4px]', dot: 'w-[6px] h-[6px]', main: 'text-[20px]', sub: 'text-[11px]', bar: 'w-[3px]', gap: 'gap-[3px]' },
-  xl: { box: 'w-[54px] h-[74px] rounded-[6px]', pad: 'p-[5px]', dot: 'w-[8px] h-[8px]', main: 'text-[26px]', sub: 'text-[14px]', bar: 'w-[4px]', gap: 'gap-[4px]' }
+  hand: { box: 'w-[38px] h-[52px] rounded-[4px]', pad: 'p-[3px]', dot: 'w-[5px] h-[5px]', main: 'text-[18px]', sub: 'text-[10px]', bar: 'w-[3px]', gap: 'gap-[2px]', badge: 'h-4 w-4 text-[10px] -top-[5px] -right-[5px]' },
+  lg: { box: 'w-[42px] h-[57px] rounded-[5px]', pad: 'p-[4px]', dot: 'w-[6px] h-[6px]', main: 'text-[20px]', sub: 'text-[11px]', bar: 'w-[3px]', gap: 'gap-[3px]', badge: 'h-4 w-4 text-[10px] -top-[5px] -right-[5px]' },
+  xl: { box: 'w-[54px] h-[74px] rounded-[6px]', pad: 'p-[5px]', dot: 'w-[8px] h-[8px]', main: 'text-[26px]', sub: 'text-[14px]', bar: 'w-[4px]', gap: 'gap-[4px]', badge: 'h-4 w-4 text-[11px] -top-[6px] -right-[6px]' }
 }
 
 const skins = useSkinsStore()
@@ -97,15 +100,23 @@ const altText = computed(() => (props.faceDown ? '' : tileName(props.tile)))
     class="relative select-none transition-all duration-150"
     :class="[
       size.box,
-      !faceDown && !showImage && 'overflow-hidden bg-gradient-to-b from-cream-50 to-cream-200',
+      !faceDown && !showImage && 'bg-gradient-to-b from-cream-50 to-cream-200',
+      !faceDown && !showImage && !winTile && 'overflow-hidden',
       !faceDown && 'shadow-tile',
-      selected ? '-translate-y-2 shadow-gold' : mark ? '-translate-y-1 ring-1 ring-vermilion-400/85' : '',
-      highlight && !selected ? 'ring-1 ring-gold-400/70' : '',
+      selected
+        ? '-translate-y-2 shadow-gold'
+        : mark
+          ? winTile
+            ? '-translate-y-1'
+            : '-translate-y-1 ring-1 ring-vermilion-400/85'
+          : '',
+      highlight && !selected && !winTile ? 'ring-1 ring-gold-400/70' : '',
+      winTile ? 'ring-2 ring-gold-400' : '',
       dim ? 'opacity-45' : ''
     ]"
     :style="faceDown && !showImage ? { background: 'linear-gradient(150deg,#1a5c46,#0f3d2e)' } : {}"
   >
-    <!-- 副露标记：这一张来自别家打出的牌（吃/碰/明杠） -->
+    <!-- 副露标记：这一张来自别家打出的牌（吃/碰/明杠）；红点在正上方偏左，与右上角「胡」角标不重叠 -->
     <span
       v-if="mark && !faceDown"
       class="pointer-events-none absolute -top-[3px] left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-vermilion-500 ring-1 ring-cream-50/70"
@@ -187,5 +198,20 @@ const altText = computed(() => (props.faceDown ? '' : tileName(props.tile)))
         {{ glyph.main }}
       </span>
     </div>
+
+    <!-- 胡张角标：金色「胡」+ 双层描金（05 §4.5）。
+         放在牌面（图片或 CSS 回退）之后、`z-10`，保证皮肤图模式下不被牌面图片吞掉；
+         用独立 `v-if`（不参与牌面的 v-if / v-else 链），否则会吞掉 CSS 回退分支。 -->
+    <span
+      v-if="winTile && !faceDown"
+      :class="[
+        'pointer-events-none absolute z-10 flex items-center justify-center rounded-full bg-gold-400 font-bold leading-none text-felt-950 ring-1 ring-cream-50/70',
+        size.badge
+      ]"
+      title="胡张"
+      aria-hidden="true"
+    >
+      胡
+    </span>
   </div>
 </template>

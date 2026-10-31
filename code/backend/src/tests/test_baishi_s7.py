@@ -97,8 +97,8 @@ def fake_breakdown(fan_total: int, rule=None) -> ScoreBreakdown:
 
 
 def test_baishi_fan_table_matches_07_section_5():
-    assert len(RULE.fan_table) == 34
-    assert len(FAN_TABLE) == 34
+    assert len(RULE.fan_table) == 35
+    assert len(FAN_TABLE) == 35
     for fan_id, name, fan, group, _counting in FAN_TABLE:
         item = RULE.fan_of(fan_id)
         assert item is not None, fan_id
@@ -124,7 +124,7 @@ def test_baishi_fan_table_matches_07_section_5_markdown():
         for line in section.splitlines()
         if line.strip().startswith("| `")
     ]
-    assert len(rows) == 34, "07 §5 表格应为 34 行"
+    assert len(rows) == 35, "07 §5 表格应为 35 行"
     parsed = []
     for cells in rows:
         fan_id = cells[0].strip("`")
@@ -317,6 +317,8 @@ def test_case07_hai_di_only_on_last_one_dot(hand):
 
 
 # ---------------------------------------------------------------- 13.9 13不靠
+# 口径（07 §6.3.4 v1.10 / §13-36，v1.1.0 R-6）：13不靠 **不再计门清、独赢**；
+# 仍计 13不靠 10 + 将牌 1 (+ 缺门 1) (+ flush)；牌型成立条件不变（有副露仍不成立）。
 
 
 def test_case09_thirteen_unrelated_positive(hand):
@@ -325,7 +327,10 @@ def test_case09_thirteen_unrelated_positive(hand):
     ids = ids_of(breakdown)
     assert ids["shi_san_bu_kao"] == 10
     assert ids["jiang_pai"] == 1, "13不靠 也判将牌"
-    assert ids["du_ying"] == 1, "13不靠 必为单吊，判独赢"
+    assert "du_ying" not in ids, "13不靠 不再判独赢（R-6）"
+    assert "men_qian" not in ids, "13不靠 不再判门清（R-6）"
+    assert "que_men" not in ids, "三门数牌都在 → 不缺门"
+    assert breakdown.fan_total == 11, "10 + 将牌 1（不含门清、独赢）"
 
 
 def test_case09_thirteen_unrelated_jang_five_dot(hand):
@@ -333,6 +338,10 @@ def test_case09_thirteen_unrelated_jang_five_dot(hand):
     ids = ids_of(breakdown)
     assert ids["shi_san_bu_kao"] == 10
     assert ids["jiang_pai"] == 1
+    assert "du_ying" not in ids
+    assert "men_qian" not in ids
+    assert ids["er_wu_ba_ying"] == 1, "赢张 5 筒 → 258赢 +1（全局番，与 13不靠 无关）"
+    assert breakdown.fan_total == 12, "10 + 将牌 1 + 258赢 1"
 
 
 def test_case09b_thirteen_unrelated_loose_accepts_winds(hand):
@@ -341,9 +350,10 @@ def test_case09b_thirteen_unrelated_loose_accepts_winds(hand):
     ids = ids_of(breakdown)
     assert ids["shi_san_bu_kao"] == 10, "东南西北可各 1 张，将牌可为字牌"
     assert ids["jiang_pai"] == 1, "将牌为东成立"
-    assert ids["du_ying"] == 1
-    assert ids["men_qian"] == 1
+    assert "du_ying" not in ids, "13不靠 不再判独赢（R-6）"
+    assert "men_qian" not in ids, "13不靠 不再判门清（R-6）"
     assert "que_men" not in ids, "三门数牌都在 → 不缺门"
+    assert breakdown.fan_total == 11
 
 
 def test_case09c_thirteen_unrelated_may_lack_a_suit(hand):
@@ -353,7 +363,9 @@ def test_case09c_thirteen_unrelated_may_lack_a_suit(hand):
     assert ids["shi_san_bu_kao"] == 10
     assert ids["que_men"] == 1, "宽松版允许缺门，缺门照常累加"
     assert ids["jiang_pai"] == 1
-    assert breakdown.fan_total == 14, "10 + 将牌 1 + 独赢 1 + 门清 1 + 缺门 1"
+    assert "du_ying" not in ids, "13不靠 不再判独赢（R-6）"
+    assert "men_qian" not in ids, "13不靠 不再判门清（R-6）"
+    assert breakdown.fan_total == 12, "10 + 将牌 1 + 缺门 1"
 
 
 @pytest.mark.parametrize(
@@ -366,6 +378,9 @@ def test_case09c_thirteen_unrelated_may_lack_a_suit(hand):
         "144m258p369s5z6z7z9m9m",  # 非将牌重复（4万 ×2，两个对子）
         "147m258p3s5z6z7z2z2z1z1z",  # 风牌成对且未作将
         "147m258p369s5z6z7z",  # 只有 13 张
+        # 单门数牌（数牌 ≥5 张且每门 ≤3 张）不可能成立 13不靠，
+        # 故 13不靠 与清一色/混一色天然互斥（见 test_case09_thirteen_unrelated_never_flush）
+        "5z6z7z1z2z3z4z1m4m7m1m1m1m",
     ],
 )
 def test_case09_thirteen_unrelated_negative(hand, text):
@@ -377,13 +392,56 @@ def test_case09d_thirteen_unrelated_dragon_as_pair(hand):
     ids = ids_of(_eval(ctx_of(hand, "5z5z6z7z1z1m4m7m2s5s8s3p6p9p", win_tile=31)))
     assert ids["shi_san_bu_kao"] == 10
     assert ids["jiang_pai"] == 1, "中作将 → 字牌将 +1"
+    assert "du_ying" not in ids
+    assert "men_qian" not in ids
     assert "que_men" not in ids
+    assert ids.get("shi_san_bu_kao", 0) + ids.get("jiang_pai", 0) == 11
 
 
 def test_case09_thirteen_unrelated_rejects_melds(hand):
     melds = [chow(0)]  # 吃 123 万
     ctx = ctx_of(hand, "147m258p369s5z6z7z", win_tile=26, melds=melds)
     assert "shi_san_bu_kao" not in fan_ids(ctx), "13不靠 必须门清，任意副露都不成立"
+
+
+def test_case09_thirteen_unrelated_never_flush(hand):
+    """13不靠 与混一色/清一色天然互斥（07 §6.3.4）。
+
+    13不靠 必含中发白（3 张）+ 至多 4 张风牌，故数牌 ≥5 张；而「数牌每门 0–3 张」
+    决定了数牌必跨 **≥2 门** → 不可能凑成单门 → `flush` 永不命中。
+    因此「命中 flush 时相应再减 2」在 13不靠 上不可达，此处锁定该不变量。
+    """
+    ids = ids_of(_eval(ctx_of(hand, "147m258p369s5z6z7z9m9m", win_tile=26)))
+    assert "hun_yi_se" not in ids
+    assert "qing_yi_se" not in ids
+    ids = ids_of(_eval(ctx_of(hand, "1z1z2z3z4z5z6z7z1m4m7m2s5s8s", win_tile=27)))
+    assert "hun_yi_se" not in ids
+    assert "qing_yi_se" not in ids
+
+
+def test_case09_thirteen_unrelated_keeps_situational_fans(hand):
+    """13不靠 只剔除门清；天胡/地胡/杠上开花/海底捞月/抢杠胡 仍照常判定（R-6）。"""
+    base = "147m258p369s5z6z7z9m9m"
+
+    ids = ids_of(_eval(ctx_of(hand, base, win_tile=26, is_after_kong=True)))
+    assert ids["gang_shang_kai_hua"] == 10, "杠上开花照常判定（10 番）"
+    assert "men_qian" not in ids, "门清仍被剔除"
+
+    ids = ids_of(
+        _eval(ctx_of(hand, base, win_tile=9, is_self_draw=True, is_last_tile=True))
+    )
+    assert ids["hai_di_lao_yue"] == 100, "海底捞月照常判定"
+    assert "men_qian" not in ids
+
+    ids = ids_of(_eval(ctx_of(hand, base, win_tile=26, is_robbing_kong=True)))
+    assert ids["qiang_gang_hu"] == 10, "抢杠胡照常判定"
+    assert "men_qian" not in ids
+
+    ids = ids_of(_eval(ctx_of(hand, base, win_tile=26, is_heavenly=True)))
+    assert ids["tian_hu"] == 100, "天胡照常判定"
+
+    ids = ids_of(_eval(ctx_of(hand, base, win_tile=26, is_earthly=True)))
+    assert ids["di_hu"] == 50, "地胡照常判定"
 
 
 # ---------------------------------------------------------------- 13.10 七小对
@@ -564,7 +622,9 @@ def test_case19_ping_hu(hand):
     assert "du_ying" not in ids
     assert "jiang_pai" not in ids
     assert "duan_yao" not in ids and "er_wu_ba_ying" not in ids
-    assert breakdown.fan_total == 2
+    # 一只幺（v1.10 新增）：整手 14 张里恰好 1 张幺牌（1 万），与平胡/门清自由累加
+    assert ids["yi_zhi_yao"] == 1
+    assert breakdown.fan_total == 3
 
 
 def test_case19b_ping_hu_breaks_with_258_pair(hand):
@@ -904,6 +964,85 @@ def test_case34e_duan_yao_never_for_quan_or_unrelated(hand):
     assert "duan_yao" not in unrelated
 
 
+# ---------------------------------------------------------------- 13.35 一只幺
+
+
+def test_case35_yi_zhi_yao_positive(hand):
+    """正例：整手 14 张牌里恰好 1 张幺牌（顺子端张计入）。"""
+    # 123万 456万 678万 234筒 55筒 → 幺 = 1 万（123 顺子的端张），共 1 张
+    ids = ids_of(_eval(ctx_of(hand, "123m456m678m234p55p", win_tile=0)))
+    assert ids["yi_zhi_yao"] == 1
+    assert "duan_yao" not in ids, "一只幺与断幺互斥"
+    # 将 5 筒（258 将）照常另计将牌 1 番，不占互斥组
+    assert ids["jiang_pai"] == 1
+
+    # 789万 234万 456万 567条 22条 → 幺 = 9 万（789 顺子的端张），共 1 张
+    nine = ids_of(_eval(ctx_of(hand, "789m234m456m567s22s", win_tile=8)))
+    assert nine["yi_zhi_yao"] == 1
+    assert "duan_yao" not in nine
+
+
+def test_case35b_yi_zhi_yao_negative(hand):
+    """反例：2 张及以上幺牌 → 0；0 张 → 0（那是断幺）。"""
+    # 123万 + 789万 → 1 万 + 9 万 = 2 张
+    two = ids_of(_eval(ctx_of(hand, "123m789m456m234p55p", win_tile=0)))
+    assert "yi_zhi_yao" not in two, "2 张幺牌 → 0"
+
+    # 123万 + 123筒 → 1 万 + 1 筒 = 2 张（2 种，仍按张数算 → 0）
+    two_kinds = ids_of(_eval(ctx_of(hand, "123m123p456m234p55p", win_tile=0)))
+    assert "yi_zhi_yao" not in two_kinds, "按张数不按种数：2 张 → 0"
+
+    # 东东作将 → 2 张幺牌 → 0
+    honor_pair = ids_of(_eval(ctx_of(hand, "234m567m345p678s11z", win_tile=4)))
+    assert "yi_zhi_yao" not in honor_pair, "东东作将（2 张）→ 0"
+
+    # 东东东成刻 → 3 张幺牌 → 0
+    honor_pong = ids_of(_eval(ctx_of(hand, "234m567m345p111z55p", win_tile=4)))
+    assert "yi_zhi_yao" not in honor_pong, "东东东成刻（3 张）→ 0"
+
+    # 明杠东 → 4 张幺牌 → 0
+    honor_kong = ids_of(
+        _eval(ctx_of(hand, "234m567m345p55p", win_tile=4, melds=[kong(27, "kong_exposed")]))
+    )
+    assert "yi_zhi_yao" not in honor_kong, "明杠东（4 张）→ 0"
+
+    # 全 2–8 数牌 → 0 张幺牌 → 0（那是断幺）
+    simples = ids_of(_eval(ctx_of(hand, "234m567m345p678s55s", win_tile=4)))
+    assert simples["duan_yao"] == 1
+    assert "yi_zhi_yao" not in simples
+
+
+def test_case35c_yi_zhi_yao_counts_melds(hand):
+    """副露计入：吃出来的 123 顺子同样贡献 1 张幺牌。"""
+    melds = [chow(0)]
+    ids = ids_of(_eval(ctx_of(hand, "567m345p678s55s", win_tile=4, melds=melds)))
+    assert ids["yi_zhi_yao"] == 1, "副露含 123 顺子、暗牌无幺 → 一只幺 1"
+    assert "duan_yao" not in ids
+
+
+def test_case35d_yi_zhi_yao_never_for_pairs_or_quan(hand):
+    """恒 0：七对 / 十三幺 / 全幺 / 全文字 / 13不靠。"""
+    seven = ids_of(_eval(ctx_of(hand, "11m22m33m44m55p66p77p", win_tile=4)))
+    assert seven["qi_xiao_dui"] == 20
+    assert "yi_zhi_yao" not in seven
+
+    orphans = ids_of(_eval(ctx_of(hand, "19m19p19s1234567z1z", win_tile=27)))
+    assert orphans["shi_san_yao"] == 100
+    assert "yi_zhi_yao" not in orphans
+
+    quan_yao = ids_of(_eval(ctx_of(hand, "111m999m111p999p11s", win_tile=0)))
+    assert quan_yao["quan_yao"] == 50
+    assert "yi_zhi_yao" not in quan_yao
+
+    quan_zi = ids_of(_eval(ctx_of(hand, "111z222z333z444z55z", win_tile=27)))
+    assert quan_zi["quan_zi"] == 100
+    assert "yi_zhi_yao" not in quan_zi
+
+    unrelated = ids_of(_eval(ctx_of(hand, "147m258p369s5z6z7z9m9m", win_tile=26)))
+    assert unrelated["shi_san_bu_kao"] == 10
+    assert "yi_zhi_yao" not in unrelated
+
+
 # ---------------------------------------------------------------- 终局手牌留痕
 
 
@@ -925,6 +1064,52 @@ def test_final_hands_snapshot_marks_winner_and_adds_ron_tile():
         states, [{"seat": 1, "win_type": "self_draw", "winning_tile": 26}]
     )
     assert self_draw[1]["concealed"] == [20, 21, 24, 25]
+
+
+def test_final_hands_snapshot_winning_tile_index():
+    """胡张下标（v1.1.0 · 04 §9.5）：排序后 concealed 中的位置，同值多张取最后一次出现。"""
+    from game.engine import final_hands_snapshot
+
+    states = seats()
+    # 自摸：胡张已在 counts 里 → 下标指向排序后的那张
+    states[1].counts = counts_from_tiles([20, 21, 24, 25, 26])
+    self_draw = final_hands_snapshot(
+        states, [{"seat": 1, "win_type": "self_draw", "winning_tile": 26}]
+    )
+    assert self_draw[1]["concealed"] == [20, 21, 24, 25, 26]
+    assert self_draw[1]["winning_tile_index"] == 4
+    # 非赢家为 null
+    assert self_draw[0]["winning_tile_index"] is None
+    assert self_draw[2]["winning_tile_index"] is None
+
+    # 点炮：胡张补进手牌后排序，下标指向补进去的那张
+    states[1].counts = counts_from_tiles([20, 21, 24, 25])
+    discard = final_hands_snapshot(
+        states, [{"seat": 1, "win_type": "discard", "winning_tile": 26}]
+    )
+    assert discard[1]["concealed"] == [20, 21, 24, 25, 26]
+    assert discard[1]["winning_tile_index"] == 4
+
+    # 抢杠：胡张同样并入暗牌（win_type 非 self_draw）
+    rob_kong = final_hands_snapshot(
+        states, [{"seat": 1, "win_type": "rob_kong", "winning_tile": 26}]
+    )
+    assert rob_kong[1]["concealed"] == [20, 21, 24, 25, 26]
+    assert rob_kong[1]["winning_tile_index"] == 4
+
+    # 同值多张：取最后一次出现（与前端回退口径一致）
+    states[1].counts = counts_from_tiles([20, 21, 24, 25, 26, 26])
+    duplicated = final_hands_snapshot(
+        states, [{"seat": 1, "win_type": "self_draw", "winning_tile": 26}]
+    )
+    assert duplicated[1]["concealed"] == [20, 21, 24, 25, 26, 26]
+    assert duplicated[1]["winning_tile_index"] == 5
+
+    # 胡张不在手里（如旧数据）：定位不到 → null，不猜
+    missing = final_hands_snapshot(
+        states, [{"seat": 1, "win_type": "self_draw", "winning_tile": 31}]
+    )
+    assert missing[1]["winning_tile_index"] is None
 
 
 # ---------------------------------------------------------------- 13.30 发牌
