@@ -14,7 +14,7 @@ const auth = useAuthStore()
 const form = reactive({ loginId: '', passwd: '' })
 const error = ref('')
 const serverOk = ref<boolean | null>(null)
-const version = ref('1.1.1')
+const version = ref('1.1.2')
 
 onMounted(async () => {
   // 注册/找回成功后回填账号（05 §4.1.1、§4.1.2）

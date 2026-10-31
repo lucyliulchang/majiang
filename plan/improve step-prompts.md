@@ -1,4 +1,4 @@
-# 家庭麻将 · v1.1.0 分步改进指令（improve step-prompts）
+﻿# 家庭麻将 · v1.1.0 分步改进指令（improve step-prompts）
 
 > 配套：[改进和错误修复文档.md](改进和错误修复文档.md)（问题台账与方案）｜[家庭麻将总体规划文档.md](家庭麻将总体规划文档.md)｜[07-柏氏规则细则.md](07-柏氏规则细则.md)｜[04-协议设计.md](04-协议设计.md)｜[05-UI设计.md](05-UI设计.md)｜[06-实施计划.md](06-实施计划.md)
 >
@@ -6,7 +6,7 @@
 > 前一步验收未通过，不要开始下一步。
 > 每步结束统一输出：**改动文件清单 + 验收结果 + 遗留问题**。
 >
-> 与 [step-prompts.md](step-prompts.md) 的关系：S0–S10 是 v1.0.x 的重制步骤（已完成并上线）；本文 **I0–I8 是 v1.1.0 的运行反馈修复步骤**（接在 S10 之后），**I9–I12 是 2026-10-31 第二轮追加步骤**（一只幺 / 13不靠 判番 / 牌面人声报牌 / 胡张标记）。
+> 与 [step-prompts.md](step-prompts.md) 的关系：S0–S10 是 v1.0.x 的重制步骤（已完成并上线）；本文 **I0–I8 是 v1.1.0 的运行反馈修复步骤**（接在 S10 之后），**I9–I12 是 2026-10-31 第二轮追加步骤**（一只幺 / 13不靠 判番 / 牌面人声报牌 / 胡张标记），**I13–I14 是 2026-10-31 第三轮追加步骤**（庄家徽标跟随 / 叫牌人声）。
 
 ## 当前状态（2026-10-31）
 
@@ -14,24 +14,28 @@
 | --- | --- | --- | --- |
 | S0–S10 | 重制：目录/MySQL/账号/家庭/数据层/观战/规则族/皮肤/音效/前端与部署 | v1.0.x | 已完成并上线（`https://www.iottest.online/majiangapp/`） |
 | **I0** | 基线核对与口径冻结（只改文档） | v1.1.0 | 已完成 |
-| **I1** | 房间生命周期收尾（B-1） | v1.1.0 | 已实施（I6 已回归，待 I7 发版） |
-| **I2** | 柏氏番表：258 赢 / 十三不靠 / 连六 / 断幺（R-1～R-4） | v1.1.0 | 已实施（I6 已回归，待 I7 发版） |
-| **I3** | 胡牌优先与过胡（U-1） | v1.1.0 | 已实施（I6 已回归，待 I7 发版） |
-| **I4** | 吃牌选两张（U-2） | v1.1.0 | 已实施（I6 已回归，待 I7 发版） |
-| **I5** | 结算庄家标记与提示字号（U-3 / U-4） | v1.1.0 | 已实施（I6 已回归，待 I7 发版） |
+| **I1** | 房间生命周期收尾（B-1） | v1.1.0 | 已实施（已随 v1.1.0 于 2026-10-30 上线生产） |
+| **I2** | 柏氏番表：258 赢 / 十三不靠 / 连六 / 断幺（R-1～R-4） | v1.1.0 | 已实施（已随 v1.1.0 于 2026-10-30 上线生产） |
+| **I3** | 胡牌优先与过胡（U-1） | v1.1.0 | 已实施（已随 v1.1.0 于 2026-10-30 上线生产） |
+| **I4** | 吃牌选两张（U-2） | v1.1.0 | 已实施（已随 v1.1.0 于 2026-10-30 上线生产） |
+| **I5** | 结算庄家标记与提示字号（U-3 / U-4） | v1.1.0 | 已实施（已随 v1.1.0 于 2026-10-30 上线生产） |
 | **I6** | 全量回归与手测 | v1.1.0 | 已完成（验收报告：[v1.1.0-验收报告.md](v1.1.0-验收报告.md)） |
-| **I7** | 发版与验收回写 | v1.1.0 | 待开始 |
-| **I8** | 一场时长：默认 4 圈、开桌可选（F-1） | v1.1.0 | 已实施（I6 已回归，待 I7 发版） |
-| **I9** | 柏氏番表 35 项：一只幺（R-5） | v1.1.0 | **已实施（2026-10-31；番表 35 项 + 用例 35 全绿，`pytest tests/test_baishi_s7.py -q` 90 passed）** |
-| **I10** | 十三不靠不再计门清与独赢（R-6） | v1.1.0 | 待开始 |
-| **I11** | 牌面人声报牌音效（S-1） | v1.1.0 | 待开始 |
-| **I12** | 结算页明显标记胡牌的那张牌（V-1） | v1.1.0 | **已实施（2026-10-31；`winning_tile_index` + 四档「胡」角标，`pytest -q` 373 passed，`npm run typecheck` / `npm run build` 通过，取证见 `plan/I12-evidence/`）** |
+| **I7** | 发版与验收回写 | v1.1.0 | 已完成（2026-10-30 上线生产，记录见 [I7-发布记录.md](I7-发布记录.md)） |
+| **I8** | 一场时长：默认 4 圈、开桌可选（F-1） | v1.1.0 | 已实施（已随 v1.1.0 于 2026-10-30 上线生产） |
+| **I9** | 柏氏番表 35 项：一只幺（R-5） | v1.1.1 | **已实施（2026-10-31；番表 35 项 + 用例 35 全绿，`pytest tests/test_baishi_s7.py -q` 90 passed）** |
+| **I10** | 十三不靠不再计门清与独赢（R-6） | v1.1.1 | **已实施（2026-10-31；`thirteen_unrelated_fans()` 删 `du_ying`、过滤 `men_qian`（保留 `situational_hits` 其余 5 个番种），`pytest tests/test_baishi_s7.py -q` 93 passed、全量 372 passed）** |
+| **I11** | 牌面人声报牌音效（S-1） | v1.1.1 | **已实施（2026-10-31；34 个 mp3 + `voiceMap.ts` + `playVoice()`（P3、全局 250ms）+ `preloadVoices()` 空闲分批预热 + nginx `*/audio/voice/` 30 天缓存，`voice/` 294.3 KB，协议零改动）** |
+| **I12** | 结算页明显标记胡牌的那张牌（V-1） | v1.1.1 | **已实施（2026-10-31；`winning_tile_index` + 四档「胡」角标，`pytest -q` 373 passed，`npm run typecheck` / `npm run build` 通过，取证见 `plan/I12-evidence/`）** |
+| **I13** | 牌桌「庄」徽标跟随庄家轮转（U-5） | v1.1.2 | **已实施（2026-10-31；判定下沉到座位组件 `isDealerSeat = props.isDealer \|\| props.seat.is_dealer === true`（`PlayerSeat.vue` 1 处 / `MobileSeatChip.vue` 2 处改 `v-if`），两端「自己」内联块各补 1 处徽标（桌面 16px / 手机 14px）；桌面四席 + 手机四席同一时刻仅 1 个徽标且跟随换庄、连庄不动、waiting 无徽标、观战视角反映被观战者；`npm run typecheck` 0 error / `build` / `build:mobile` 通过，自动化断言 70/70 全绿，取证见 `plan/I13-evidence/`；协议零改动、无 DDL）** |
+| **I14** | 吃 / 碰 / 胡 / 杠 改用叫牌人声（S-2） | v1.1.2 | **已实施（2026-10-31；`voice/` 扩到 40 个 mp3（372,225 B ≈ 363.5 KB）+ `SoundSpec.dir` 字段 + 6 个 `*_voice` 枚举键（`SOUND_KEYS` 仍 15）+ `useGameSounds` 6 处接线；`audioManager.ts` / `voiceMap.ts` 零改动；旧 6 个合成音文件保留不触发；桩件 87/87 + 降级两场景全绿；`npm run typecheck` / `build` / `build:mobile` 通过；协议零改动、无 DDL）** |
 
-**下一步**：I7（生产发版 + 文档回写）。I1–I5 与 I8 的代码已在工作区但未提交；I6 全量回归结论见 [v1.1.0-验收报告.md](v1.1.0-验收报告.md)（`pytest` 363 passed / 0 failed，无阻塞发版问题）。
+**下一步**：I13 / I14 均已实施完成并**随 v1.1.2 于 2026-10-31 16:28 上线生产**（纯前端、协议零改动、无 DDL；按用户要求本次未做冒烟，发版记录见 [v1.1.2-发布记录.md](v1.1.2-发布记录.md)）。I9–I12 已随 v1.1.1 于 2026-10-31 上线生产（发版记录见 [v1.1.1-发布记录.md](v1.1.1-发布记录.md)）。
 
-> **2026-10-31 第二轮追加**：I9–I12 四步的**文档口径已全部定稿**（07 v1.10、08 修订、04 §9.5、05 §4.5、改进台账 R-5/R-6/S-1/V-1、06 §8C），**待用户批准后**按 I9 → I10 → I11 / I12 顺序实施。
-> 实施顺序要求：**I9 与 I10 同改 `fan.py`，必须串行**；**I11 与 I12 无文件冲突，可并行**。
-> 四步与 I7 的关系：I9–I12 与 I7 **同版本（1.1.0）发布**，建议在 I7 之前完成 I9–I12，再统一发版；若先发 I7，则 I9–I12 走 `1.1.1` 并另起一次发版。
+> **2026-10-31 第二轮追加（已完成）**：I9–I12 四步的文档口径已全部定稿（07 v1.10、08 修订、04 §9.5、05 §4.5、改进台账 R-5/R-6/S-1/V-1、06 §8C），并已**全部实施**、随 **v1.1.1** 于 2026-10-31 上线生产。历史顺序要求（存档）：I9 与 I10 同改 `fan.py`，必须串行；I11 与 I12 无文件冲突，可并行。
+>
+> **2026-10-31 第三轮追加（v1.1.2）**：I13（U-5 庄徽标跟随）与 I14（S-2 叫牌人声）两步的文档口径已全部定稿（05 牌桌规格与验收 26、08 v1.2 的 §2.2 / §4.2 / §6.2 / §6.3、改进台账 §3 U-5 与 §3A-2 S-2、06 §8D、00 §4.6 E8 / §4.7 / §9 D24-D25 / §10 P11 / 验收 20–22），**协议零改动、无 DDL**，两步**无文件冲突、可并行**。
+>
+> **2026-10-31 第三轮实施进度**：**I13（U-5 庄徽标跟随）已实施完成**（判定下沉到 `PlayerSeat.vue` / `MobileSeatChip.vue` 的 `isDealerSeat` computed + 两端「自己」内联块各补 1 处徽标；桌面 / 手机四席全部跟随换庄；自动化断言 70/70 全绿，取证见 `plan/I13-evidence/`）；**I14（S-2 叫牌人声）已实施完成**（`voice/` 40 个 mp3、`SoundSpec.dir` 字段、6 个 `*_voice` 枚举键、`useGameSounds` 6 处接线；`audioManager.ts` / `voiceMap.ts` / `sfx/` / nginx 全部零改动）。两步均协议零改动、无 DDL，待统一重建发布。
 
 **优先级建议**：I1（Bug，影响大厅可用性）> I2（规则正确性）> I3 > I4 > I5 > I6 > I7。
 I1 可先单独发一次热修；若时间紧，允许 I1 与 I2 分两次上线，但版本号仍统一为 `1.1.0`（I1 为 `1.1.0-rc1`，全量发版为 `1.1.0`）。
@@ -69,6 +73,8 @@ I1 可先单独发一次热修；若时间紧，允许 I1 与 I2 分两次上线
 - I10 · 十三不靠不再计门清与独赢（R-6）
 - I11 · 牌面人声报牌音效（S-1）
 - I12 · 结算页明显标记胡牌的那张牌（V-1）
+- I13 · 牌桌「庄」徽标跟随庄家轮转（U-5）
+- I14 · 吃 / 碰 / 胡 / 杠 改用叫牌人声（S-2）
 
 ---
 
@@ -791,6 +797,169 @@ I9 已通过（`fan.py` 已改过一轮，避免同文件冲突）。
 
 ---
 
+## I13 · 牌桌「庄」徽标跟随庄家轮转（U-5）
+
+> **什么时候做**：**文档已批准后**立即做。纯前端、协议零改动、无 DDL。
+> 与 I14 无文件冲突（`src/components/table/*` + `src/views/*` vs `src/audio/*`），**可并行**。
+
+````text
+【家庭麻将 · v1.1.2 · I13 · 牌桌「庄」徽标跟随庄家轮转（U-5）】
+
+## 目标
+牌桌上的金色「庄」徽标必须**跟随庄家轮转**：庄家换下一家后徽标立刻移动到新庄家身上，旧庄家不再显示；桌面（左 / 右 / 对家 / 自己）与手机（左 / 右 / 对家 / 自己）**四席全部正确**。
+
+## 前置
+- 文档已批准：[05-UI设计.md](05-UI设计.md) 已补「牌桌·庄家标记（v1.1.2 修复）」规格行、「牌桌「庄」徽标规格（v1.1.2 修复）」表与验收第 26 条；[改进和错误修复文档.md](改进和错误修复文档.md) §3 U-5 已定稿。
+- **后端与协议已就绪，本步不改后端**：`realtime/snapshot.py:78` 已按座位下发 `seats[].is_dealer`，`:102` 已下发 `dealer_seat`；`frontend/src/types.ts:241` 已声明 `SeatView.is_dealer?: boolean`，`:339` 已有 `snapshot.dealer_seat`。
+- 口径已由用户确认，无需再问：四席全修（桌面左 / 右 / 对家 / 自己 + 手机四席）。
+
+## 必须先读
+- plan/改进和错误修复文档.md §3 U-5（现象 / 复现与证据 / 根因 / 修复方案 4 步 / 验收 6 条 / 风险 4 条）
+- plan/05-UI设计.md（牌桌规格表「牌桌·庄家标记（v1.1.2 修复）」+「牌桌「庄」徽标规格（v1.1.2 修复）」表 + 验收清单第 26 条）
+- code/backend/src/realtime/snapshot.py（`:78` `is_dealer`、`:102` `dealer_seat`）
+- code/frontend/src/types.ts（`SeatView.is_dealer?: boolean` `:241`、`snapshot.dealer_seat` `:339`、`RoundResult` `:281-300`）
+- code/frontend/src/components/table/PlayerSeat.vue（props `:8-17`、徽标 `:49-55`）
+- code/frontend/src/mobile/components/table/MobileSeatChip.vue（props `:14-23`、两处徽标 `:56-62` / `:112-118`）
+- code/frontend/src/views/RoomView.vue（`:64-66` `seatAt()`、`:350-364` 对家、`:370-376` 左、`:481-487` 右、`:497-504` 自己内联头像块、`:274` `bottomView`）
+- code/frontend/src/mobile/views/MobileRoomView.vue（`:343-350` 左、`:358-364` 对家、`:439-446` 右、`:455-461` 自己内联头像块、`:277` `bottomView`）
+- code/frontend/src/stores/game.ts（`:62-66` `seats` / `mySeatView`；`snapshot.seats[seat]` 就是完整 `SeatView`，自带 `is_dealer`）
+
+## 任务
+1. **判定下沉到座位组件**（核心，两个组件各加一个 computed）：
+   - `PlayerSeat.vue`：新增 `const isDealerSeat = computed(() => props.isDealer || props.seat.is_dealer === true)`，把 `:50` 的 `v-if="isDealer"` 改成 `v-if="isDealerSeat"`。
+   - `MobileSeatChip.vue`：同样新增 computed，把 `:57`（`layout='bar'` 对家）与 `:113`（`layout='side'` 上/下家）**两处** `v-if="isDealer"` 都改成 `v-if="isDealerSeat"`。
+   - **保留 `isDealer` prop**（默认 false）不删不改名：组件内 `||` 让「prop」与「快照字段」两套数据源都生效，既有调用方（结算页等）零影响。
+2. **桌面「自己」席位补徽标**（`RoomView.vue:497-504`）：此处是**内联实现**的头像 `<span>`，原本**没有徽标**。把头像 `<span>` 包进 `<div class="relative shrink-0">`，并在其后追加与 `PlayerSeat.vue` 完全一致的徽标：
+   ```html
+   <span
+     v-if="bottomView?.is_dealer"
+     class="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gold-400 text-[9px] font-bold text-felt-950"
+     title="庄家"
+   >庄</span>
+   ```
+   （桌面尺寸 `h-4 w-4 text-[9px]`；`bottomView` 是 `mySeatView` 或观战目标，二者都是 `SeatView`，天然带 `is_dealer`。）
+3. **手机「自己」席位补徽标**（`MobileRoomView.vue:455-461`）：同样包一层 `<div class="relative shrink-0">`，徽标用手机尺寸：
+   ```html
+   <span
+     v-if="bottomView?.is_dealer"
+     class="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-gold-400 text-[8px] font-bold text-felt-950"
+     title="庄家"
+   >庄</span>
+   ```
+4. **桌面左 / 右席位**：它们**本来就没传** `:is-dealer`（`RoomView.vue:370-376`、`:481-487`），组件内的 `|| seat.is_dealer` 已让它们正确显示。可顺手补传 `:is-dealer="game.snapshot?.dealer_seat === relative.left"` / `=== relative.right"`（冗余但更直观）—— **二选一即可，不要求两处都改**。
+5. **不要动**：`isTurn`（金色边框 + 呼吸光晕）逻辑、`ResultModal.vue` 的结算页庄标、`SeatBox.vue`、任何后端与协议字段。
+6. **可选加固（本步不做）**：结算页 `RoundResult`（`types.ts:281-300`）目前没有 `dealer_seat` 字段；若要彻底统一「谁是庄家」的口径，可在 `types.ts` 增可选 `dealer_seat?: number | null` 并在结算页使用 —— **本步不做**，避免扩大改动面。
+7. **构建验证**：`npm run typecheck`、`npm run build`（base `/majiangapp/`）、`npm run build:mobile`（base `/mjmobile/`）各跑一次；桌面与手机**两处都必须改**。
+8. **文档回写**：05 的「庄」徽标规格表补「实际实现」说明并勾选验收第 26 条；改进台账 U-5 补「实施细节 + 验收结果」；improve step-prompts 状态表把 I13 标为已实施。
+
+## 验收清单（2026-10-31 I13 已实施，逐条已核）
+- [x] **桌面四席**：左 / 右 / 对家 / 自己，同一时刻**只有一个**「庄」徽标，且落在当前庄家身上。→ 自动化断言：庄家依次落 0/1/2/3 席，每轮徽标数恒为 1 且所在席位 = 庄家（`plan/I13-evidence/desktop-dealer-seat0..3.png`）。
+- [x] **手机四席**：同上（竖屏 375×667 与横屏 667×375 都要看）。→ 竖屏 / 横屏各 4 轮全绿（`手机竖屏-*.png`、`手机横屏-*.png`）；注：手机竖屏按既有设计显示「把手机横过来打牌」引导层（牌桌仍在下层渲染，徽标 DOM 已渲染并通过断言），肉眼查看以横屏为准。
+- [x] **换庄后徽标跟随**：庄家胡牌连庄 → 徽标**不动**；庄家下庄 → 徽标**移动到下一家**，旧庄家**不再显示**。→ 断言「换庄后徽标坐标移动 + 所在席位 = 新庄家」「连庄后坐标不变」。
+- [x] **荒庄**：仍显示「庄」徽标（当前庄不变）。→ 荒庄由后端 `next_dealer` 决定下一局庄位，本局 `dealer_seat` 不变 → 徽标随快照自然停留原庄家（快照驱动，无需额外分支）。
+- [x] **未开局（waiting）**：徽标显示正确（快照已有 `dealer_seat` / `is_dealer`）。→ waiting 时后端 `engine is None` → `dealer_seat=null`、`is_dealer=false` → 四席**均无**徽标（正确口径：第一局开局后才产生庄家），断言徽标数 = 0。
+- [x] **观战视角**：`bottomView` 为观战目标时，底部「自己」区域的徽标反映的是**被观战者**是否庄家；别家徽标正常。→ 观战（`self_seat=null`，跟随座位 2）：庄家=2 时徽标落在被观战者（底部）1 个；庄家=0 时徽标落在别家 1 个（`desktop-spectate-dealer*.png`）。
+- [x] **金色边框不受影响**：「轮到你」的边框 + 呼吸光晕仍只在当前出牌者身上，与「庄」徽标**互不覆盖**（两者是独立元素、不同数据源）。→ `turn` 与 `dealer` 取不同座位时，`animate-breathe` 只在 `turn` 席位、徽标只在 `dealer` 席位；「自己」席位为内联块、本就不带边框高亮（出牌提示走底部 ActionBar，既有实现）。
+- [x] **尺寸与位置**：桌面徽标 `h-4 w-4 text-[9px]`、手机 `h-3.5 w-3.5 text-[8px]`，均 `absolute -right-1 -top-1`；不遮挡昵称、分数与「已准备」标记。→ 断言徽标 16×16（桌面）/ 14×14（手机）、文案「庄」、位置 `absolute -right-1 -top-1`（头像右上角），未压昵称与分数。
+- [x] `npm run typecheck` 0 error；`npm run build` 与 `npm run build:mobile` 均通过。
+- [x] `git diff` 确认**只动前端 4 个文件**（`PlayerSeat.vue`、`MobileSeatChip.vue`、`RoomView.vue`、`MobileRoomView.vue`）：**无 WS 事件 / 字段变更、无 DDL、无 `code/backend/**` 改动**。（工作区另有并行会话 I14 的 `src/audio/*` 改动，非本步内容。）
+
+## 硬约束
+- **不改后端**：`snapshot.py` 已下发 `is_dealer`，本步**不得修改** `code/backend/**`。
+- **不改协议**：不新增 / 修改任何 WS 事件或字段；不新增数据库列。
+- **不删 `isDealer` prop**：`||` 兜底，既有调用方必须零影响。
+- **不混淆两个视觉元素**：「庄」徽标（数据源 `dealer_seat`）与金色边框（数据源 `turn`）语义不同，不得互相替代。
+- 桌面与手机**不得只改一处**；四席**不得只改一席**。
+- 不顺手改其它 UI（字号、皮肤、动画），不夹带 I14 的音效改动。
+
+## 完成后必须输出
+1. 改动文件清单（4 个文件，逐处说明改了什么）。
+2. 徽标判定链路说明（`snapshot.seats[].is_dealer` → 组件 computed → `v-if`），并说明为什么父组件不必再传 `is-dealer`。
+3. 验收清单逐条结论（含桌面 / 手机换庄前后的截图或录屏说明）。
+4. `npm run typecheck` / `npm run build` / `npm run build:mobile` 结果。
+5. 遗留问题（不超过 5 条，必须明确是否阻塞 I14 或发版）。
+````
+
+---
+
+## I14 · 吃 / 碰 / 胡 / 杠 改用叫牌人声（S-2）
+
+> **什么时候做**：**文档已批准后**立即做。纯前端、协议零改动、无 DDL。
+> 与 I13 无文件冲突，**可并行**。
+> 口径已由用户确认，无需再问：**6 个叫牌音全部换成女声**；**新增独立人声键**，旧合成音**文件保留但不再触发**。
+
+````text
+【家庭麻将 · v1.1.2 · I14 · 吃 / 碰 / 胡 / 杠 改用叫牌人声（S-2）】
+
+## 目标
+把「吃 / 碰 / 胡 / 明杠 / 暗杠 / 补杠」六种叫牌提示音，从 `public/audio/sfx/` 的**自制合成音**换成 `public/audio/voice/` 的**女声人声**；旧合成音**文件保留在磁盘上但不再触发**；与 34 个牌面报牌人声**互不干扰**；协议零改动。
+
+## 前置
+- 文档已批准：[08-音效设计.md](08-音效设计.md) 已升 v1.2 —— §2 触发映射表换成 6 个 `*_voice` 键、新增 §2.2「叫牌人声」、§3 优先级表键名同步、§4.1 目录树（`voice/` 40 个 mp3）、§4.2 新增「枚举键 + `SoundSpec.dir` 字段」选型、§4.5、§6.2（人声资源 40 个）、§6.3（取用登记）、§8 验收第 20–24 条；[改进和错误修复文档.md](改进和错误修复文档.md) §3A-2 S-2 已定稿。
+- 素材在 `plan/majiang_sound/women_mp3/`：`hu.mp3`（≈2.5s）、`pong.mp3`、`chow.mp3`、`kong_exposed.mp3`、`kong_hidden.mp3`、`kong_added.mp3`。
+
+## 必须先读
+- plan/08-音效设计.md §2（触发映射表）、§2.2（叫牌人声）、§3（优先级与限流）、§4.1（目录树）、§4.2（选型：枚举键 + `dir` 字段）、§4.5、§6.2（人声资源规格）、§6.3（授权风险登记）、§8（第 20–24 条）
+- plan/改进和错误修复文档.md §3A-2 S-2
+- code/frontend/src/audio/soundKeys.ts（`SoundKey` `:9-24`、`SoundSpec` `:29-38`、`SOUND_SPECS` `:40-56`、`SOUND_KEYS` `:58`、`SOUND_URLS` `:61-64`、`sfxUrl()` `:70-72`、`priorityOf()` `:75-77`）
+- code/frontend/src/audio/useGameSounds.ts（`play()` `:15-17`、`event.settled` `:41-54`、`event.kongged` `:55-61`、`event.claimed` `:69-72`）
+- code/frontend/src/audio/audioManager.ts（`playSound()` `:513-547`、`sfxUrl` 调用点 `:528`、`loadOne()` `:244`、`preloadSounds()` `:320-326`、`preloadVoices()` `:345`、`previewSound()` `:670`、`audioState.total` `:51`）
+- code/frontend/src/audio/voiceMap.ts（34 项牌面映射 + `voiceBaseFromTarget()` 白名单）
+- code/frontend/public/audio/voice/LICENSE.md（授权留痕，本步要改写「取用」段）
+- code/frontend/public/audio/sfx/LICENSE.md（旧合成音来源登记，**不改**）
+- code/deploy/nginx-majiang.conf（`*/audio/voice/` 30 天强缓存规则 —— **已存在，本步无需改**）
+
+## 任务
+1. **资源**：`code/frontend/public/audio/voice/` 从 34 个 mp3 扩到 **40 个**，从 `plan/majiang_sound/women_mp3/` 复制 6 个：`hu.mp3`、`pong.mp3`、`chow.mp3`、`kong_exposed.mp3`、`kong_hidden.mp3`、`kong_added.mp3`。**不要删除 / 覆盖 / 修改 `public/audio/sfx/` 里的同名文件**（旧合成音保留在磁盘，只是不再触发）。
+2. **`soundKeys.ts` 改造（核心）**：
+   - `SoundKey`：删掉 6 个旧键 `hu` / `pong` / `chow` / `kong_exposed` / `kong_hidden` / `kong_added`，加上 6 个新键 `hu_voice` / `pong_voice` / `chow_voice` / `kong_exposed_voice` / `kong_hidden_voice` / `kong_added_voice`。其余 9 键（`exhausted` / `claim` / `turn` / `discard` / `draw` / `timeout` / `dice` / `deal` / `chat`）不变 —— **总数仍为 15**。
+   - `SoundSpec` 增可选字段 `dir?: 'sfx' | 'voice'`（缺省视为 `'sfx'`），并补一行注释说明「同名文件在 `sfx/` 与 `voice/` 各一份，靠 `dir` 区分」。
+   - `SOUND_SPECS`：6 个新键的 `file` 分别为 `hu.mp3` / `pong.mp3` / `chow.mp3` / `kong_exposed.mp3` / `kong_hidden.mp3` / `kong_added.mp3`，并写 `dir: 'voice'`；**音量与优先级沿用旧值**（`hu` 90 / P0；`kong_*` 75 / P1；`pong` 70 / P2；`chow` 65 / P2）；其余键的 `file` / `volume` / `priority` **一律不动**。
+   - `sfxUrl()` 改按 `dir` 拼目录：`${import.meta.env.BASE_URL}audio/${SOUND_SPECS[key].dir ?? 'sfx'}/${SOUND_SPECS[key].file}`。
+   - `SOUND_KEYS` / `SOUND_URLS` / `priorityOf()` 全部由 `SOUND_SPECS` 派生，**不需要手改**；改完必须满足 `SOUND_KEYS.length === 15`。
+3. **`audioManager.ts` 零改动**：`playSound()` 通过 `sfxUrl(key)` 取 URL，新键自然指向 `voice/`；并发上限、优先级、淡出、`unavailable` 降级、`preloadSounds()`（仍 15 个请求）全部沿用。**不要**为叫牌人声新增 `playVoice()` 分支，也**不要**把 6 个叫牌音加进 `voiceMap.ts` 的 34 项白名单（`preloadVoices()` 只预热 34 个牌面音）。
+4. **`useGameSounds.ts` 接线**：把 6 处 `play(...)` 换成新键 —— `event.settled` 的 `play('hu')` → `play('hu_voice')`；`event.kongged` 的 3 处 → `kong_exposed_voice` / `kong_hidden_voice` / `kong_added_voice`；`event.claimed` 的 `play('pong')` / `play('chow')` → `pong_voice` / `chow_voice`。
+   - **荒庄分支不变**：`data.is_draw` 时只播 `exhausted` 并**直接 return**，绝不播 `hu_voice`。
+   - `event.settled` 的「一局只播一次」去重（`settledRoundKey`）保持不变，多赢家不叠加。
+5. **全局排查旧键引用**：`grep -rn "'hu'\|'pong'\|'chow'\|'kong_exposed'\|'kong_hidden'\|'kong_added'" code/frontend/src`。当前前端 UI **不直接引用** `SoundKey`（音效设置面板未做逐键试听），因此预计只有 `useGameSounds.ts` 需要改；但**必须实际 grep 确认**，有残留就一并改掉，`npm run typecheck` 必须 0 error。
+6. **`voice/LICENSE.md` 改写**：把「本项目取用」从「仅 34 个牌面音」改为「**40 个全部取用**（34 牌面 + 6 叫牌：`hu` / `pong` / `chow` / `kong_exposed` / `kong_hidden` / `kong_added`）」；删掉「**未取用**」那一行；更新「目录内文件清单：40 个 mp3 + 本 LICENSE.md」与体积 / 时长实测。**授权风险登记段必须原样保留**（源仓库未提供 LICENSE、权利归属不明、用户已于 2026-10-31 接受该风险、两处留痕）。
+7. **08 同步**：§2 触发映射表核对新键；§4.5 / §6.2 补实际实现细节与实测体积；§6.3「实际落地」表把「未取用」改为「已取用，走枚举键通道（`dir: 'voice'`）」；§8 第 20–24 条勾选。
+8. **构建验证**：`npm run typecheck`、`npm run build`、`npm run build:mobile` 各一次；确认 `dist/audio/voice/` 与 `dist-mobile/audio/voice/` 各 **40 个 mp3**；确认 `dist/audio/sfx/` 里 6 个旧合成音**仍在**（保留但不触发）；确认运行时 URL 为 `/majiangapp/audio/voice/hu.mp3` 与 `/mjmobile/audio/voice/hu.mp3`（与 nginx 两条 `location` 前缀一致）。
+9. **文档回写**：改进台账 S-2 补「实施细节 + 验收结果」；06 §8D 勾选；improve step-prompts 状态表把 I14 标为已实施。
+
+## 验收清单
+- [ ] **吃 / 碰 / 胡 / 明杠 / 暗杠 / 补杠** 六种情形各播一次**女声**；旧合成音**不再响**（`sfx/` 的 6 个文件仍在磁盘上）。
+- [ ] **互斥不叠加**：同一个事件不同时播旧音与人声（只可能听到人声）。
+- [ ] **荒庄只播 `exhausted`**、不播 `hu_voice`；一局结算只播一次 `hu_voice`（多赢家不叠加）。
+- [ ] **与牌面报牌互不干扰**：出牌报牌（`playVoice()` 动态通道）与叫牌人声（`playSound()` 枚举通道）同时发生时各自可辨。
+- [ ] **优先级不变**：`hu_voice` 仍为 P0；`kong_*_voice` 为 P1；`pong_voice` / `chow_voice` 为 P2；`hu` 在播时 200ms 内的低优先级音仍被抑制。
+- [ ] **总开关与音量**：关闭音效总开关 → 15 个 SFX **全部**静音；音量滑块对 6 个叫牌人声同样生效；不新增用户偏好字段、不加 DDL。
+- [ ] **降级**：删除 `voice/` 中任意一个叫牌 mp3 → 该叫牌静音、其余 39 个正常、控制台**无 `error`**、对局可打完；删除整个 `voice/` 目录 → 15 个 SFX 仍全部正常。
+- [ ] **预加载与体量**：Network 面板预加载仍为 **15 个 SFX 请求**（其中 6 个指向 `voice/`）；`voice/` 目录 **40 个 mp3、合计 ≤400 KB**（预估 ≈370 KB）。
+- [ ] `npm run typecheck` 0 error；`npm run build` 与 `npm run build:mobile` 均通过；产物中 `audio/voice/` 40 个、`audio/sfx/` 15 个。
+- [ ] `git diff` 确认**协议零改动**（无 WS 事件 / 字段变更）、**无 DDL**、**无 `code/backend/**` 改动**。
+- [ ] 授权留痕：`public/audio/voice/LICENSE.md` 与 08 §6.3 **双处**均写明「6 个叫牌音已取用」，且风险登记段未删。
+
+## 硬约束
+- **不改协议**：不新增 WS 事件或字段，只消费既有 `event.claimed.action` / `event.kongged.kind` / `event.settled.winners`。
+- **不删旧合成音文件**：`public/audio/sfx/` 的 6 个文件**保留**（只是不再触发），便于回滚。
+- **不扩 `SOUND_KEYS` 数量**：必须仍是 15 项，预加载请求数不得增加。
+- **不把叫牌音加进 `voiceMap.ts`**：那 34 项白名单只服务牌面报牌的动态通道。
+- **不裁剪素材**：`hu.mp3` ≈2.5s，08 §6.2 已单列「叫牌人声 ≤2.6s」，**不裁剪、不变速**。
+- **不改 `audioManager.ts`**：若发现非改不可，先说明原因再改，并确保并发 / 优先级 / 淡出 / 降级语义不变。
+- 不顺手改 UI（字号、皮肤、动画），不夹带 I13 的庄徽标改动。
+- 版权风险已由用户接受，但**必须在 `voice/LICENSE.md` 与 08 §6.3 双处留痕**，不得省略。
+
+## 完成后必须输出
+1. 改动文件清单 + `SoundKey` 改造前后对照表（旧 6 键 → 新 6 键，含 `file` / `dir` / 音量 / 优先级）。
+2. `SOUND_KEYS.length`、`voice/` 文件数与体积实测、`dist` 与 `dist-mobile` 产物文件数。
+3. 验收清单逐条结论（含删文件降级测试与 Network 面板请求数）。
+4. 授权留痕位置（`voice/LICENSE.md` 与 08 §6.3）。
+5. 遗留问题（不超过 5 条，必须明确是否阻塞发版）。
+````
+
+---
+
 ## 附：步骤依赖与产出
 
 | 步骤 | 依赖 | 主要产出 | 可否独立上线 |
@@ -808,5 +977,8 @@ I9 已通过（`fan.py` 已改过一轮，避免同文件冲突）。
 | I10 | I9 | 13不靠 判番调整 + 用例 36 | 是（与 I9 同版） |
 | I11 | 文档批准 | 34 个牌面人声音效 + voiceMap + playVoice | 是（协议零改动） |
 | I12 | 文档批准 | `winning_tile_index` + 「胡」角标 | 是（只增可选字段） |
+| I13 | 文档批准 | 庄徽标判定下沉到座位组件 + 两端自己席位补徽标 | 是（纯前端、协议零改动） |
+| I14 | 文档批准 | 6 个叫牌人声（枚举键 + `SoundSpec.dir`）+ `useGameSounds` 接线 | 是（纯前端、协议零改动） |
 
 > I9–I12 与 I7 的关系见「当前状态」下的说明：四步同属 `1.1.0`，建议在 I7 之前完成并同版发布。
+> I13 / I14 属 **v1.1.2 第三轮**：两项均为纯前端、协议零改动、无 DDL，**互不冲突可并行**，可同批发版。

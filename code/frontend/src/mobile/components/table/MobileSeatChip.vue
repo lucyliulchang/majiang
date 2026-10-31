@@ -24,6 +24,13 @@ const props = withDefaults(
 
 const meldRows = computed(() => props.seat.melds || [])
 
+/**
+ * 庄家徽标判定（v1.1.2 U-5）：父组件显式传的 `isDealer` 优先，
+ * 叠加后端每局随快照下发的 `seat.is_dealer`（与 `snapshot.dealer_seat` 同源同值）。
+ * 判定下沉到组件后，手机的「对家 / 左家 / 右家」三处无需父组件逐个传参即可全部跟随换庄。
+ */
+const isDealerSeat = computed(() => props.isDealer || props.seat.is_dealer === true)
+
 /** 吃的这副里哪一张是别人打出来的（后端 claim_tile）；碰/杠整组同牌，不标 */
 function claimIndex(meld: MeldView): number {
   if (meld.kind !== 'chow') return -1
@@ -54,7 +61,7 @@ const scoreClass = computed(() => (props.seat.total_score >= 0 ? 'text-jade-400'
         {{ seat.display_name.slice(0, 1) }}
       </span>
       <span
-        v-if="isDealer"
+        v-if="isDealerSeat"
         class="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-gold-400 text-[8px] font-bold text-felt-950"
         title="庄家"
       >
@@ -110,7 +117,7 @@ const scoreClass = computed(() => (props.seat.total_score >= 0 ? 'text-jade-400'
         {{ seat.display_name.slice(0, 1) }}
       </span>
       <span
-        v-if="isDealer"
+        v-if="isDealerSeat"
         class="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-gold-400 text-[8px] font-bold text-felt-950"
         title="庄家"
       >
