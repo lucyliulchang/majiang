@@ -15,7 +15,9 @@
 - 风刻（门风刻/圈风刻）不占任何组，可与任意番种累加，可叠加至 +2；
 - 箭刻（中/发/白）每种一个刻子或杠各计 1 番，最多 3 番，不占任何组，可与任意番种累加；
 - 十三幺不判独赢；七小对不判将牌（全文字七对例外，可叠独赢）；
-- 258赢（看 `win_tile`）与 断幺（看 `all_tiles()`）是**牌型无关的全局番**，
+- **13不靠 不判门清、独赢**（07 §6.3.4 v1.10 / R-6）：二者是牌型固有性质，不再重复计分；
+  但局面番（天胡/地胡/杠上开花/海底捞月/抢杠胡）照常判定；
+- 258赢（看 `win_tile`）与 断幺 / 一只幺（看 `all_tiles()`）是**牌型无关的全局番**，
   由 `global_fans()` 统一产出、在牌型 `calc_fan()` 出口追加（不逐个牌型挂），
   因此七对/13不靠/十三幺也照常判定（十三幺天然不成立）。
 """
@@ -33,7 +35,7 @@ from game.tiles import TILE_KINDS, is_honor, is_suit, rank_of, suit_of, tile_nam
 if TYPE_CHECKING:
     from game.families.baishi.config import RuleConfig
 
-#: 07 §5 的 34 项番表（id → 名称、番值、互斥组、是否计数）
+#: 07 §5 的 35 项番表（id → 名称、番值、互斥组、是否计数）
 FAN_TABLE: tuple[tuple[str, str, int, str | None, bool], ...] = (
     ("ping_hu", "平胡", 1, "structure", False),
     ("men_qian", "门清", 1, "first", False),
@@ -58,6 +60,7 @@ FAN_TABLE: tuple[tuple[str, str, int, str | None, bool], ...] = (
     ("hun_yi_se", "混一色", 20, "flush", False),
     ("qing_yi_se", "清一色", 30, "flush", False),
     ("duan_yao", "断幺", 1, None, False),
+    ("yi_zhi_yao", "一只幺", 1, None, False),
     ("quan_yao", "全幺", 50, "quan", False),
     ("quan_yao_qi_dui", "全幺七对", 60, "quan", False),
     ("quan_zi", "全文字", 100, "quan", False),
@@ -335,13 +338,35 @@ def duan_yao_hit(ctx: HandContext) -> list[FanHit]:
     return [FanHit("duan_yao")] if is_all_simples(ctx) else []
 
 
+def count_yao_tiles(ctx: HandContext) -> int:
+    """整手牌（手牌 + 全部副露摊平）里「幺牌」的**张数**（07 §6.4.9）。
+
+    幺牌 = 数牌 **1、9**（`rank_of` ∈ {0, 8}）与**全部字牌**（东南西北中发白）。
+    按**张数**计、不按「种」计：`1 万 + 东` 是 2 张幺（2 种），不成立。
+
+    逐张统计而非按「组」归类：幺牌除将(2)/刻(3)/杠(4) 外还会出现在
+    **123 / 789 顺子的端张**（`fan.py:154` 的顺子起点条件 `first % 9 <= 6`
+    允许 123 与 789），只统计成组的牌会漏判、导致该番永不命中。
+    """
+    return sum(1 for tile in ctx.all_tiles() if is_honor(tile) or rank_of(tile) in (0, 8))
+
+
+def yi_zhi_yao_hit(ctx: HandContext) -> list[FanHit]:
+    """一只幺（07 §6.4.9）：胡牌后的整手 14 张牌（含副露摊平）里恰好 1 张幺牌。
+
+    与断幺天然互斥（断幺 = 0 张幺牌）；与 `quan` 组天然互斥（七对/十三幺/全幺/
+    全文字必含 ≥2 张幺牌，13不靠 必含中发白 3 张）；不占任何互斥组，一手只计一次。
+    """
+    return [FanHit("yi_zhi_yao")] if count_yao_tiles(ctx) == 1 else []
+
+
 def global_fans(ctx: HandContext) -> list[FanHit]:
-    """与牌型结构无关的全局番（258赢 / 断幺）。
+    """与牌型结构无关的全局番（258赢 / 断幺 / 一只幺）。
 
     由各牌型 `calc_fan()` 出口统一追加（`baishi/patterns.py:_with_global_fans`），
     所以七对、13不靠、十三幺也照常判定；十三幺的赢张必为幺九字牌，天然不成立。
     """
-    return [*er_wu_ba_ying_hit(ctx), *duan_yao_hit(ctx)]
+    return [*er_wu_ba_ying_hit(ctx), *duan_yao_hit(ctx), *yi_zhi_yao_hit(ctx)]
 
 
 def situational_hits(ctx: HandContext) -> list[FanHit]:
@@ -608,15 +633,21 @@ def thirteen_orphans_fans(ctx: HandContext) -> list[FanHit]:
 
 
 def thirteen_unrelated_fans(ctx: HandContext, pair: int) -> list[FanHit]:
-    """13不靠：只与 structure 组互斥，将牌等照常累加（07 §6.3.4）。"""
+    """13不靠：只与 structure 组互斥，将牌等照常累加（07 §6.3.4）。
+
+    v1.10 起（R-6）**不再计门清、独赢**：13不靠 的「必门清 + 必单吊」是牌型固有性质，
+    再各计 1 番属重复计分。13不靠 **仍判**：将牌、缺门、混一色/清一色。
+    注意区分——「不许有副露」是**牌型成立条件**（`unrelated_pair()` 仍要求 `ctx.melds` 为空），
+    「不计门清番」只是**判番口径**，两者互不影响。
+    """
     hits: list[FanHit] = [FanHit("shi_san_bu_kao")]
     hits.extend(jiang_pai_hit(pair))
-    # 13不靠 的胡张必然单吊（将牌成对），照常判独赢
-    hits.append(FanHit("du_ying"))
     flush = flush_fan(ctx)
     if flush:
         hits.append(FanHit(flush))
-    hits.extend(situational_hits(ctx))
+    # ⚠️ 不得整体删除 `situational_hits(ctx)`：它同时产出天胡 / 地胡 / 杠上开花 /
+    # 海底捞月 / 抢杠胡 5 个番种；这里只把 13不靠 不再计的 `men_qian` 过滤掉。
+    hits.extend(hit for hit in situational_hits(ctx) if hit.id != "men_qian")
     if not flush:
         suits, _honors = _suit_profile(ctx)
         if len(suits) <= 2:
@@ -694,6 +725,7 @@ __all__ = [
     "bao_pai_allowed_tile",
     "best_shape_fans",
     "chow_fans",
+    "count_yao_tiles",
     "du_ying_hit",
     "duan_yao_hit",
     "er_wu_ba_ying_hit",
@@ -716,4 +748,5 @@ __all__ = [
     "unrelated_pair",
     "wait_forms",
     "wind_ke_hits",
+    "yi_zhi_yao_hit",
 ]

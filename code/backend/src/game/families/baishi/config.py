@@ -38,7 +38,7 @@ BAO_PAI_PATTERN_CHOICES = ("qing_yi_se", "hun_yi_se", "quan_zi", "quan_yao")
 
 
 def default_fan_table() -> list[FanItem]:
-    """07 §5 的 34 项番表（数值一律取自 `fan.FAN_TABLE`，此处不复制任何番值）。"""
+    """07 §5 的 35 项番表（数值一律取自 `fan.FAN_TABLE`，此处不复制任何番值）。"""
     return [
         FanItem(id=fid, name=name, fan=fan, exclusive_group=group, stackable=fid in STACKABLE_FANS)
         for fid, name, fan, group, _counting in FAN_DEFAULTS

@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { ArrowRight, Trophy } from 'lucide-vue-next'
 
 import type { FinalHand, RoundResult, SeatView } from '../../types'
+import { winTileRefOf } from '../../utils/finalHand'
 import { tileName } from '../../utils/tile'
 import Tile from './Tile.vue'
 
@@ -83,6 +84,15 @@ const winnerTileCount = computed(() => {
   return hand.concealed.length + hand.melds.reduce((sum, meld) => sum + meld.tiles.length, 0)
 })
 
+/**
+ * 胡张落点（v1.1.0 · 04 §9.5）：优先用后端 `winning_tile_index`，
+ * 旧局缺该字段时回退为「暗牌中最后一张与 `winning_tile` 同值的牌」——口径与后端一致。
+ */
+const winTileRef = computed(() => winTileRefOf(winnerHand.value))
+
+/** 暗牌里胡张的下标（结算页暗牌循环用） */
+const winTileIndex = computed(() => winTileRef.value.concealedIndex)
+
 /** 一家本局收/付的杠分（番分之外的加减分） */
 function kongOf(seat: number): number {
   return Number(props.result.kong_delta?.[seat] ?? 0)
@@ -122,7 +132,7 @@ function signed(value: number): string {
         </div>
       </div>
 
-      <!-- 胡牌手牌：赢家暗牌 + 副露，一共 14 张；金框是胡张，副露按组分开 -->
+      <!-- 胡牌手牌：赢家暗牌 + 副露，一共 14 张；胡张带金色「胡」角标，副露按组分开 -->
       <div v-if="winnerHand" class="mt-4 rounded-xl border border-gold-400/25 bg-gold-400/[0.06] p-3">
         <div class="mb-2 flex items-center justify-between gap-2">
           <p class="flex min-w-0 items-center gap-1 text-sm text-gold-300">
@@ -145,7 +155,7 @@ function signed(value: number): string {
             :key="`concealed-${index}`"
             :tile="tile"
             size="sm"
-            :highlight="tile === winnerHand.winning_tile"
+            :win-tile="index === winTileIndex"
           />
           <span
             v-for="(meld, meldIndex) in winnerHand.melds"
@@ -158,10 +168,11 @@ function signed(value: number): string {
               :tile="tile"
               size="sm"
               :mark="meld.claim_tile === tile"
+              :win-tile="meldIndex === winTileRef.meldIndex && tileIndex === winTileRef.meldTileIndex"
             />
           </span>
         </div>
-        <p class="mt-1.5 text-xs text-ink-300/55">左侧是手里暗牌，右侧分组是吃碰杠；金框为胡张</p>
+        <p class="mt-1.5 text-xs text-ink-300/55">左侧是手里暗牌，右侧分组是吃碰杠；带「胡」角标的是胡张</p>
       </div>
 
       <div v-if="result.fan_items.length" class="mt-4 rounded-xl border border-cream-100/10 bg-cream-100/[0.03] p-3">
