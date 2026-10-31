@@ -45,3 +45,8 @@ code/deploy/s10_*.py
 # 第三方音效原始素材：体积大且来源无授权声明，只在本机保留、不入库
 # 取用后的牌面报牌资源已复制进 code/frontend/public/audio/voice/（随前端产物发布）
 plan/majiang_sound/
+
+# 本机构建 / 联调遗留产物（不入库）
+code/frontend/dist.tar.gz
+code/frontend/dist-mobile-check/
+.tmp_patch_testdb.py
