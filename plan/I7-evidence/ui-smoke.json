@@ -1,0 +1,53 @@
+{
+  "room_code": "211934",
+  "steps": [
+    {
+      "step": "桌面登录页版本号",
+      "pass": true,
+      "detail": "v1.1.0"
+    },
+    {
+      "step": "手机登录页版本号",
+      "pass": true,
+      "detail": "手机版 v1.1.0"
+    },
+    {
+      "step": "桌面牌桌/结算面板渲染",
+      "pass": true,
+      "detail": {
+        "番种": [
+          "一般高",
+          "门清",
+          "缺门"
+        ]
+      }
+    },
+    {
+      "step": "手机牌桌/结算面板渲染",
+      "pass": true,
+      "detail": {
+        "番种": [
+          "一般高",
+          "门清",
+          "缺门"
+        ],
+        "h_overflow": 0
+      }
+    },
+    {
+      "step": "桌面大厅不含已结束房间",
+      "pass": true,
+      "detail": {
+        "含房号": false
+      }
+    },
+    {
+      "step": "手机大厅不含已结束房间",
+      "pass": true,
+      "detail": {
+        "含房号": false
+      }
+    }
+  ],
+  "all_pass": true
+}
