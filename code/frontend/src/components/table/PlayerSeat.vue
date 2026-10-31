@@ -17,6 +17,12 @@ const props = withDefaults(
 )
 
 const total = computed(() => props.seat.total_score)
+/**
+ * 庄家徽标判定（v1.1.2 U-5）：父组件显式传的 `isDealer` 优先，
+ * 叠加后端每局随快照下发的 `seat.is_dealer`（与 `snapshot.dealer_seat` 同源同值）。
+ * 判定下沉到组件后，桌面四个席位无需父组件逐个传参即可全部跟随换庄。
+ */
+const isDealerSeat = computed(() => props.isDealer || props.seat.is_dealer === true)
 const roundScore = computed(() => props.seat.round_score)
 const hiddenCount = computed(() => props.seat.hand_count)
 const backs = computed(() => Math.min(hiddenCount.value, 14))
@@ -47,7 +53,7 @@ function claimIndex(meld: MeldView): number {
         {{ seat.display_name.slice(0, 1) }}
       </span>
       <span
-        v-if="isDealer"
+        v-if="isDealerSeat"
         class="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gold-400 text-[9px] font-bold text-felt-950"
         title="庄家"
       >

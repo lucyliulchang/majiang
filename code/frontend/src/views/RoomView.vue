@@ -496,12 +496,22 @@ const dealerName = computed(() => {
           <div class="shrink-0">
             <div class="mb-2 flex items-end justify-between gap-3">
               <div class="flex items-center gap-2">
-                <span
-                  class="flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-felt-950"
-                  :style="{ backgroundColor: bottomView?.color || auth.avatarColor }"
-                >
-                  {{ (bottomView?.display_name || auth.displayName).slice(0, 1) }}
-                </span>
+                <!-- 自己席位是内联实现（非 PlayerSeat），「庄」徽标在此自补（v1.1.2 U-5） -->
+                <div class="relative shrink-0">
+                  <span
+                    class="flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-felt-950"
+                    :style="{ backgroundColor: bottomView?.color || auth.avatarColor }"
+                  >
+                    {{ (bottomView?.display_name || auth.displayName).slice(0, 1) }}
+                  </span>
+                  <span
+                    v-if="bottomView?.is_dealer"
+                    class="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gold-400 text-[9px] font-bold text-felt-950"
+                    title="庄家"
+                  >
+                    庄
+                  </span>
+                </div>
                 <div class="leading-tight">
                   <p class="text-xs text-cream-100">
                     {{ bottomView?.display_name || (isSpectator ? '观战中' : auth.displayName) }}

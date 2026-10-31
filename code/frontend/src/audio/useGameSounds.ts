@@ -3,6 +3,10 @@
  * handleEvent / handleMessage，组件不直接播音效。
  *
  * 不在本地预播放自己的操作：一律等服务器增量事件，天然避免重复。
+ *
+ * v1.2（I14 / S-2）：吃 / 碰 / 胡 / 明杠 / 暗杠 / 补杠 改用**女声叫牌人声**
+ * （`chow_voice` / `pong_voice` / `hu_voice` / `kong_*_voice`，资源在 `audio/voice/`）；
+ * 旧的合成键已从 `SOUND_SPECS` 移除，文件保留在 `audio/sfx/` 但不再触发。
  */
 import { audioManager } from './audioManager'
 import type { SoundKey } from './soundKeys'
@@ -42,21 +46,21 @@ export function handleSoundEvent(type: string, data: any, selfSeat: number | nul
       const roundKey = String(data?.round_no ?? '')
       if (roundKey && roundKey === settledRoundKey) return
       settledRoundKey = roundKey
-      // 荒庄（有杠）只播 exhausted，不播 hu；多赢家只播一次 hu
+      // 荒庄（有杠）只播 exhausted，不播 hu_voice；多赢家只播一次 hu_voice
       if (data?.is_draw) {
         play('exhausted')
         return
       }
       const winners = Array.isArray(data?.winners) ? data.winners : []
       const hasWinner = winners.length > 0 || (data?.winner_seat ?? null) !== null
-      if (hasWinner) play('hu')
+      if (hasWinner) play('hu_voice')
       return
     }
     case 'event.kongged': {
       const kind = data?.kind
-      if (kind === 'exposed') play('kong_exposed')
-      else if (kind === 'hidden') play('kong_hidden')
-      else if (kind === 'added') play('kong_added')
+      if (kind === 'exposed') play('kong_exposed_voice')
+      else if (kind === 'hidden') play('kong_hidden_voice')
+      else if (kind === 'added') play('kong_added_voice')
       return
     }
     case 'event.claim_open': {
@@ -67,8 +71,8 @@ export function handleSoundEvent(type: string, data: any, selfSeat: number | nul
       return
     }
     case 'event.claimed':
-      if (data?.action === 'pong') play('pong')
-      else if (data?.action === 'chow') play('chow')
+      if (data?.action === 'pong') play('pong_voice')
+      else if (data?.action === 'chow') play('chow_voice')
       return
     case 'event.turn_changed':
       if (selfSeat !== null && Number(data?.seat) === selfSeat && data?.phase === 'discard') play('turn')
@@ -94,7 +98,7 @@ export function handleSoundEvent(type: string, data: any, selfSeat: number | nul
       play('deal')
       return
     case 'event.round_restarted':
-      // 无杠重发：只播发牌，不播 hu/exhausted
+      // 无杠重发：只播发牌，不播 hu_voice/exhausted
       play('deal')
       return
     default:
