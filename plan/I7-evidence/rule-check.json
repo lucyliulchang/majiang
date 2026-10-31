@@ -1,0 +1,178 @@
+{
+  "fan_table_size": 34,
+  "cases": [
+    {
+      "case": "13-32 258赢·赢2条",
+      "hand": "234m567m345p234s55s",
+      "win_tile": 19,
+      "fan_items": {
+        "duan_yao": 1,
+        "er_wu_ba_ying": 1,
+        "jiang_pai": 1,
+        "lian_liu": 1,
+        "men_qian": 1,
+        "yi_ban_gao": 1
+      },
+      "fan_total": 6,
+      "pass": true
+    },
+    {
+      "case": "13-32 258赢·赢8条",
+      "hand": "234m567m345p678s55s",
+      "win_tile": 25,
+      "fan_items": {
+        "duan_yao": 1,
+        "er_wu_ba_ying": 1,
+        "jiang_pai": 1,
+        "lian_liu": 1,
+        "men_qian": 1
+      },
+      "fan_total": 5,
+      "pass": true
+    },
+    {
+      "case": "13-32 258赢+断幺·赢8万",
+      "hand": "678m234p567s234s55s",
+      "win_tile": 7,
+      "fan_items": {
+        "duan_yao": 1,
+        "er_wu_ba_ying": 1,
+        "jiang_pai": 1,
+        "lian_liu": 1,
+        "men_qian": 1,
+        "yi_ban_gao": 1
+      },
+      "fan_total": 6,
+      "pass": true
+    },
+    {
+      "case": "13-32 反例·赢3万",
+      "hand": "234m567m345p234s55s",
+      "win_tile": 2,
+      "fan_items": {
+        "du_ying": 1,
+        "duan_yao": 1,
+        "jiang_pai": 1,
+        "lian_liu": 1,
+        "men_qian": 1,
+        "yi_ban_gao": 1
+      },
+      "fan_total": 6,
+      "pass": true
+    },
+    {
+      "case": "13-33 连6·单组",
+      "hand": "123456m234p678s55s",
+      "win_tile": 5,
+      "fan_items": {
+        "jiang_pai": 1,
+        "lian_liu": 1,
+        "men_qian": 1
+      },
+      "fan_total": 3,
+      "pass": true
+    },
+    {
+      "case": "13-33 连6·两组",
+      "hand": "123456m234567p55s",
+      "win_tile": 5,
+      "fan_items": {
+        "jiang_pai": 1,
+        "lian_liu": 2,
+        "men_qian": 1
+      },
+      "fan_total": 4,
+      "pass": true
+    },
+    {
+      "case": "13-34 断幺·全2-8",
+      "hand": "234m567m345p678s55s",
+      "win_tile": 4,
+      "fan_items": {
+        "duan_yao": 1,
+        "er_wu_ba_ying": 1,
+        "jiang_pai": 1,
+        "lian_liu": 1,
+        "men_qian": 1
+      },
+      "fan_total": 5,
+      "pass": true
+    },
+    {
+      "case": "13-34 反例·含1万",
+      "hand": "123m567m345p678s55s",
+      "win_tile": 4,
+      "fan_items": {
+        "er_wu_ba_ying": 1,
+        "jiang_pai": 1,
+        "men_qian": 1
+      },
+      "fan_total": 3,
+      "pass": true
+    },
+    {
+      "case": "13-34 断幺·副露吃456万",
+      "hand": "567m345p678s55s",
+      "win_tile": 4,
+      "fan_items": {
+        "duan_yao": 1,
+        "er_wu_ba_ying": 1,
+        "jiang_pai": 1
+      },
+      "fan_total": 3,
+      "pass": true
+    },
+    {
+      "case": "13-34 反例·副露吃123万",
+      "hand": "567m345p678s55s",
+      "win_tile": 4,
+      "fan_items": {
+        "er_wu_ba_ying": 1,
+        "jiang_pai": 1
+      },
+      "fan_total": 2,
+      "pass": true
+    },
+    {
+      "case": "13-09 13不靠·标准",
+      "hand": "147m258p369s5z6z7z9m9m",
+      "win_tile": 26,
+      "fan_items": {
+        "shi_san_bu_kao": 10,
+        "du_ying": 1,
+        "jiang_pai": 1,
+        "men_qian": 1
+      },
+      "fan_total": 13,
+      "pass": true
+    },
+    {
+      "case": "13-09 13不靠·含风牌",
+      "hand": "1z1z2z3z5z6z7z1m4m7m2s5s8s3p",
+      "win_tile": 27,
+      "fan_items": {
+        "shi_san_bu_kao": 10,
+        "du_ying": 1,
+        "jiang_pai": 1,
+        "men_qian": 1
+      },
+      "fan_total": 13,
+      "pass": true
+    },
+    {
+      "case": "13-09 13不靠·缺门",
+      "hand": "1z1z2z3z4z5z6z7z1m4m7m2s5s8s",
+      "win_tile": 27,
+      "fan_items": {
+        "shi_san_bu_kao": 10,
+        "du_ying": 1,
+        "jiang_pai": 1,
+        "men_qian": 1,
+        "que_men": 1
+      },
+      "fan_total": 14,
+      "pass": true
+    }
+  ],
+  "all_pass": true
+}

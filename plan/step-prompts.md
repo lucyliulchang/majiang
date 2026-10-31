@@ -23,9 +23,9 @@
 | S8 | 皮肤系统后端 | 已完成（2026-10-29） |
 | S9 | 音效模块（前端 SFX） | 已完成（2026-10-29） |
 | S10 | 前端适配、皮肤管理、联调部署 | 已完成（2026-10-29，生产 https://www.iottest.online/majiangapp/） |
-| **I0–I8** | **v1.1.0 运行反馈修复 + 场次时长** | 见 [improve step-prompts.md](improve%20step-prompts.md)；I0–I5、I8 已实施，I6 回归已完成（[v1.1.0-验收报告.md](v1.1.0-验收报告.md)），下一步 I7 发版 |
+| **I0–I8** | **v1.1.0 运行反馈修复 + 场次时长** | 见 [improve step-prompts.md](improve%20step-prompts.md)；I0–I6、I8 已实施，**I7 发版已完成（2026-10-30 21:38 上线生产，10-31 完成幽灵房清理与桌面/手机冒烟）——见 [I7-发布记录.md](I7-发布记录.md)** |
 
-**下一步**：v1.1.0 的 I0（基线核对与口径冻结），见 [improve step-prompts.md](improve%20step-prompts.md)。
+**下一步**：v1.1.0 已上线（生产 https://www.iottest.online/majiangapp/ 与 /mjmobile/）；后续按 [improve step-prompts.md](improve%20step-prompts.md) 的 I9/I10 追加项继续。
 
 **2026-10-27 追加**：观战改为「一人一目标、每名在座玩家最多 10 人围观」（G13 / D17），新增 S5b（阶段 P4b）。该约束不新增表：S0–S2 已建的 `USER_BASIC` + 14 张 `mj_*` 保持不变，观战关系只存 `RoomActor` 内存。
 **2026-10-30 追加**：运行反馈修复另立 v1.1.0 的 I0–I8 步骤（本文 S 系列不再追加），问题台账见 [改进和错误修复文档.md](改进和错误修复文档.md)。
