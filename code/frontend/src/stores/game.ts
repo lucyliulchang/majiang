@@ -252,7 +252,23 @@ export const useGameStore = defineStore('game', () => {
         roomClosed.value = true
         closeSocket()
         break
-      case 'event.spectate_changed':
+      case 'event.spectate_changed': {
+        // 围观计数全房可见：事件里带了 seat_viewer_counts，就地覆盖快照，
+        // 否则在座玩家要等下一条快照（出牌/碰杠）才知道「自己被围观」，
+        // 等待开局阶段更是永远看不到。
+        const counts: number[] | undefined = data.seat_viewer_counts
+        const seats = snapshot.value?.seats
+        if (Array.isArray(counts) && seats) {
+          for (let seat = 0; seat < 4; seat += 1) {
+            const view = seats[seat]
+            if (view) view.spectator_count = counts[seat] ?? 0
+          }
+        }
+        // 自己跟随的目标人数变化时同步横幅上的 N/10
+        const mine = spectate.value
+        if (mine && data.target_login_id && mine.target_login_id === data.target_login_id) {
+          mine.viewer_count = data.viewer_count ?? 0
+        }
         // 目标离座：横幅消失 + 提示重新选择（快照随后会把视角重置为未选择）
         if (data.target_seat === null && data.target_login_id) {
           const name = snapshot.value?.seats?.find(
@@ -263,6 +279,7 @@ export const useGameStore = defineStore('game', () => {
           }
         }
         break
+      }
       case 'event.ready_changed':
         break
       default:

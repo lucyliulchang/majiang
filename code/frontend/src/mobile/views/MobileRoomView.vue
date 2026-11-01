@@ -472,6 +472,14 @@ const dealerName = computed(() => {
         <span class="max-w-[96px] shrink-0 truncate text-[11px] text-cream-100">
           {{ bottomView?.display_name || (isSpectator ? '观战中' : auth.displayName) }}
         </span>
+        <!-- 自己被围观：计数全房可见，但不暴露观战者身份 -->
+        <span
+          v-if="!isSpectator && (bottomView?.spectator_count ?? 0) > 0"
+          class="inline-flex shrink-0 items-center gap-0.5 rounded bg-gold-400/10 px-1 text-[9px] text-gold-300"
+          :title="`${bottomView?.spectator_count} 人正在围观你`"
+        >
+          <Eye class="h-2.5 w-2.5" />{{ bottomView?.spectator_count }}
+        </span>
         <span class="shrink-0 text-[11px]" :class="(bottomView?.total_score || 0) >= 0 ? 'text-jade-400' : 'text-vermilion-400'">
           {{ bottomView?.total_score ?? 0 }}
           <span v-if="bottomView?.round_score" class="text-ink-300/60">（{{ bottomView.round_score > 0 ? '+' : '' }}{{ bottomView.round_score }}）</span>

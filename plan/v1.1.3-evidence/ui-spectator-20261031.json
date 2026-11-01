@@ -1,0 +1,181 @@
+{
+  "started_at": "2026-10-31 19:50:48",
+  "platforms": [
+    {
+      "platform": "desktop",
+      "checks": [
+        {
+          "check": "开桌（POST /api/rooms）",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "room": "598763"
+          }
+        },
+        {
+          "check": "房主点「我准备好了」",
+          "pass": true,
+          "detail": null
+        },
+        {
+          "check": "四人准备完毕（「开始牌局」可点）",
+          "pass": true,
+          "detail": null
+        },
+        {
+          "check": "等待开局阶段自己席位出现「围观 1」",
+          "pass": true,
+          "detail": {
+            "seat": 3,
+            "tried": [
+              {
+                "seat": 0,
+                "badge": false
+              },
+              {
+                "seat": 1,
+                "badge": false
+              },
+              {
+                "seat": 2,
+                "badge": false
+              },
+              {
+                "seat": 3,
+                "badge": true
+              }
+            ]
+          }
+        },
+        {
+          "check": "徽标可见且文案为「围观 1」",
+          "pass": true,
+          "detail": "围观 1"
+        },
+        {
+          "check": "开局后徽标仍在",
+          "pass": true,
+          "detail": {
+            "count": 1
+          }
+        }
+      ],
+      "room": {
+        "id": 23,
+        "code": "598763"
+      },
+      "follow": {
+        "tried": [
+          {
+            "seat": 0,
+            "badge": false
+          },
+          {
+            "seat": 1,
+            "badge": false
+          },
+          {
+            "seat": 2,
+            "badge": false
+          },
+          {
+            "seat": 3,
+            "badge": true
+          }
+        ],
+        "seat": 3
+      },
+      "screenshot": "d:\\StevenLianData\\0301. Private Project\\gitData\\majiang\\plan\\v1.1.3-evidence\\v1.1.3-desktop-spectator-badge.png",
+      "screenshot_playing": "d:\\StevenLianData\\0301. Private Project\\gitData\\majiang\\plan\\v1.1.3-evidence\\v1.1.3-desktop-playing.png"
+    },
+    {
+      "platform": "mobile",
+      "checks": [
+        {
+          "check": "开桌（POST /api/rooms）",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "room": "986521"
+          }
+        },
+        {
+          "check": "房主点「我准备好了」",
+          "pass": true,
+          "detail": null
+        },
+        {
+          "check": "四人准备完毕（「开始牌局」可点）",
+          "pass": true,
+          "detail": null
+        },
+        {
+          "check": "等待开局阶段自己席位出现「围观 1」",
+          "pass": true,
+          "detail": {
+            "seat": 3,
+            "tried": [
+              {
+                "seat": 0,
+                "badge": false
+              },
+              {
+                "seat": 1,
+                "badge": false
+              },
+              {
+                "seat": 2,
+                "badge": false
+              },
+              {
+                "seat": 3,
+                "badge": true
+              }
+            ]
+          }
+        },
+        {
+          "check": "徽标可见且文案为「1」",
+          "pass": true,
+          "detail": "1"
+        },
+        {
+          "check": "开局后徽标仍在",
+          "pass": true,
+          "detail": {
+            "count": 1
+          }
+        }
+      ],
+      "room": {
+        "id": 24,
+        "code": "986521"
+      },
+      "follow": {
+        "tried": [
+          {
+            "seat": 0,
+            "badge": false
+          },
+          {
+            "seat": 1,
+            "badge": false
+          },
+          {
+            "seat": 2,
+            "badge": false
+          },
+          {
+            "seat": 3,
+            "badge": true
+          }
+        ],
+        "seat": 3
+      },
+      "screenshot": "d:\\StevenLianData\\0301. Private Project\\gitData\\majiang\\plan\\v1.1.3-evidence\\v1.1.3-mobile-spectator-badge.png",
+      "screenshot_playing": "d:\\StevenLianData\\0301. Private Project\\gitData\\majiang\\plan\\v1.1.3-evidence\\v1.1.3-mobile-playing.png"
+    }
+  ],
+  "all_pass": true,
+  "ended_at": "2026-10-31 19:51:19"
+}

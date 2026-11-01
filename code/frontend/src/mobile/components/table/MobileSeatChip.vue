@@ -73,7 +73,13 @@ const scoreClass = computed(() => (props.seat.total_score >= 0 ? 'text-jade-400'
       {{ seat.display_name }}
       <Crown v-if="seat.is_host" class="h-3 w-3 shrink-0 text-gold-300" />
       <WifiOff v-if="!seat.connected" class="h-3 w-3 shrink-0 text-vermilion-400" />
-      <Eye v-if="(seat.spectator_count ?? 0) > 0" class="h-3 w-3 shrink-0 text-gold-400/70" />
+      <span
+        v-if="(seat.spectator_count ?? 0) > 0"
+        class="inline-flex shrink-0 items-center gap-0.5 text-[10px] text-gold-400/80"
+        :title="`${seat.spectator_count} 人正在围观`"
+      >
+        <Eye class="h-3 w-3" />{{ seat.spectator_count }}
+      </span>
     </p>
 
     <span class="shrink-0 text-[11px]" :class="scoreClass">
@@ -132,6 +138,14 @@ const scoreClass = computed(() => (props.seat.total_score >= 0 ? 'text-jade-400'
     <p class="text-[11px] font-semibold leading-none" :class="scoreClass">
       {{ seat.total_score > 0 ? '+' : '' }}{{ seat.total_score }}
     </p>
+    <!-- 上家/下家被围观人数（窄条里只放图标 + 数字） -->
+    <span
+      v-if="(seat.spectator_count ?? 0) > 0"
+      class="flex shrink-0 items-center gap-0.5 text-[9px] leading-none text-gold-400/80"
+      :title="`${seat.spectator_count} 人正在围观`"
+    >
+      <Eye class="h-2.5 w-2.5" />{{ seat.spectator_count }}
+    </span>
 
     <div class="flex min-h-0 flex-1 flex-col items-center gap-0.5 overflow-hidden pt-0.5">
       <div

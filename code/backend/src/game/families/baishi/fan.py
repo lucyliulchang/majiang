@@ -520,11 +520,12 @@ def chow_fans(chows: list[int]) -> list[FanHit]:
     if lao:
         hits.append(FanHit("lao_shao_fu", lao))
 
-    # 连6：同花色 123456 / 234567 / 456789
+    # 连6：同花色两副「数序相邻」的顺子，即起点差 3 的一对
+    # → 123456 / 234567 / 345678 / 456789（起点 rank 0/1/2/3）
     lian = 0
     for suit in range(3):
         base = suit * 9
-        for low, high in ((0, 3), (1, 4), (3, 6)):
+        for low, high in ((0, 3), (1, 4), (2, 5), (3, 6)):
             if base + low in pool and base + high in pool:
                 lian += 1
     if lian:

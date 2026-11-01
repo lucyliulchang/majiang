@@ -917,6 +917,20 @@ def test_case33e_lian_liu_needs_chow_structure(hand):
     assert "lian_liu" not in seven
 
 
+def test_case33f_lian_liu_middle_start(hand):
+    # 345678 万（345 + 678，起点 rank 2 / 5）同样是「两副数序相邻的顺子」→ 1 组
+    # （旧实现只枚举 123456/234567/456789，漏掉 345678，见 v1.1.3）
+    ids = ids_of(_eval(ctx_of(hand, "345678m234p678s55s", win_tile=5)))
+    assert ids["lian_liu"] == 1
+    assert "qing_long" not in ids and "hun_long" not in ids
+
+
+def test_case33g_lian_liu_requires_step3(hand):
+    # 123 + 234 万：起点差 1（相邻但不构成六连）→ 不判连6
+    ids = ids_of(_eval(ctx_of(hand, "123234m567p678s55s", win_tile=5)))
+    assert "lian_liu" not in ids
+
+
 # ---------------------------------------------------------------- 13.34 断幺
 
 
