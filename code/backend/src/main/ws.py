@@ -75,6 +75,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str = "", code: str = 
         rule_snapshot=meta["rule_snapshot"],
     )
 
+    # v1.1.4 U-6：每次（重）连刷新一次家庭角色缓存（60s TTL），
+    # 让快照的 `viewer.can_end_game` 与牌桌内「结束牌局」的权限判定有据可依。
+    # 放在锁外：只写 actor 的缓存字典，不碰座位/连接等临界状态。
+    await actor.refresh_role(user.login_id, user.display_name)
+
     display_name = user.display_name
     color = misc.stableColorOf(user.login_id)
     is_member = bool(meta.get("is_member"))

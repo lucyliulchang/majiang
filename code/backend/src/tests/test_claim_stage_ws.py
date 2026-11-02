@@ -281,3 +281,63 @@ async def test_ws_chow_rejects_illegal_pair_without_closing_window(hand):
         assert claimed is not None and claimed["data"]["tiles"] == [1, 2, 3]
     finally:
         actor._clear_timers()
+
+
+# ---------------------------------------------------------------- v1.1.4 B-2 重复张与提示
+# 座位 0 打 1 万；座位 1 手里 1万×2 + 2万 + 3万（现场反馈的那手牌）。
+CHOW_PONG_DUPLICATE_HANDS = {
+    0: "1m9m9m1p2p3p4p5p6p7p8p9p1s2s",
+    1: "11m23m1p2p3p4p5p6p7p",
+    2: "1p2p3p4p5p6p7p8p9p1s2s3s4s",
+    3: "1p2p3p4p5p6p7p8p9p1s2s3s4s",
+}
+
+
+async def test_ws_duplicate_tile_offers_pong_and_chow(hand):
+    """B-2：`1万1万2万3万` 遇 `1万` → 碰与吃同时在动作条，吃后副露 1万2万3万。"""
+    actor, sockets = build_actor()
+    try:
+        discarder, chower = await open_table(actor, hand, CHOW_PONG_DUPLICATE_HANDS)
+        await actor.handle(
+            discarder, {"type": "game.action", "data": {"action": "discard", "tiles": [0]}}
+        )
+
+        snapshot = sockets[chower].last("state.snapshot")["data"]
+        kinds = [item["action"] for item in snapshot["legal"]["actions"]]
+        assert "pong" in kinds and "chow" in kinds, f"应同时给碰与吃，实际 {kinds}"
+        assert [item["tiles"] for item in snapshot["legal"]["actions"] if item["action"] == "chow"] == [[1, 2]]
+        assert "chow_hint" not in snapshot["legal"], "可吃时不下发原因提示"
+
+        await actor.handle(
+            chower, {"type": "game.action", "data": {"action": "chow", "tiles": [1, 2]}}
+        )
+        claimed = sockets[chower].last("event.claimed")
+        assert claimed is not None and claimed["data"]["tiles"] == [0, 1, 2]
+        snapshot = sockets[chower].last("state.snapshot")["data"]
+        melds = snapshot["seats"][1]["melds"]
+        assert melds and melds[0]["kind"] == "chow" and melds[0]["tiles"] == [0, 1, 2]
+    finally:
+        actor._clear_timers()
+
+
+async def test_ws_chow_hint_reports_why_not_available(hand):
+    """非下家只能碰：快照 `legal.chow_hint` 说明「只有下家能吃」（B-2 可解释提示）。"""
+    hands = {
+        **CHOW_PONG_DUPLICATE_HANDS,
+        1: "1p2p3p4p5p6p7p8p9p1s2s3s4s",
+        2: "11m23m1p2p3p4p5p6p7p",
+    }
+    actor, sockets = build_actor()
+    try:
+        discarder, _chower = await open_table(actor, hand, hands)
+        third = actor.slots[2].login_id
+        await actor.handle(
+            discarder, {"type": "game.action", "data": {"action": "discard", "tiles": [0]}}
+        )
+
+        legal = sockets[third].last("state.snapshot")["data"]["legal"]
+        kinds = [item["action"] for item in legal["actions"]]
+        assert "chow" not in kinds and "pong" in kinds
+        assert legal["chow_hint"] == "只有下家能吃"
+    finally:
+        actor._clear_timers()

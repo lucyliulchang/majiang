@@ -271,8 +271,16 @@ const myTurnTimerVisible = computed(
 
 /** 房态口径与后端一致（`RoomActor.status`）：只要不是 waiting 就能收场，finished 是「关闭牌桌」 */
 const roomStatus = computed(() => game.snapshot?.status ?? 'waiting')
-const canEndGame = computed(() => game.isHost && roomStatus.value !== 'waiting')
+/**
+ * 权限由服务端能力位决定（v1.1.4 U-6）：房主 + 房间所属家庭的 OWNER/ADMIN，
+ * 且不要求入座（管理员观战也能收桌）。前端不再用 isHost 自行推导。
+ */
+const canEndGame = computed(() => game.canEndGame && roomStatus.value !== 'waiting')
 const endGameLabel = computed(() => (roomStatus.value === 'finished' ? '关闭牌桌' : '结束牌局'))
+/** 收桌人身份，用于确认弹层文案（管理员看到的不该是「只有房主」） */
+const endGameActorLabel = computed(() =>
+  game.memberRole === 'OWNER' || game.memberRole === 'ADMIN' ? '家庭管理员' : '房主'
+)
 
 const bottomView = computed(() => (isSpectator.value ? spectateTarget.value : mySeatView.value))
 const myMelds = computed(() => bottomView.value?.melds || [])
@@ -548,6 +556,7 @@ const dealerName = computed(() => {
         :chow-candidates="game.chowCandidates"
         :chow-valid="game.chowValid"
         :chow-hint="game.chowHint"
+        :chow-reason="game.chowReason"
         @act="onAct"
         @pass="onPass"
         @open-chow="openChow"
@@ -653,6 +662,7 @@ const dealerName = computed(() => {
       :finished="game.finished"
       :room-closed="game.roomClosed"
       :end-game-label="endGameLabel"
+      :end-game-actor-label="endGameActorLabel"
       :end-game-final="roomStatus === 'finished'"
       @exit="exitRoom"
       @approve="game.approveJoin"

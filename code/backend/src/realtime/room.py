@@ -23,6 +23,7 @@ from game.engine import EngineError, GameEngine, SeatState, draw_seats
 from game.families import registry
 from game.families.generic.config import CIRCLES_PER_GAME
 from game.tiles import tile_name
+from processor import familyService
 from realtime import persist
 from realtime.snapshot import build_snapshot, welcome_payload
 from schemas.rule import RuleConfig
@@ -67,6 +68,10 @@ FINAL_CLOSE_GRACE_SECONDS = 60
 # 这不是"出牌限时"，也不下发 claim_deadline（牌桌上不该出现倒计时压力）；
 # 只在整窗长时间无人响应时按"过"收窗，让牌局继续（04 §9.3）。
 CLAIM_SAFETY_SECONDS = 180
+
+# 家庭角色缓存有效期（v1.1.4 U-6）：握手/重连时刷新一次，快照与权限判定只读缓存，
+# 避免每次推送 `viewer.can_end_game` 都回查 `mj_family_member`。
+ROLE_CACHE_TTL = 60.0
 
 
 def _asPersistError(error: Exception) -> persist.PersistError:
@@ -185,6 +190,11 @@ class RoomActor:
         # 拒绝只作用于本次申请——重进会重新提交，房主误点也能改主意。
         self.approved: set[str] = set()
         self.pending: dict[str, dict] = {}
+
+        # 家庭角色缓存（v1.1.4 U-6）：loginID → (memberRole, displayName)。
+        # 只在握手/重连与权限判定时刷新，快照路径只读，避免每次推送都查库。
+        self._roles: dict[str, tuple[str, str]] = {}
+        self._roleAt: dict[str, float] = {}
 
     # ---------------------------------------------------------------- 座位与连接
     def slot_of_login(self, login_id: str) -> PlayerSlot | None:
@@ -445,6 +455,67 @@ class RoomActor:
             await self._release_spectate(login_id, broadcast=True)
             logger.info("观战名额保留到期释放 room=%s login=%s", self.code, login_id)
 
+    # ---------------------------------------------------------------- 家庭角色（U-6）
+    def role_of(self, login_id: str) -> str:
+        """读缓存里的家庭角色：`""`（未缓存/非成员）| OWNER | ADMIN | MEMBER。"""
+        entry = self._roles.get(login_id or "")
+        return entry[0] if entry else ""
+
+    def role_name_of(self, login_id: str, default: str = "") -> str:
+        """操作人展示名：优先座位昵称，其次握手时记下的账号昵称。"""
+        slot = self.slot_of_login(login_id)
+        if slot is not None:
+            return slot.display_name
+        entry = self._roles.get(login_id or "")
+        if entry and entry[1]:
+            return entry[1]
+        return default
+
+    def can_end_room(self, login_id: str) -> bool:
+        """本连接能否结束整场并收桌：房主或房间所属家庭的 OWNER/ADMIN（U-6）。
+
+        不要求入座：管理员观战也能收桌（与 HTTP `closeRoom` 同口径）。
+        """
+        if not login_id:
+            return False
+        if login_id == self.host_login_id:
+            return True
+        return self.role_of(login_id) in (
+            familyService.ROLE_OWNER,
+            familyService.ROLE_ADMIN,
+        )
+
+    async def refresh_role(
+        self, login_id: str, display_name: str = "", force: bool = False
+    ) -> str:
+        """刷新家庭角色缓存（TTL `ROLE_CACHE_TTL`）；查库失败按「无角色」处理。
+
+        刷新点只有三处：WS 握手、重连（每次 attach 前）、以及权限判定的冷缓存兜底，
+        快照/推送路径一律只读 `role_of`，不会把 DB 压力带到高频路径上。
+        """
+        login_id = (login_id or "").strip()
+        if not login_id:
+            return ""
+        now = time.time()
+        cached = self._roles.get(login_id)
+        if (
+            not force
+            and cached is not None
+            and now - self._roleAt.get(login_id, 0.0) < ROLE_CACHE_TTL
+        ):
+            if display_name and not cached[1]:
+                self._roles[login_id] = (cached[0], display_name)
+            return cached[0]
+        role = ""
+        if self.family_id > 0:
+            role = str(
+                await self._persist(familyService.familyRoleOf, self.family_id, login_id)
+                or ""
+            )
+        self._roles[login_id] = (role, display_name or (cached[1] if cached else ""))
+        self._roleAt[login_id] = now
+        return role
+
     # ---------------------------------------------------------------- 落库（线程池）
     async def _persist(self, func, *args, required: bool = False):
         """把同步落库丢进线程池。
@@ -675,6 +746,11 @@ class RoomActor:
             return
         async with self.lock:
             if msg_type == "state.resync":
+                # 客户端主动要快照时顺带按 TTL 校正角色（U-6）：60s 内命中缓存不查库
+                slot = self.slot_of_login(login_id)
+                await self.refresh_role(
+                    login_id, slot.display_name if slot else "", force=False
+                )
                 await self.push_all()
             elif msg_type == "spectate.target":
                 await self.set_spectate_target(login_id, data.get("seat"))
@@ -1036,9 +1112,11 @@ class RoomActor:
         self._schedule_close()
 
     async def _end_game(self, login_id: str) -> None:
-        """`game.finish`：开桌的人可以结束本场（不必等打满 `circles_per_game` 圈）。幂等。
+        """`game.finish`：房主或房间所属家庭的 OWNER/ADMIN 结束本场并收桌（幂等）。
 
-        家庭局的现实：有人要走、时间不够时，房主一句话就能收摊，而不是拖着继续打。
+        v1.1.4 U-6：权限口径与 HTTP 关房（`roomService.closeRoom`）统一到
+        `familyService.isFamilyAdmin`，且**不要求入座**——管理员观战也能收桌。
+        家庭局的现实：有人要走、时间不够时，一句话就能收摊，而不是拖着继续打。
         已打完的局与积分全部保留，只有正在进行的这一局作废。四种状态各自的口径：
           - `playing`：正常收场（场次 ABORTED）→ 落库 CLOSED → shutdown；
           - `finished`：自然打满后再点一次 "关闭牌桌" —— 幂等收摊成功，不报错；
@@ -1046,12 +1124,17 @@ class RoomActor:
           - `waiting`：没有牌局可结束，提示回大厅关桌。
         """
         slot = self.slot_of_login(login_id)
-        if slot is None:
-            await self.send_error(login_id, "NO_SEAT", "你在观战，不能结束牌局")
+        # 冷缓存兜底：握手已刷过一次，这里只在缺失/超过 TTL 时补查，正常路径不查库
+        await self.refresh_role(login_id, slot.display_name if slot else "")
+        if not self.can_end_room(login_id):
+            await self.send_error(login_id, "FORBIDDEN", "只有房主或家庭管理员可以结束牌局")
             return
-        if login_id != self.host_login_id:
-            await self.send_error(login_id, "NOT_HOST", "只有开桌的人可以结束牌局")
-            return
+
+        is_host = login_id == self.host_login_id
+        operator_name = self.role_name_of(login_id, "管理员")
+        # 播报区分身份：管理员（非房主）收桌时带上「（管理员）」，让全桌知道谁关了桌子
+        operator_label = operator_name if is_host else f"{operator_name}（管理员）"
+
         if self.finalized or self.status in ("finished", "closed"):
             # 已经收场：幂等成功（重复点击、3s 超时兜底都会走到这里）
             try:
@@ -1066,12 +1149,12 @@ class RoomActor:
             return
         # 先标记收场：万一落库失败，重试也不会被上面的状态守卫挡住（幂等可重试）
         self.finalized = True
-        await self.system_chat(f"{slot.display_name} 结束了本场牌局")
-        await self._abort_game(slot)
+        await self.system_chat(f"{operator_label} 结束了本场牌局")
+        await self._abort_game(slot, login_id=login_id, operator_name=operator_name)
         try:
             await self._close_room(login_id)
         except persist.PersistError:
-            # 内存已收场、库里仍 OPEN：给房主一条明确的失败提示（前端不跳转，可重试）
+            # 内存已收场、库里仍 OPEN：给操作人一条明确的失败提示（前端不跳转，可重试）
             await self.send_error(login_id, "CLOSE_FAILED", "关房失败，请在大厅重试")
 
     # ---------------------------------------------------------------- 关房（唯一出口）
@@ -1165,11 +1248,19 @@ class RoomActor:
         room_manager.remove(self.code)
         logger.info("关房 room=%s by=%s", self.code, operator_login_id or "system")
 
-    async def _abort_game(self, slot: PlayerSlot) -> None:
+    async def _abort_game(
+        self,
+        slot: PlayerSlot | None,
+        login_id: str = "",
+        operator_name: str = "",
+    ) -> None:
         """提前收场：落库 ABORTED → 广播整场结算 → 房态清空。
 
         清掉半局的 engine 而不是留成 `finished`：`finished` 会让重新进桌的家人
         看到一副打了一半又没人能动的牌。随后由 `_close_room` 关房销毁演员。
+
+        `slot` 为 None 表示操作人不在座（U-6：管理员观战收桌），此时结算面板用
+        `login_id` / `operator_name` 标识操作人，`ended_by_seat` 为 None。
         """
         self._clear_timers()
         self.turn_deadline = None
@@ -1190,7 +1281,8 @@ class RoomActor:
             await self._persist(
                 persist.close_game if settled else persist.abort_game, self.game_id
             )
-        logger.info("提前收场 room=%s game=%s by=%s", self.code, self.game_id, slot.login_id)
+        operator = login_id or (slot.login_id if slot is not None else "")
+        logger.info("提前收场 room=%s game=%s by=%s", self.code, self.game_id, operator)
 
         self.status = "waiting"
         self.engine = None
@@ -1210,8 +1302,13 @@ class RoomActor:
                 {
                     "scores": scores,
                     "aborted": True,
-                    "ended_by_seat": slot.seat,
-                    "ended_by_name": slot.display_name,
+                    # 观战管理员收桌时没有座位：ended_by_seat=None，只给昵称
+                    "ended_by_seat": slot.seat if slot is not None else None,
+                    "ended_by_name": (
+                        slot.display_name
+                        if slot is not None
+                        else (operator_name or self.role_name_of(operator, "管理员"))
+                    ),
                 },
             )
         )

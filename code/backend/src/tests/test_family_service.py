@@ -854,3 +854,40 @@ def test_bootstrap_family_is_idempotent(db, monkeypatch):
 
     pref = db.rows("SELECT * FROM mj_user_pref WHERE loginID = ?", (OWNER,))
     assert int(pref[0]["lastFamilyID"]) == first["familyID"]
+
+
+# ---------------------------------------------------------------- 管理员判定（v1.1.4 U-6）
+
+
+def test_is_family_admin_matrix(client, db):
+    """收桌权限的唯一口径：OWNER/ADMIN 放行，MEMBER/停用/非成员一律拒绝。
+
+    这条函数同时被 HTTP `roomService.closeRoom` 与 WS `RoomActor._end_game` 调用，
+    因此这里锁死角色矩阵，避免两处再各自拼判定。
+    """
+    create_family(client)
+    add_member(client, OWNER, ADMIN, "ADMIN")
+    add_member(client, OWNER, MEMBER, "MEMBER")
+    familyID = int(family_row(db)["recID"])
+
+    assert familyService.familyRoleOf(familyID, OWNER) == familyService.ROLE_OWNER
+    assert familyService.familyRoleOf(familyID, ADMIN) == familyService.ROLE_ADMIN
+    assert familyService.familyRoleOf(familyID, MEMBER) == familyService.ROLE_MEMBER
+
+    assert familyService.isFamilyAdmin(familyID, OWNER) is True
+    assert familyService.isFamilyAdmin(familyID, ADMIN) is True
+    assert familyService.isFamilyAdmin(familyID, MEMBER) is False
+    assert familyService.isFamilyAdmin(familyID, OUTSIDER) is False
+
+    # 非法入参按「无角色」处理：实时层冷缓存兜底时不能抛异常
+    assert familyService.familyRoleOf(0, OWNER) == ""
+    assert familyService.familyRoleOf(familyID, "") == ""
+    assert familyService.isFamilyAdmin(familyID, "") is False
+
+    # 停用/退出的成员即便还挂着 ADMIN 角色也不算管理员
+    db.executeWrite(
+        "UPDATE mj_family_member SET memberStatus = 'DISABLED'"
+        " WHERE familyID = ? AND loginID = ?",
+        (familyID, ADMIN),
+    )
+    assert familyService.isFamilyAdmin(familyID, ADMIN) is False

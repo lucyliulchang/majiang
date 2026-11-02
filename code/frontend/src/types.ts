@@ -243,6 +243,18 @@ export interface SeatView {
   spectator_count?: number
 }
 
+/**
+ * 本连接的能力位（v1.1.4 U-6）：由服务端在快照里算好，前端不再用 `seats[].is_host` 自行推导。
+ * 旧后端不下发该字段时按房主口径回退（`stores/game.ts` 的 `canEndGame`）。
+ */
+export interface ViewerCapability {
+  is_host: boolean
+  /** 房间所属家庭的 ACTIVE 角色：'' | OWNER | ADMIN | MEMBER（外家庭成员恒为 ''） */
+  member_role: string
+  /** 能否结束整场并收桌：房主或家庭 OWNER/ADMIN，不要求入座 */
+  can_end_game: boolean
+}
+
 /** 观战视角：同一时刻只跟随 1 名在座玩家（S5b） */
 export interface SpectateView {
   target_seat: number | null
@@ -317,6 +329,8 @@ export interface Snapshot {
     name?: string
   }
   self_seat: number | null
+  /** 本连接的能力位（v1.1.4 U-6，可选：旧后端不下发时前端回退 isHost） */
+  viewer?: ViewerCapability
   /** 在座玩家恒为 null；观战者已选目标时有值 */
   spectate: SpectateView | null
   /** 房主专属：等待确认的进桌申请（其他人恒为空数组） */
@@ -347,7 +361,17 @@ export interface Snapshot {
   wall_count: number
   discards: number[][]
   last_discard: { seat: number; tile: number } | null
-  legal: { actions: LegalAction[]; claim_tile?: number; claim_from?: number; reason?: string }
+  legal: {
+    actions: LegalAction[]
+    claim_tile?: number
+    claim_from?: number
+    reason?: string
+    /**
+     * 「为什么不能吃」（v1.1.4 B-2，可选）：可吃时不下发；服务端算原因、前端只展示，
+     * 如「只有下家能吃」「这两张牌凑不成顺子」「字牌不能吃」。
+     */
+    chow_hint?: string
+  }
   tenpai: Record<string, number[]>
   deadline: number | null
   claim_deadline: number | null

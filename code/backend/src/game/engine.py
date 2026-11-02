@@ -20,6 +20,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
+from common.loggingCommon import get_logger
 from game.claims import ClaimWindow, chow_options, chow_tiles, is_chow
 from game.fan import ScoreBreakdown, best_win
 from game.hand import HandContext, Meld, lack_suit_satisfied
@@ -39,6 +40,15 @@ MAX_ROUNDS = 4
 #: 每家每轮 4 张（2 墩），共发 3 轮
 DEAL_TILES_PER_PASS = 4
 DEAL_PASSES = 3
+
+logger = get_logger("mahjong.engine")
+
+# 「为什么不能吃」的可解释提示（v1.1.4 B-2，04 §9.5 `legal.chow_hint`）：
+# 服务端算原因、前端只展示，避免玩家把「非下家」误判成「吃牌坏了」。
+CHOW_HINT_NOT_NEXT_SEAT = "只有下家能吃"
+CHOW_HINT_NO_RUN = "这两张牌凑不成顺子"
+CHOW_HINT_HONOR_TILE = "字牌不能吃"
+CHOW_HINT_DISABLED = "本桌规则不允许吃"
 
 
 class EngineError(Exception):
@@ -521,13 +531,18 @@ class GameEngine:
     # ------------------------------------------------------------------ 查询
     def legal_actions(self, seat: int) -> dict:
         if self.phase == "claim" and self.claim and seat in self.claim.options:
-            return {
+            payload = {
                 # 两段式（04 §9.5）：可胡时先只给 hu/pass，过胡后才补发吃碰杠
                 "actions": self.claim.available(seat),
                 "claim_tile": self.claim.tile,
                 "claim_from": self.claim.from_seat,
                 "reason": self.claim.reason,
             }
+            hint = self._chow_hint(seat)
+            if hint:
+                # 可选字段：可吃时不下发，旧前端忽略即可（v1.1.4 B-2）
+                payload["chow_hint"] = hint
+            return payload
         if self.phase == "discard" and seat == self.turn:
             actions: list[dict] = [{"action": "discard"}]
             if self.evaluate_win(self._ctx(seat, win_tile=self.last_draw)) is not None:
@@ -535,6 +550,76 @@ class GameEngine:
             actions.extend(self._self_kong_options(seat))
             return {"actions": actions}
         return {"actions": []}
+
+    def _chow_hint(self, seat: int) -> str:
+        """本座位「为什么不能吃」（v1.1.4 B-2）：可吃或不属于本窗口时返回空串。
+
+        只在询问窗口内、明确不可能给吃时下发，前端原样展示，不做规则判断。
+        """
+        window = self.claim
+        if window is None or window.reason != "discard":
+            return ""
+        actions = window.options.get(seat) or ()
+        if any(option.get("action") == "chow" for option in actions):
+            return ""
+        if not getattr(self.rule, "allow_chow", True):
+            return CHOW_HINT_DISABLED
+        if window.tile >= 27:
+            return CHOW_HINT_HONOR_TILE
+        if seat != (window.from_seat + 1) % 4:
+            return CHOW_HINT_NOT_NEXT_SEAT
+        return CHOW_HINT_NO_RUN
+
+    def _log_claim_window(
+        self,
+        tile: int,
+        from_seat: int,
+        options: dict[int, list[dict]],
+        reason: str,
+    ) -> None:
+        """开窗取证（v1.1.4 B-2）：只记动作名，不落手牌明细，避免牌面泄露到日志。
+
+        「本可吃却没给吃」用 `吃牌未下发 … reason=` 标注原因：
+        `chow_disabled`（本桌不允许吃）/ `not_next_seat`（不是下家）/ `no_partner`（凑不成顺子）。
+        """
+        next_seat = (from_seat + 1) % 4
+        allow_chow = bool(getattr(self.rule, "allow_chow", True))
+        logger.info(
+            "开窗 round=%s reason=%s from=%s tile=%s allow_chow=%s next=%s options=%s",
+            self.round_no,
+            reason,
+            from_seat,
+            tile,
+            allow_chow,
+            next_seat,
+            {
+                seat: [option.get("action") for option in actions]
+                for seat, actions in options.items()
+            },
+        )
+        if reason != "discard":
+            return
+        for seat, actions in options.items():
+            kinds = [option.get("action") for option in actions]
+            if "chow" in kinds:
+                continue
+            if not allow_chow:
+                skipped = "chow_disabled"
+            elif tile >= 27:
+                skipped = "honor_tile"
+            elif seat != next_seat:
+                skipped = "not_next_seat"
+            else:
+                skipped = "no_partner"
+            logger.info(
+                "吃牌未下发 round=%s from=%s tile=%s seat=%s reason=%s actions=%s",
+                self.round_no,
+                from_seat,
+                tile,
+                seat,
+                skipped,
+                kinds,
+            )
 
     def _self_kong_options(self, seat: int) -> list[dict]:
         state = self.seat_state(seat)
@@ -739,6 +824,7 @@ class GameEngine:
                 options[seat] = actions
         if not options:
             return None
+        self._log_claim_window(tile, from_seat, options, reason)
         return ClaimWindow(tile=tile, from_seat=from_seat, options=options, reason=reason)
 
     def _claim_response(self, seat: int, action: dict) -> list[dict]:

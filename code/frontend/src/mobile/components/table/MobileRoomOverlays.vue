@@ -18,6 +18,8 @@ const props = defineProps<{
   roomClosed: boolean
   /** 结束确认的按钮文案：进行中是「结束牌局」，打满后是「关闭牌桌」（B-1） */
   endGameLabel?: string
+  /** 收桌人身份（v1.1.4 U-6）：房主 / 家庭管理员，只影响提示文案 */
+  endGameActorLabel?: string
   /** true = 本场已打满（房间即将/已经 CLOSED），确认文案换成"关闭牌桌"口径 */
   endGameFinal?: boolean
 }>()
@@ -105,6 +107,9 @@ const emit = defineEmits<{
     <div class="w-full max-w-sm rounded-2xl border border-vermilion-500/35 bg-felt-900/95 p-5 text-center">
       <p class="text-[10px] tracking-[0.3em] text-vermilion-400/80">END GAME</p>
       <h2 class="mt-1.5 text-lg font-semibold text-cream-100">{{ props.endGameLabel || '结束牌局' }}？</h2>
+      <p class="mt-1 text-[11px] text-ink-300/60">
+        {{ props.endGameActorLabel || '房主' }}操作：房主与家庭管理员都可以结束本场
+      </p>
       <p v-if="props.endGameFinal" class="mt-2 text-left text-[12px] leading-relaxed text-ink-300/80">
         本场已经打完，每一局的积分都已入库。关闭后这桌会立刻从大厅消失。
       </p>

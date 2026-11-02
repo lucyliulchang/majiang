@@ -30,7 +30,10 @@ const props = defineProps<{
   /** 本局局风 0 东 / 1 南 / 2 西 / 3 北（04 §9.5 的 round_wind） */
   roundWind?: number | null
   dealerName?: string | null
-  /** 开桌的人且牌局进行中时，顶栏多一个「结束牌局」入口（提前收场） */
+  /**
+   * 能否收桌（v1.1.4 U-6）：房主或房间所属家庭的 OWNER/ADMIN，且牌局不在 waiting。
+   * 由服务端快照 `viewer.can_end_game` 决定，组件不做权限推导。
+   */
   canEndGame?: boolean
   /** 按钮文案：进行中是「结束牌局」，打满后是「关闭牌桌」（B-1） */
   endGameLabel?: string

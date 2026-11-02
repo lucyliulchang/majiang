@@ -6,7 +6,15 @@ import { closeSocket, openSocket, sendMessage, setMessageHandler, setStatusHandl
 import { notifyConnectionRestored, preloadSounds, preloadVoices, stopAll } from '../audio/audioManager'
 import { handleSoundEvent, handleSoundMessage, resetGameSounds } from '../audio/useGameSounds'
 import { useToast } from '../composables/useToast'
-import type { ChatMessage, JoinRequest, LegalAction, SeatView, Snapshot, SpectateView } from '../types'
+import type {
+  ChatMessage,
+  JoinRequest,
+  LegalAction,
+  SeatView,
+  Snapshot,
+  SpectateView,
+  ViewerCapability
+} from '../types'
 import { isLegalChow } from '../utils/chow'
 import { tileName, tilesName } from '../utils/tile'
 
@@ -90,6 +98,19 @@ export const useGameStore = defineStore('game', () => {
   const ruleBrief = computed(() => snapshot.value?.room?.rule_brief ?? null)
   const result = computed(() => snapshot.value?.result ?? null)
   const isHost = computed(() => Boolean(snapshot.value && mySeatView.value?.is_host))
+  /**
+   * 本连接的能力位（v1.1.4 U-6）：服务端在快照里算好「能否结束整场并收桌」，
+   * 包含房主 + 房间所属家庭的 OWNER/ADMIN（不要求入座）。
+   * 旧后端不下发 `viewer` 时回退到 `isHost`，保证混部期间行为不退化。
+   */
+  const viewer = computed<ViewerCapability | null>(() => snapshot.value?.viewer ?? null)
+  const canEndGame = computed(() =>
+    viewer.value ? Boolean(viewer.value.can_end_game) : isHost.value
+  )
+  /** 本连接在房间所属家庭的角色：'' | OWNER | ADMIN | MEMBER（仅展示用） */
+  const memberRole = computed(() => viewer.value?.member_role ?? '')
+  /** 「为什么不能吃」（v1.1.4 B-2）：服务端算原因，可吃时为空串 */
+  const chowReason = computed(() => snapshot.value?.legal?.chow_hint ?? '')
   const isMyTurn = computed(
     () => selfSeat.value !== null && turn.value === selfSeat.value && phase.value === 'discard'
   )
@@ -482,11 +503,11 @@ export const useGameStore = defineStore('game', () => {
   }
 
   /**
-   * 回大厅：房主在房间还没关掉时先幂等调一次关房接口（已 CLOSED 就是 0 行更新），
-   * 其他人直接退——他们没关房权限，别弹 FORBIDDEN。
+   * 回大厅：有收桌权限的人（房主或家庭管理员）在房间还没关掉时先幂等调一次关房接口
+   * （已 CLOSED 就是 0 行更新），其他人直接退——他们没关房权限，别弹 FORBIDDEN。
    */
   async function exitToLobby(): Promise<void> {
-    if (!roomClosed.value && isHost.value) await closeRoomByApi(true)
+    if (!roomClosed.value && canEndGame.value) await closeRoomByApi(true)
     leaveRoom()
   }
 
@@ -565,6 +586,10 @@ export const useGameStore = defineStore('game', () => {
     ruleBrief,
     result,
     isHost,
+    viewer,
+    canEndGame,
+    memberRole,
+    chowReason,
     isMyTurn,
     everyoneReady,
     tenpai,

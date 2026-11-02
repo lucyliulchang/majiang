@@ -194,19 +194,125 @@ async def test_host_can_end_game_early(s5_env):
         mysqlCommon.update_mj_room(mysqlCommon.MJ_ROOM_TABLE, actor.room_id, {"roomStatus": "OPEN"})
 
 
-async def test_non_host_cannot_end_game(s5_env):
+async def _start_full_table(actor, s5_env) -> None:
+    for loginID in s5_env["members"]:
+        await actor.handle(loginID, {"type": "seat.ready", "data": {}})
+    await actor.handle(s5_env["owner"], {"type": "game.start", "data": {}})
+    assert actor.engine is not None and actor.status == "playing"
+
+
+def _setRole(s5_env, loginID: str, role: str) -> None:
+    """把家庭成员角色改成 role（U-6 用例自建，结束时由调用方还原为 MEMBER）。"""
+    row = mysqlCommon.query_mj_family_member(s5_env["family_id"], loginID)
+    assert row, f"{loginID} 不是该家庭成员"
+    affected = mysqlCommon.update_mj_family_member_by_id(
+        s5_env["family_id"], int(row["recID"]), {"memberRole": role}
+    )
+    assert affected >= 0
+
+
+def _restoreRoom(actor) -> None:
+    mysqlCommon.update_mj_room(
+        mysqlCommon.MJ_ROOM_TABLE, actor.room_id, {"roomStatus": "OPEN"}
+    )
+
+
+async def test_family_member_cannot_end_game(s5_env):
+    """U-6：普通成员既不是房主也不是管理员 → FORBIDDEN，牌局照常进行。"""
     actor, sockets = build_actor(s5_env)
-    owner = s5_env["owner"]
     guest = s5_env["members"][1]
     try:
-        for loginID in s5_env["members"]:
-            await actor.handle(loginID, {"type": "seat.ready", "data": {}})
-        await actor.handle(owner, {"type": "game.start", "data": {}})
+        await _start_full_table(actor, s5_env)
         await actor.handle(guest, {"type": "game.finish", "data": {}})
         error = sockets[guest].last("error")
         assert error is not None
-        assert error["data"]["code"] == "NOT_HOST"
+        assert error["data"]["code"] == "FORBIDDEN"
         assert actor.engine is not None
+        assert actor.status == "playing"
+    finally:
+        actor._clear_timers()
+
+
+async def test_family_admin_can_end_game(s5_env):
+    """U-6：家庭 ADMIN 在座也能收桌，与房主同效（场次 ABORTED + 房间 CLOSED）。"""
+    actor, sockets = build_actor(s5_env)
+    admin = s5_env["members"][1]
+    _setRole(s5_env, admin, "ADMIN")
+    try:
+        await _start_full_table(actor, s5_env)
+        seat = actor.seat_of_login(admin)
+        gameID = actor.game_id
+        assert gameID
+
+        await actor.handle(admin, {"type": "game.finish", "data": {}})
+
+        finished = sockets[admin].last("event.game_finished")
+        assert finished is not None and finished["data"]["aborted"] is True
+        assert finished["data"]["ended_by_seat"] == seat
+        # 系统播报区分身份，让全桌知道是管理员收的桌
+        chats = [
+            message["data"].get("content", "")
+            for message in sockets[admin].messages
+            if message["type"] == "chat.message"
+        ]
+        assert any("（管理员） 结束了本场牌局" in text for text in chats), chats
+        assert actor.status == "closed" and actor.closed is True
+        assert mysqlCommon.query_mj_game_by_id(gameID)["gameStatus"] == "ABORTED"
+        assert mysqlCommon.query_mj_room_by_id(actor.room_id)["roomStatus"] == "CLOSED"
+    finally:
+        actor._clear_timers()
+        _restoreRoom(actor)
+        _setRole(s5_env, admin, "MEMBER")
+
+
+async def test_spectator_admin_can_end_game(s5_env):
+    """U-6：管理员不要求入座——观战也能收桌（ended_by_seat=None）。"""
+    actor, sockets = build_actor(s5_env)
+    admin = s5_env["members"][2]
+    _setRole(s5_env, admin, "ADMIN")
+    try:
+        await _start_full_table(actor, s5_env)
+        # 把管理员挪成观战：清掉座位（等价于他从座位离开后以观战身份重连）
+        seat = actor.seat_of_login(admin)
+        actor.slots[seat] = None
+        assert actor.slot_of_login(admin) is None
+
+        await actor.handle(admin, {"type": "game.finish", "data": {}})
+
+        finished = sockets[admin].last("event.game_finished")
+        assert finished is not None and finished["data"]["aborted"] is True
+        assert finished["data"]["ended_by_seat"] is None
+        assert finished["data"]["ended_by_name"]
+        assert actor.closed is True
+        assert mysqlCommon.query_mj_room_by_id(actor.room_id)["roomStatus"] == "CLOSED"
+    finally:
+        actor._clear_timers()
+        _restoreRoom(actor)
+        _setRole(s5_env, admin, "MEMBER")
+
+
+async def test_outsider_with_code_cannot_end_game(s5_env):
+    """U-6：凭码进桌的外家庭成员没有 memberRole → 即使入座也不能收桌。"""
+    from processor import accountService
+
+    outsider = "13800000009"
+    accountService.ensureUserBasic(outsider)
+    actor, sockets = build_actor(s5_env)
+    try:
+        await _start_full_table(actor, s5_env)
+        # 直接把外家庭成员塞进一个座位（模拟凭码入座），权限仍应为拒绝
+        slot = actor.slots[3]
+        assert slot is not None
+        slot.login_id = outsider
+        actor.conns.setdefault(outsider, [])
+        ws = FakeWS()
+        sockets[outsider] = ws
+        actor.attach(outsider, ws)
+        actor.approved.add(outsider)
+
+        await actor.handle(outsider, {"type": "game.finish", "data": {}})
+        error = sockets[outsider].last("error")
+        assert error is not None and error["data"]["code"] == "FORBIDDEN"
         assert actor.status == "playing"
     finally:
         actor._clear_timers()

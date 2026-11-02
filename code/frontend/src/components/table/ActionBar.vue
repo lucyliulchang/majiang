@@ -25,6 +25,11 @@ const props = withDefaults(
     chowValid?: boolean
     /** 选牌提示（还差几张 / 这两张不成顺子） */
     chowHint?: string
+    /**
+     * 「为什么不能吃」（v1.1.4 B-2）：服务端下发的 `legal.chow_hint`，可吃时为空。
+     * 例如「只有下家能吃」「这两张牌凑不成顺子」——把规则讲给玩家，避免误判成吃牌坏了。
+     */
+    chowReason?: string
   }>(),
   {
     claimTile: null,
@@ -34,7 +39,8 @@ const props = withDefaults(
     chowPicks: () => [],
     chowCandidates: () => [],
     chowValid: false,
-    chowHint: ''
+    chowHint: '',
+    chowReason: ''
   }
 )
 
@@ -154,6 +160,11 @@ function runOf(tiles: number[]): number[] {
         <Tile :tile="claimTile as number" size="sm" highlight />
         <span class="text-sm text-cream-100">{{ tileName(claimTile as number) }}</span>
       </div>
+
+      <!-- 不能吃的原因（v1.1.4 B-2）：服务端算、前端只展示，桌面与手机同款 -->
+      <span v-if="chowReason" class="whitespace-nowrap text-[13px] text-ink-300/80">
+        {{ chowReason }}
+      </span>
 
       <button
         v-if="hu"

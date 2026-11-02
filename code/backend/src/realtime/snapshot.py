@@ -92,6 +92,14 @@ def build_snapshot(actor, viewer_seat: int | None, viewer_login_id: str = "") ->
         "room": _room_view(actor),
         "self_seat": viewer_seat,
         "spectate": spectate,
+        # 本连接的能力位（v1.1.4 U-6）：前端不再用 seats[].is_host 自行推导「能否收桌」。
+        # member_role 只反映房间所属家庭的 ACTIVE 角色（"" | OWNER | ADMIN | MEMBER），
+        # 非本家庭成员凭码进桌恒为空串。`room` 段是欢迎包共用的，因此放快照顶层。
+        "viewer": {
+            "is_host": bool(viewer_login_id) and viewer_login_id == actor.host_login_id,
+            "member_role": actor.role_of(viewer_login_id),
+            "can_end_game": actor.can_end_room(viewer_login_id),
+        },
         # 房主专属：非本家庭成员凭码申请进桌，等房主在牌桌上确认（S10）
         "join_requests": (
             actor.pending_requests() if viewer_login_id == actor.host_login_id else []

@@ -3,7 +3,14 @@
 import pytest
 
 from game.claims import chow_options
-from game.engine import EngineError
+from game.engine import (
+    CHOW_HINT_HONOR_TILE,
+    CHOW_HINT_NO_RUN,
+    CHOW_HINT_NOT_NEXT_SEAT,
+    EngineError,
+    SeatState,
+)
+from game.families import registry
 from game.hand import Meld
 from game.tiles import counts_from_tiles
 from game.families.generic.config import KongScore, RuleConfig
@@ -501,3 +508,90 @@ def test_chow_pass_keeps_game_going(engine_factory, hand):
     assert engine.turn == 1
     assert engine.seats[1].melds == []
     assert engine.seats[0].discards == [DISCARD_4M], "过掉的牌留在牌河里"
+
+
+# ---------------------------------------------------------------- v1.1.4 B-2 重复张与吃牌提示
+# 现场反馈：柏氏 + 手里 `1万 1万 2万 3万`，上家打 `1万`，动作条只有碰/杠/胡/过。
+# 键位：1 万 = 0、2 万 = 1、3 万 = 2。
+DISCARD_1M = 0
+# 座位 0（上家）打 1 万；座位 1（下家）手里 1万×2 + 2万 + 3万 → 碰（1万×2）与吃（2万3万）都成立
+CHOW_PONG_HANDS = {
+    0: "1m9m9m1p2p3p4p5p6p7p8p9p1s2s",
+    1: "11m23m1p2p3p4p5p6p7p",
+    2: "1p2p3p4p5p6p7p8p9p1s2s3s4s",
+    3: "1p2p3p4p5p6p7p8p9p1s2s3s4s",
+}
+# 同一手牌摆给非下家（座位 2）：只能碰，不能吃
+CHOW_PONG_HANDS_SEAT2 = {**CHOW_PONG_HANDS, 1: "1p2p3p4p5p6p7p8p9p1s2s3s4s", 2: "11m23m1p2p3p4p5p6p7p"}
+# 下家但手里没有 2/3 万：凑不成顺子
+CHOW_PONG_HANDS_NO_RUN = {**CHOW_PONG_HANDS, 1: "11m59m1p2p3p4p5p6p7p"}
+
+
+def _family_engine(family: str) -> object:
+    """按族取引擎（`baishi` 走族注册表，族自检未过时 registry 会直接拒绝）。"""
+    seats = [
+        SeatState(seat=i, login_id=f"1380000000{i}", display_name=f"玩家{i}", color="#C9A063")
+        for i in range(4)
+    ]
+    if family == "baishi":
+        from game.families.baishi.config import RuleConfig as BaishiRule
+
+        return registry.create_engine("baishi", BaishiRule(), seats)
+    return registry.create_engine("generic", RuleConfig(), seats)
+
+
+@pytest.mark.parametrize("family", ["generic", "baishi"])
+def test_duplicate_discard_tile_offers_pong_and_chow(hand, family):
+    """B-2 回归：手里有被吃牌的重复张时，碰与吃必须同时下发（通用/柏氏同口径）。"""
+    engine = prepare(_family_engine(family), hand, CHOW_PONG_HANDS)
+    engine.apply_action(0, {"action": "discard", "tiles": [DISCARD_1M]})
+    assert engine.phase == "claim" and engine.claim is not None
+
+    legal = engine.legal_actions(1)
+    kinds = [item["action"] for item in legal["actions"]]
+    assert "pong" in kinds, f"{family}：手里两张 1 万应能碰，实际 {kinds}"
+    assert "chow" in kinds, f"{family}：1万1万2万3万 遇 1 万应能吃，实际 {kinds}"
+    assert [item["tiles"] for item in legal["actions"] if item["action"] == "chow"] == [[1, 2]]
+    # 可吃时不下发「为什么不能吃」的提示
+    assert "chow_hint" not in legal
+
+    engine.apply_action(1, {"action": "chow", "tiles": [1, 2]})
+    meld = engine.seats[1].melds[-1]
+    assert meld.kind == "chow" and meld.tiles == [0, 1, 2], "吃成的副露应是 1万2万3万"
+
+
+def test_chow_hint_says_only_next_seat_can_chow(engine_factory, hand):
+    """非下家只能碰：`legal.chow_hint` 直接说明「只有下家能吃」（B-2 可解释提示）。"""
+    engine = prepare(engine_factory(), hand, CHOW_PONG_HANDS_SEAT2)
+    engine.apply_action(0, {"action": "discard", "tiles": [DISCARD_1M]})
+
+    legal = engine.legal_actions(2)
+    kinds = [item["action"] for item in legal["actions"]]
+    assert "chow" not in kinds and "pong" in kinds
+    assert legal["chow_hint"] == CHOW_HINT_NOT_NEXT_SEAT
+
+
+def test_chow_hint_says_no_run_when_partners_missing(engine_factory, hand):
+    """下家但手里没有 2/3 万：提示「这两张牌凑不成顺子」。"""
+    engine = prepare(engine_factory(), hand, CHOW_PONG_HANDS_NO_RUN)
+    engine.apply_action(0, {"action": "discard", "tiles": [DISCARD_1M]})
+
+    legal = engine.legal_actions(1)
+    assert "chow" not in [item["action"] for item in legal["actions"]]
+    assert legal["chow_hint"] == CHOW_HINT_NO_RUN
+
+
+def test_chow_hint_marks_honor_tile(engine_factory, hand):
+    """字牌被吃不可能成顺：提示「字牌不能吃」，而不是含糊的「凑不成顺子」。"""
+    hands = {
+        0: "1z9m9m1p2p3p4p5p6p7p8p9p1s2s",
+        1: "11z23m1p2p3p4p5p6p7p",
+        2: "1p2p3p4p5p6p7p8p9p1s2s3s4s",
+        3: "1p2p3p4p5p6p7p8p9p1s2s3s4s",
+    }
+    engine = prepare(engine_factory(), hand, hands)
+    engine.apply_action(0, {"action": "discard", "tiles": [27]})
+
+    legal = engine.legal_actions(1)
+    assert "chow" not in [item["action"] for item in legal["actions"]]
+    assert legal["chow_hint"] == CHOW_HINT_HONOR_TILE

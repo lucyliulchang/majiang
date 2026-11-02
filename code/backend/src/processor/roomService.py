@@ -364,14 +364,13 @@ def closeRoom(
     凭码进房的外家庭成员没有 `memberRole`，只能以房主身份关自己的房。
     """
     row = _loadRoom(roomID)
-    context, isMember = _roomFamilyContext(loginID, int(row.get("familyID") or 0))
+    familyID = int(row.get("familyID") or 0)
+    context, _isMember = _roomFamilyContext(loginID, familyID)
     isHost = _text(row, "hostLoginID") == loginID
-    isAdmin = isMember and context.get("memberRole") in (
-        familyService.ROLE_OWNER,
-        familyService.ROLE_ADMIN,
-    )
-    if not isHost and not isAdmin:
-        raise _err("FORBIDDEN", "只有房主可以关闭房间", 403)
+    # U-6：与牌桌内「结束牌局」（`RoomActor._end_game`）走同一个判定，
+    # 避免 HTTP / WS 两套口径漂移（旧实现这里内联拼角色，WS 侧只认房主）
+    if not isHost and not familyService.isFamilyAdmin(familyID, loginID):
+        raise _err("FORBIDDEN", "只有房主或家庭管理员可以关闭房间", 403)
 
     affected = mysqlCommon.update_mj_room_close(roomID, loginID)
     if affected < 0:

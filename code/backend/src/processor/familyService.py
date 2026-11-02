@@ -216,6 +216,32 @@ def assertMemberOfFamilyID(
     return assertMember(loginID, code, requireEnabled=requireEnabled)
 
 
+def familyRoleOf(familyID: int, loginID: str) -> str:
+    """按 familyID 查成员角色（U-6）：ACTIVE 成员返回 OWNER/ADMIN/MEMBER，否则空串。
+
+    与 `assertMemberOfFamilyID` 的区别是**不抛异常**：实时层（`RoomActor`）只想知道
+    「这个登录号在本家庭是什么角色」，非成员/已停用/家庭不存在一律按无角色处理，
+    判定口径与 `roomService._roomFamilyContext` 一致。
+    """
+    fid = int(familyID or 0)
+    login = (loginID or "").strip()
+    if fid <= 0 or not login:
+        return ""
+    member = _loadMemberRow(fid, login)
+    if not member or _text(member, "memberStatus") != STATUS_ACTIVE:
+        return ""
+    return _text(member, "memberRole")
+
+
+def isFamilyAdmin(familyID: int, loginID: str) -> bool:
+    """该登录号是否为该家庭 ACTIVE 的 OWNER/ADMIN（家庭管理员口径的唯一出口）。
+
+    v1.1.4 U-6：HTTP 关房（`roomService.closeRoom`）与牌桌内「结束牌局」
+    （`realtime.room.RoomActor._end_game`）都必须调这一个函数，避免两套权限漂移。
+    """
+    return familyRoleOf(familyID, loginID) in (ROLE_OWNER, ROLE_ADMIN)
+
+
 def assertFamilyAdmin(
     loginID: str, familyCode: str, operatorIsSystemAdmin: bool = False
 ) -> dict:

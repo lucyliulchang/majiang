@@ -960,6 +960,70 @@ I9 已通过（`fan.py` 已改过一轮，避免同文件冲突）。
 
 ---
 
+## I15 · 家庭管理员可结束牌局（U-6 · v1.1.4 · **已实施 2026-11-02**）
+
+> **状态**：已实施。改动见 [改进和错误修复文档.md](改进和错误修复文档.md) §3C U-6「实施结果」。
+
+````text
+【家庭麻将 · v1.1.4 · I15 · 家庭管理员可结束牌局（U-6）】
+
+## 目标
+把「谁能结束整场并收桌」收敛成**一个服务端判定**：房主 或 房间所属家庭的 OWNER/ADMIN（不要求入座），
+并让前端只用服务端下发的能力位决定入口显隐。行为与现有房主收桌完全一致：
+二次确认 → 系统播报 → `mj_game=ABORTED` + `mj_room=CLOSED` → `event.room_closed` → 全员回大厅。
+
+## 任务
+1. `processor/familyService.py`：新增 `familyRoleOf(familyID, loginID)`（ACTIVE 成员返回 OWNER/ADMIN/MEMBER，否则 ""，**不抛异常**）与 `isFamilyAdmin(...)`；`processor/roomService.py::closeRoom` 改调它并统一文案「只有房主或家庭管理员可以关闭房间」。
+2. `realtime/room.py`：`ROLE_CACHE_TTL=60`；`__init__` 增 `_roles/_roleAt`；新增 `role_of` / `role_name_of` / `can_end_room` / `refresh_role`（`run_in_threadpool(familyService.familyRoleOf)`）；`_end_game` 判定顺序改为「权限（`FORBIDDEN`）→ 幂等收尾 → 无座位但管理员可继续 → `playing` 收场」；`_abort_game(slot|None, login_id, operator_name)`；播报「<昵称>（管理员） 结束了本场牌局」。
+3. `realtime/snapshot.py`：快照顶层增 `viewer{is_host, member_role, can_end_game}`（不要放进共用 `room` 段）。
+4. `main/ws.py`：`get_or_create` 之后、`attach` 之前 `await actor.refresh_role(user.login_id, user.display_name)`；`state.resync` 按 TTL 复查。
+5. 前端：`types.ts` 增 `ViewerCapability` + `Snapshot.viewer?`；`stores/game.ts` 增 `viewer/canEndGame/memberRole`（缺字段回退 `isHost`），`exitToLobby` 改用 `canEndGame`；`RoomView.vue` / `MobileRoomView.vue` 的 `canEndGame` 改读能力位并新增 `endGameActorLabel`；`MobileRoomOverlays.vue` 增 `endGameActorLabel` prop；`ScoreBoard.vue` 校文案。
+6. 用例：`tests/test_family_service.py::test_is_family_admin_matrix`；`tests/test_ws_flow.py` 的 `test_non_host_cannot_end_game` 改为 `test_family_member_cannot_end_game`（断言 `FORBIDDEN`），并新增 `test_family_admin_can_end_game` / `test_spectator_admin_can_end_game` / `test_outsider_with_code_cannot_end_game`。
+
+## 验收清单
+- [x] ADMIN 在座可收桌；播报带「（管理员）」；`gameStatus=ABORTED` + `roomStatus=CLOSED`。
+- [x] ADMIN 观战可收桌（`ended_by_seat=null`，`ended_by_name` 为昵称）。
+- [x] 普通成员 / 凭码外家庭成员 → `FORBIDDEN`，牌局继续。
+- [x] 房主路径行为不变（含 `finished` 幂等与 `CLOSE_FAILED` 重试）。
+- [x] `npm run typecheck` 通过；快照/推送路径零查库（角色走 60s 缓存）。
+
+## 硬约束
+- 权限只在服务端判定；`closeRoom` 与 `_end_game` 必须调同一个 `isFamilyAdmin`。
+- `viewer` 是**可选新增字段**：旧后端不下发 → 前端回退 `isHost`；无 DDL、不改结算口径。
+- 角色查询不进快照热路径；日志不打印成员角色以外的人事信息。
+````
+
+## I16 · 吃牌可解释性 + 开窗取证（B-2 · v1.1.4 · **已实施 2026-11-02**）
+
+> **状态**：已实施。改动见 [改进和错误修复文档.md](改进和错误修复文档.md) §3C B-2「实施结果」。
+
+````text
+【家庭麻将 · v1.1.4 · I16 · 吃牌可解释性 + 开窗取证（B-2）】
+
+## 目标
+现场「柏氏 1万1万2万3万 遇 1万 没有吃」在代码层无法复现（三态枚举正确、仅限下家、前端不过滤）。
+本步**不改规则**，而是补齐两件事：① 开窗结构化日志（事后可判定是「非下家」还是「漏下发」）；
+② 把「为什么不能吃」直接显示在动作条上。
+
+## 任务
+1. `game/engine.py`：增 `CHOW_HINT_*` 常量、`_chow_hint(seat)`（可吃/非本窗口返回 ""；否则按 `allow_chow` → 字牌 → 非下家 → 缺搭子 返回原因）、`_log_claim_window(...)`（`开窗 …` 汇总 + `吃牌未下发 … reason=chow_disabled|honor_tile|not_next_seat|no_partner`，只记动作名）；`legal_actions` 在 claim 段追加可选 `chow_hint`。
+2. 前端：`types.ts` 的 `legal` 增 `chow_hint?`；`stores/game.ts` 增 `chowReason`；`ActionBar.vue` 增 `chowReason` prop 并在来牌区渲染 13px 灰字；两端视图传 `:chow-reason="game.chowReason"`。
+3. 用例：`tests/test_engine_flow.py` 增「重复张碰吃并存」（generic + baishi 参数化）、非下家 / 缺搭子 / 字牌三条提示；`tests/test_claim_stage_ws.py` 增 WS 版（`legal.actions` 含 chow → 提交 `[1,2]` → 副露 `123万`）与非下家 `chow_hint`。
+
+## 验收清单
+- [x] `1万1万2万3万` 遇 `1万`：碰与吃同时下发，`chow.tiles=[[1,2]]`，吃后副露 `123万`。
+- [x] 非下家：只有碰 + 「只有下家能吃」；缺搭子 + 「这两张牌凑不成顺子」；字牌 + 「字牌不能吃」。
+- [x] 可吃时不下发 `chow_hint`。
+- [x] generic 与 baishi 用例均绿；`npm run typecheck` 通过。
+
+## 硬约束
+- **不改吃牌规则**、不改仲裁优先级、不改结算；提示文案与 `_chow_hint` 必须同源。
+- 日志只记 `seat/action/张数`，**不落手牌明文**；确诊后把 `吃牌未下发` 降 DEBUG。
+- `chow_hint` 为可选字段，旧前端忽略即回到 v1.1.3 行为。
+````
+
+---
+
 ## 附：步骤依赖与产出
 
 | 步骤 | 依赖 | 主要产出 | 可否独立上线 |
@@ -979,6 +1043,8 @@ I9 已通过（`fan.py` 已改过一轮，避免同文件冲突）。
 | I12 | 文档批准 | `winning_tile_index` + 「胡」角标 | 是（只增可选字段） |
 | I13 | 文档批准 | 庄徽标判定下沉到座位组件 + 两端自己席位补徽标 | 是（纯前端、协议零改动） |
 | I14 | 文档批准 | 6 个叫牌人声（枚举键 + `SoundSpec.dir`）+ `useGameSounds` 接线 | 是（纯前端、协议零改动） |
+| I15 | 文档批准 | 收桌权限收敛到 `isFamilyAdmin` + 角色缓存 + 快照 `viewer` | 是（只增可选字段） |
+| I16 | 文档批准 | 开窗取证日志 + `legal.chow_hint` + 动作条提示 | 是（只增可选字段） |
 
 > I9–I12 与 I7 的关系见「当前状态」下的说明：四步同属 `1.1.0`，建议在 I7 之前完成并同版发布。
 > I13 / I14 属 **v1.1.2 第三轮**：两项均为纯前端、协议零改动、无 DDL，**互不冲突可并行**，可同批发版。

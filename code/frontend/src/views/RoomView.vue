@@ -249,12 +249,18 @@ function nextRound(): void {
   game.nextRound()
 }
 
-// ---- 结束牌局（仅开桌的人）：二次确认后提前收场，已打完的局保留 ----
+// ---- 结束牌局（房主或家庭管理员）：二次确认后提前收场，已打完的局保留 ----
 const endConfirmOpen = ref(false)
 /** 房态口径与后端一致（`RoomActor.status`）：只要不是 waiting 就能收场，finished 是"关闭牌桌" */
 const roomStatus = computed(() => game.snapshot?.status ?? 'waiting')
-const canEndGame = computed(() => game.isHost && roomStatus.value !== 'waiting')
+/**
+ * 权限由服务端能力位决定（v1.1.4 U-6）：房主 + 房间所属家庭的 OWNER/ADMIN，
+ * 且不要求入座（管理员观战也能收桌）。前端不再用 isHost 自行推导。
+ */
+const canEndGame = computed(() => game.canEndGame && roomStatus.value !== 'waiting')
 const endGameLabel = computed(() => (roomStatus.value === 'finished' ? '关闭牌桌' : '结束牌局'))
+/** 收桌人身份，用于确认弹层文案（管理员看到的不该是「只有房主」） */
+const endGameActorLabel = computed(() => (game.memberRole === 'OWNER' || game.memberRole === 'ADMIN' ? '家庭管理员' : '房主'))
 
 function confirmEndGame(): void {
   endConfirmOpen.value = false
@@ -615,6 +621,7 @@ const dealerName = computed(() => {
             :chow-candidates="game.chowCandidates"
             :chow-valid="game.chowValid"
             :chow-hint="game.chowHint"
+            :chow-reason="game.chowReason"
             @act="onAct"
             @pass="onPass"
             @open-chow="openChow"
@@ -796,7 +803,7 @@ const dealerName = computed(() => {
       @next="nextRound"
     />
 
-    <!-- 结束牌局确认：只有开桌的人能触发 -->
+    <!-- 结束牌局确认：房主或房间所属家庭的管理员都能触发（v1.1.4 U-6） -->
     <div
       v-if="endConfirmOpen"
       class="fixed inset-0 z-[70] flex items-center justify-center bg-felt-950/85 px-4 backdrop-blur-sm"
@@ -805,6 +812,9 @@ const dealerName = computed(() => {
       <div class="w-full max-w-sm animate-riseIn rounded-2xl border border-vermilion-500/35 bg-felt-900/95 p-5 text-center shadow-table">
         <p class="text-[11px] tracking-[0.3em] text-vermilion-400/80">END GAME</p>
         <h2 class="mt-1.5 text-lg font-semibold text-cream-100">{{ endGameLabel }}？</h2>
+        <p class="mt-1 text-[11px] text-ink-300/60">
+          {{ endGameActorLabel }}操作：房主与家庭管理员都可以结束本场
+        </p>
         <p v-if="roomStatus === 'finished'" class="mt-2 text-left text-xs leading-relaxed text-ink-300/80">
           本场已经打完，每一局的积分都已入库。关闭后这桌会立刻从大厅消失。
         </p>
