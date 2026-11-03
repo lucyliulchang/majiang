@@ -237,7 +237,9 @@ export const useGameStore = defineStore('game', () => {
       }
       case 'event.kongged': {
         const kindText = data.kind === 'hidden' ? '暗杠' : data.kind === 'added' ? '补杠' : '明杠'
-        flash(`${seatName(data.seat)} ${kindText} ${tileName(data.tile)}`, 'action')
+        // 暗杠的牌面只有本家知道：服务端下发的广播事件不带 tile，播报也不能念出牌名
+        const text = data.kind === 'hidden' ? kindText : `${kindText} ${tileName(data.tile)}`
+        flash(`${seatName(data.seat)} ${text}`, 'action')
         break
       }
       case 'event.claim_open':

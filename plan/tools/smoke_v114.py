@@ -39,6 +39,8 @@ WS_PORT = 8900
 ROOM_END_ADMIN = "428915"
 ROOM_CHOW_OK = "428916"
 ROOM_CHOW_HINT = "428917"
+ROOM_DISCARD = "428918"
+ROOM_KONG_HIDDEN = "428919"
 
 LOG_LINES: list[str] = []
 CLIENT_MESSAGES: dict[str, list[dict]] = {}
@@ -163,6 +165,21 @@ def build_snapshot(code: str) -> dict:
         )
         return base
 
+    if code == ROOM_DISCARD:
+        # 出牌阶段：验证「轮到你出牌」提示贴在本人上方
+        base.update(
+            {
+                "phase": "discard",
+                "turn": 0,
+                "hand": [0, 0, 1, 2, 3, 4, 8, 9, 11, 15, 18, 20, 24, 33],
+                "drawn": 33,
+                "legal": {"actions": [{"action": "discard"}], "claim_tile": None, "claim_from": None},
+                "claim_deadline": None,
+            }
+        )
+        base["viewer"] = {"is_host": False, "member_role": "MEMBER", "can_end_game": False}
+        return base
+
     if code == ROOM_CHOW_OK:
         base["viewer"] = {"is_host": False, "member_role": "MEMBER", "can_end_game": False}
         return base
@@ -199,6 +216,14 @@ def ws_handler(conn) -> None:
         )
     )
     conn.send(json.dumps({"type": "state.snapshot", "data": snapshot}, ensure_ascii=False))
+    if code == ROOM_KONG_HIDDEN:
+        # 故意带上 tile：前端也不该把暗杠的牌名念出来（服务端已不再下发，这里是双保险）
+        conn.send(
+            json.dumps(
+                {"type": "event.kongged", "data": {"seat": 1, "kind": "hidden", "tile": 26}},
+                ensure_ascii=False,
+            )
+        )
     try:
         for raw in conn:
             try:
@@ -413,6 +438,34 @@ def run() -> int:
         body = page.inner_text("body")
         check("桌面·显示「只有下家能吃」", "只有下家能吃" in body)
         page.screenshot(path=str(EVIDENCE / "05-desktop-chow-hint.png"))
+        ctx.close()
+
+        # ---- 场景 3.5：桌面·「轮到你出牌」提示贴在本人上方
+        for label, viewport, shot in (
+            ("宽屏", {"width": 1280, "height": 800}, "09-desktop-discard-hint.png"),
+            ("窄屏", {"width": 420, "height": 760}, "10-desktop-discard-hint-narrow.png"),
+        ):
+            ctx, page, errors = open_page("/majiangapp/", ROOM_DISCARD, viewport)
+            hint = page.locator("text=轮到你出牌")
+            count = hint.count()
+            check(f"桌面{label}·出牌提示存在", count >= 1, f"found={count}")
+            if count:
+                box = hint.first.bounding_box() or {}
+                ratio = (box.get("y", 0) + box.get("height", 0) / 2) / viewport["height"]
+                check(
+                    f"桌面{label}·提示在本人上方（画面下半部）",
+                    ratio > 0.6,
+                    f"y={box.get('y')} h={box.get('height')} 相对高度={ratio:.2f}",
+                )
+            page.screenshot(path=str(EVIDENCE / shot))
+            ctx.close()
+
+        # ---- 场景 3.8：暗杠的牌不给别人看（播报只念「暗杠」）
+        ctx, page, errors = open_page("/majiangapp/", ROOM_KONG_HIDDEN, {"width": 1280, "height": 800})
+        page.wait_for_timeout(600)
+        body = page.inner_text("body")
+        check("桌面·暗杠播报不带牌名", "暗杠" in body and "九条" not in body, body.replace("\n", " ")[:80])
+        page.screenshot(path=str(EVIDENCE / "11-desktop-kong-hidden-toast.png"))
         ctx.close()
 
         # ---- 场景 4：手机·不可吃的原因（375×667 与 667×375 横屏）

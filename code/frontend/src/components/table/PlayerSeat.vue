@@ -23,6 +23,8 @@ const total = computed(() => props.seat.total_score)
  * 判定下沉到组件后，桌面四个席位无需父组件逐个传参即可全部跟随换庄。
  */
 const isDealerSeat = computed(() => props.isDealer || props.seat.is_dealer === true)
+/** 四川血战：该玩家本局已胡并退出（其它族恒为 false，界面不显示任何「已胡」痕迹） */
+const isOut = computed(() => props.seat.is_out === true)
 const roundScore = computed(() => props.seat.round_score)
 const hiddenCount = computed(() => props.seat.hand_count)
 const backs = computed(() => Math.min(hiddenCount.value, 14))
@@ -41,7 +43,8 @@ function claimIndex(meld: MeldView): number {
     class="relative flex items-center rounded-xl border transition-all duration-300"
     :class="[
       compact ? 'gap-2 px-2.5 py-1.5' : 'gap-3 px-3 py-2',
-      isTurn ? 'border-gold-400/60 bg-gold-400/[0.07] animate-breathe' : 'border-cream-100/10 bg-felt-950/35'
+      isTurn ? 'border-gold-400/60 bg-gold-400/[0.07] animate-breathe' : 'border-cream-100/10 bg-felt-950/35',
+      isOut ? 'opacity-75' : ''
     ]"
   >
     <div class="relative">
@@ -66,6 +69,14 @@ function claimIndex(meld: MeldView): number {
         {{ seat.display_name }}
         <Crown v-if="seat.is_host" class="h-3 w-3 text-gold-300" />
         <WifiOff v-if="!seat.connected" class="h-3 w-3 text-vermilion-400" />
+        <!-- 血战：胡牌即退出本局，牌桌上必须一眼看出他不会再出牌 -->
+        <span
+          v-if="isOut"
+          class="shrink-0 rounded bg-gold-400/20 px-1 py-0.5 text-[10px] font-semibold leading-none text-gold-200"
+          title="本局已胡，退出不再出牌"
+        >
+          已胡
+        </span>
       </p>
       <!-- 被围观人数（全房可见，不暴露观战者身份） -->
       <span
@@ -113,11 +124,19 @@ function claimIndex(meld: MeldView): number {
         </div>
       </div>
 
-      <!-- 手牌背面 -->
+      <!-- 手牌背面：血战已胡退出的座位不再摸打，换成「已胡」免得以为他卡住 -->
       <div v-if="!compact" class="flex items-end gap-[1px]">
-        <Tile v-for="index in backs" :key="index" :tile="0" size="xs" face-down />
+        <span
+          v-if="isOut"
+          class="rounded border border-gold-400/25 bg-gold-400/10 px-1.5 py-0.5 text-[10px] leading-none text-gold-200"
+        >
+          已胡退出
+        </span>
+        <template v-else>
+          <Tile v-for="index in backs" :key="index" :tile="0" size="xs" face-down />
+        </template>
       </div>
-      <span v-else class="text-[11px] text-ink-300/70">{{ hiddenCount }} 张</span>
+      <span v-else class="text-[11px] text-ink-300/70">{{ isOut ? '已胡' : `${hiddenCount} 张` }}</span>
     </div>
   </div>
 </template>

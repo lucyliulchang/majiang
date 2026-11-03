@@ -268,6 +268,39 @@ def test_sichuan_two_winners_and_conservation(hand):
     assert settled.is_draw is False
 
 
+def test_sichuan_multi_hu_keeps_all_winners(hand):
+    """一炮三响：同一张弃牌上三家同时胡，三家都要进结算。
+
+    回归 506493：旧实现边记账边推进，先记的那家替下家摸了一张牌，把还在排队的赢家
+    手牌凑成 14 张，`evaluate_win` 加胡张按 15 张判不胡 → 赢家被静默丢掉。
+    """
+    engine = prepare(
+        engine_of("sichuan"),
+        hand,
+        {
+            0: "123p456p789p11s59m9m",  # 14 张，打 9m
+            1: "123m456m789m11p78m",
+            2: "111m222m333m44m78m",
+            3: "555m666m777m99m78m",
+        },
+    )
+    engine.apply_action(0, {"action": "discard", "tiles": [8]})
+    assert engine.claim is not None
+    for seat in (1, 2, 3):
+        engine.apply_action(seat, {"action": "hu"})
+
+    assert [item["seat"] for item in engine.winners] == [1, 2, 3]
+    assert engine.phase == "settled", "三家胡满 → 本局收口"
+
+    settled = engine.result
+    assert settled is not None
+    assert [item["seat"] for item in settled.winners] == [1, 2, 3]
+    assert sum(settled.score_delta) == 0
+    # 点炮的一家要付三家之和，且每家赢家都真拿到分（不能出现白胡 0 分）
+    assert settled.score_delta[0] == -sum(settled.score_delta[1:])
+    assert all(settled.score_delta[seat] > 0 for seat in (1, 2, 3))
+
+
 def test_sichuan_winners_stop_paying(hand):
     """已胡的座位不再参与后续赔付：第二家自摸只由在场两家付。"""
     engine = prepare(

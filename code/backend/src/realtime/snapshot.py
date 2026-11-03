@@ -59,6 +59,8 @@ def _seat_view(actor, seat: int, look_seat: int | None, spectator_counts: list[i
             total_score = state.total_score
         # 门风：(seat - 庄家座位) % 4，庄家恒为东（03 §3.4）
         wind = engine.seat_wind(seat)
+    # 血战到底：已胡并退出本局的座位（其它族没有该状态，恒为 false，前端据此才显示「已胡」）
+    out_seats = getattr(engine, "out_seats", None)
     return {
         "seat": seat,
         "login_id": slot.login_id,
@@ -76,6 +78,8 @@ def _seat_view(actor, seat: int, look_seat: int | None, spectator_counts: list[i
         # S6 追加：门风与庄家标记（04 §9.5；抽座结果只广播一次，重连靠这里恢复）
         "wind": wind,
         "is_dealer": bool(engine is not None and seat == engine.dealer_seat),
+        # 血战到底：本局已胡退出（柏氏/广东等族恒为 false）
+        "is_out": bool(out_seats is not None and seat in out_seats),
     }
 
 

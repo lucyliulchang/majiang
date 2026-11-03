@@ -480,6 +480,14 @@ const dealerName = computed(() => {
         <span class="max-w-[96px] shrink-0 truncate text-[11px] text-cream-100">
           {{ bottomView?.display_name || (isSpectator ? '观战中' : auth.displayName) }}
         </span>
+        <!-- 血战：自己胡牌后也退出本局，不能只靠牌桌角标猜 -->
+        <span
+          v-if="bottomView?.is_out"
+          class="shrink-0 rounded bg-gold-400/20 px-1 py-0.5 text-[9px] font-semibold leading-none text-gold-200"
+          title="本局已胡，退出不再出牌"
+        >
+          已胡
+        </span>
         <!-- 自己被围观：计数全房可见，但不暴露观战者身份 -->
         <span
           v-if="!isSpectator && (bottomView?.spectator_count ?? 0) > 0"

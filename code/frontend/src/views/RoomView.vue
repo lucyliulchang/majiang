@@ -384,17 +384,6 @@ const dealerName = computed(() => {
                   空座
                 </div>
               </div>
-
-              <!-- 左侧出牌提示：只在自己该出牌时亮；点牌先选中，再点一次取消 -->
-              <transition name="fade">
-                <div
-                  v-if="canDiscard"
-                  class="flex items-center justify-center gap-1.5 rounded-xl border border-gold-400/60 bg-gold-400/15 px-2 py-2 text-[11px] font-medium leading-tight text-gold-100 shadow-gold animate-breathe"
-                >
-                  <Hand class="h-3.5 w-3.5 shrink-0 text-gold-300" />
-                  <span>{{ selectedIndex === null ? '轮到你出牌（←→ 选牌，空格/↑ 出牌）' : '点牌可改选，按「打出」出牌' }}</span>
-                </div>
-              </transition>
             </div>
 
             <div class="relative min-h-0 rounded-2xl border border-cream-100/[0.06] bg-felt-950/25">
@@ -500,6 +489,17 @@ const dealerName = computed(() => {
 
           <!-- 底部：自己 -->
           <div class="shrink-0">
+            <!-- 出牌提示：贴在本人（自家）上方、靠近手牌；点牌先选中，再点一次取消 -->
+            <transition name="fade">
+              <div v-if="canDiscard" class="mb-1.5 flex">
+                <div
+                  class="flex w-fit items-center gap-1.5 rounded-xl border border-gold-400/60 bg-gold-400/15 px-2.5 py-1.5 text-[11px] font-medium leading-tight text-gold-100 shadow-gold animate-breathe"
+                >
+                  <Hand class="h-3.5 w-3.5 shrink-0 text-gold-300" />
+                  <span>{{ selectedIndex === null ? '轮到你出牌（←→ 选牌，空格/↑ 出牌）' : '点牌可改选，按「打出」出牌' }}</span>
+                </div>
+              </div>
+            </transition>
             <div class="mb-2 flex items-end justify-between gap-3">
               <div class="flex items-center gap-2">
                 <!-- 自己席位是内联实现（非 PlayerSeat），「庄」徽标在此自补（v1.1.2 U-5） -->
@@ -521,6 +521,14 @@ const dealerName = computed(() => {
                 <div class="leading-tight">
                   <p class="flex items-center gap-1.5 text-xs text-cream-100">
                     {{ bottomView?.display_name || (isSpectator ? '观战中' : auth.displayName) }}
+                    <!-- 血战：自己胡牌后也退出本局，不能只靠牌桌角标猜 -->
+                    <span
+                      v-if="bottomView?.is_out"
+                      class="rounded bg-gold-400/20 px-1 py-0.5 text-[10px] font-semibold leading-none text-gold-200"
+                      title="本局已胡，退出不再出牌"
+                    >
+                      已胡
+                    </span>
                     <!-- 自己被围观：计数全房可见，但不暴露观战者身份 -->
                     <span
                       v-if="!isSpectator && (bottomView?.spectator_count ?? 0) > 0"

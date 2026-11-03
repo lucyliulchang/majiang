@@ -104,8 +104,15 @@ class SichuanEngine(GameEngine):
         tile: int | None,
         breakdown: ScoreBreakdown,
         discard_seat: int | None,
+        *,
+        advance: bool = True,
     ) -> list[dict]:
-        """记一家胡牌：结算给分、标记退出；未到终局则继续，到了就收口。"""
+        """记一家胡牌：结算给分、标记退出；未到终局则继续，到了就收口。
+
+        `advance=False` 只记账不推进牌局（一炮多响专用）：同一张弃牌上的多家必须
+        先全部记账，再统一摸牌/收口，否则先记的那家会替下家摸牌，把后面还没记的
+        赢家手牌污染成 14 张，`evaluate_win` 直接判不胡 → 赢家被静默丢掉。
+        """
         fan_delta, allocation, _multipliers = self._settle_fan_delta(
             seat, breakdown, win_type, discard_seat
         )
@@ -135,6 +142,8 @@ class SichuanEngine(GameEngine):
                 },
             }
         ]
+        if not advance:
+            return events
         if self._round_over():
             return events + self._finish_multi()
         return events + self._continue_after_win(seat, win_type, discard_seat)
@@ -241,22 +250,32 @@ class SichuanEngine(GameEngine):
         raise EngineError("BAD_ACTION", "四川不能吃牌" if kind == "chow" else "无法识别的动作")
 
     def _multi_hu(self, hu_seats: list[int], window: ClaimWindow) -> list[dict]:
-        """一炮多响：同一张弃牌上多家同时胡，按座位序依次结算。"""
+        """一炮多响：同一张弃牌上多家同时胡，按座位序依次**记账**，最后统一推进。
+
+        记账阶段一律 `advance=False`：只要边记边推进，先记的那家就会替下家摸牌，
+        把还在排队的赢家手牌凑成 14 张，`evaluate_win` 加 `extra_tile` 按 15 张判不胡
+        → 该赢家被静默丢掉（战报只写到前几家，见 506493 一炮三响只结算两家）。
+        """
         tile = window.tile
         events: list[dict] = []
         self._take_from_river(window.from_seat, tile)
+        recorded = 0
         for seat in hu_seats:
             breakdown = self.evaluate_win(
                 self._ctx(seat, win_tile=tile, is_self_draw=False, extra_tile=tile)
             )
             if breakdown is None:
                 continue
-            events.extend(self._record_win(seat, "discard", tile, breakdown, window.from_seat))
-            if self.phase == "settled":
-                return events
-        if self.phase == "settled":
-            return events
-        if self.remaining <= 0:
+            events.extend(
+                self._record_win(
+                    seat, "discard", tile, breakdown, window.from_seat, advance=False
+                )
+            )
+            recorded += 1
+        if not recorded:
+            # 兜底：开窗时给的胡选项与实际判定不一致（一张都没胡成）时按无人要牌继续
+            return events + self._begin_turn(self._next_active(window.from_seat))
+        if self._round_over() or self.remaining <= 0:
             return events + self._finish_multi()
         return events + self._begin_turn(self._next_active(window.from_seat))
 

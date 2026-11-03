@@ -1045,9 +1045,10 @@ class GameEngine:
             state.counts[tile] = 0
             state.melds.append(Meld(kind="kong_hidden", tiles=[tile] * 4))
             self.kong_happened = True
-            events = [
-                {"type": "event.kongged", "data": {"seat": seat, "kind": "hidden", "tile": tile}}
-            ]
+            # 暗杠的牌只有本家知道：`event.kongged` 是**广播**事件，带上 tile 会让全桌的
+            # 播报直接念出「暗杠九条」。这里只报「谁暗杠」，牌面由快照按座位决定是否下发
+            # （`_seat_view` 对非本座位给空 tiles + count=4，前端画 4 张背面）。
+            events = [{"type": "event.kongged", "data": {"seat": seat, "kind": "hidden"}}]
             events.extend(self._award_kong(seat, "hidden", None))
             events.extend(self._begin_turn(seat, from_tail=True))
             return events

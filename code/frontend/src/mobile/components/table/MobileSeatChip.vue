@@ -30,6 +30,8 @@ const meldRows = computed(() => props.seat.melds || [])
  * 判定下沉到组件后，手机的「对家 / 左家 / 右家」三处无需父组件逐个传参即可全部跟随换庄。
  */
 const isDealerSeat = computed(() => props.isDealer || props.seat.is_dealer === true)
+/** 四川血战：该玩家本局已胡并退出（其它族恒为 false，界面不显示「已胡」） */
+const isOut = computed(() => props.seat.is_out === true)
 
 /** 吃的这副里哪一张是别人打出来的（后端 claim_tile）；碰/杠整组同牌，不标 */
 function claimIndex(meld: MeldView): number {
@@ -74,6 +76,13 @@ const scoreClass = computed(() => (props.seat.total_score >= 0 ? 'text-jade-400'
       <Crown v-if="seat.is_host" class="h-3 w-3 shrink-0 text-gold-300" />
       <WifiOff v-if="!seat.connected" class="h-3 w-3 shrink-0 text-vermilion-400" />
       <span
+        v-if="isOut"
+        class="shrink-0 rounded bg-gold-400/20 px-1 py-0.5 text-[9px] font-semibold leading-none text-gold-200"
+        title="本局已胡，退出不再出牌"
+      >
+        已胡
+      </span>
+      <span
         v-if="(seat.spectator_count ?? 0) > 0"
         class="inline-flex shrink-0 items-center gap-0.5 text-[10px] text-gold-400/80"
         :title="`${seat.spectator_count} 人正在围观`"
@@ -105,7 +114,9 @@ const scoreClass = computed(() => (props.seat.total_score >= 0 ? 'text-jade-400'
           <Tile v-for="n in meld.count" :key="n" :tile="0" size="micro" face-down />
         </template>
       </div>
-      <span class="shrink-0 whitespace-nowrap text-[10px] text-ink-300/65">{{ seat.hand_count }} 张</span>
+      <span class="shrink-0 whitespace-nowrap text-[10px]" :class="isOut ? 'text-gold-200' : 'text-ink-300/65'">
+        {{ isOut ? '已胡' : `${seat.hand_count} 张` }}
+      </span>
     </div>
   </div>
 
@@ -138,6 +149,13 @@ const scoreClass = computed(() => (props.seat.total_score >= 0 ? 'text-jade-400'
     <p class="text-[11px] font-semibold leading-none" :class="scoreClass">
       {{ seat.total_score > 0 ? '+' : '' }}{{ seat.total_score }}
     </p>
+    <span
+      v-if="isOut"
+      class="shrink-0 rounded bg-gold-400/20 px-1 py-0.5 text-[9px] font-semibold leading-none text-gold-200"
+      title="本局已胡，退出不再出牌"
+    >
+      已胡
+    </span>
     <!-- 上家/下家被围观人数（窄条里只放图标 + 数字） -->
     <span
       v-if="(seat.spectator_count ?? 0) > 0"
@@ -168,6 +186,8 @@ const scoreClass = computed(() => (props.seat.total_score >= 0 ? 'text-jade-400'
       </div>
     </div>
 
-    <span class="shrink-0 text-[9px] leading-none text-ink-300/60">{{ seat.hand_count }} 张</span>
+    <span class="shrink-0 text-[9px] leading-none" :class="isOut ? 'text-gold-200' : 'text-ink-300/60'">
+      {{ isOut ? '已胡' : `${seat.hand_count} 张` }}
+    </span>
   </div>
 </template>

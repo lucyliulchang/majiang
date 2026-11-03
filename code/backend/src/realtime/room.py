@@ -1366,6 +1366,12 @@ class RoomActor:
     async def _after(self, events: list[dict]) -> None:
         for event in events:
             await self.broadcast(make_message(event["type"], event["data"]))
+        # 血战到底：一家胡牌就退出本局，牌桌上只有一句轻提示，容易让人以为「他怎么不出牌了」。
+        # 本局还要继续打时补一条系统播报；收口那一手交给 `_on_settled` 的多人胡牌总结。
+        if self.engine is not None and self.engine.phase != "settled":
+            for event in events:
+                if event["type"] == "event.hu_recorded":
+                    await self.system_chat(self._hu_recorded_text(event["data"]))
         # 即使没有事件也要推快照：过胡（pass 在胡阶段）不产生事件、也不关闭窗口，
         # 但该玩家必须立刻看到补发的碰/杠/吃选项（04 §9.5 两段式）。
         await self.push_all()
@@ -1376,6 +1382,28 @@ class RoomActor:
         if any(event["type"] == "event.round_restarted" for event in events):
             await self.system_chat("牌墙摸尽且本局无人杠，重新发牌（第 %d 局不计）" % self.engine.round_no)
         self._sync_timers()
+
+    def _hu_recorded_text(self, data: dict) -> str:
+        """血战中途胡牌的播报文案：谁、怎么胡、几番、已退出本局、还剩几家在打。"""
+        seat = int(data.get("seat") or 0)
+        name = (
+            self.engine.seats[seat].display_name
+            if self.engine is not None and seat in self.engine.seats
+            else "有人"
+        )
+        win_type = data.get("win_type")
+        if win_type == "self_draw":
+            kind = "自摸"
+        elif win_type == "rob_kong":
+            kind = "抢杠胡"
+        else:
+            kind = "胡"
+        tile = data.get("winning_tile")
+        tile_text = f"「{tile_name(tile)}」" if tile is not None else ""
+        fan = int(data.get("fan_total") or 0)
+        left = int(data.get("remaining_players") or 0)
+        tail = f"，继续打 {left} 人" if left > 1 else ""
+        return f"{name} {kind}{tile_text} {fan} 番，已退出本局{tail}"
 
     async def _on_settled(self) -> None:
         self._clear_timers()

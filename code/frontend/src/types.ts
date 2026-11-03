@@ -239,6 +239,8 @@ export interface SeatView {
   /** 本局门风 0–3（庄家恒为 0=东），04 §9.5 */
   wind?: number
   is_dealer?: boolean
+  /** 四川血战：本局已胡并退出（其它族恒为 false/缺省，界面不显示「已胡」） */
+  is_out?: boolean
   /** 当前围观人数（0–10），全房可见、不含观战者身份 */
   spectator_count?: number
 }
@@ -290,6 +292,21 @@ export interface FinalHand {
   winning_tile_index?: number | null
 }
 
+/** 一家赢家的结算明细（四川血战一局最多 3 家；单赢家族恒 1 条） */
+export interface RoundWinner {
+  seat: number
+  win_type: string
+  winning_tile: number | null
+  pattern_id: string | null
+  fan_items: FanLine[]
+  fan_total: number
+  fan_raw?: number
+  fan_cap?: number | null
+  multipliers?: { self_draw: number; dealer: number }
+  score_from_fan?: number
+  breakdown?: { pattern_name: string; lines: FanLine[]; fan_raw: number; fan_total: number; capped: boolean } | null
+}
+
 export interface RoundResult {
   round_no: number
   winner_seat: number | null
@@ -301,6 +318,8 @@ export interface RoundResult {
   score_delta: number[]
   breakdown: { pattern_name: string; lines: FanLine[]; fan_raw: number; fan_total: number; capped: boolean } | null
   is_last_round?: boolean
+  /** 一局多个赢家（四川血战）：长度 1–3，荒庄为空；缺省时按 `winner_seat` 单家回退 */
+  winners?: RoundWinner[]
   /** 本局累计杠分（四家，下标即座位）；番分之外的加减分 */
   kong_delta?: number[]
   /** 生效倍数：自摸 ×2、庄家份 ×2（柏氏）；其它族恒为 1 */

@@ -155,6 +155,32 @@ def test_hidden_kong_allowed_but_scores_nothing_when_disabled(engine_factory, ha
     assert engine.seats[0].round_score == 0
 
 
+def test_hidden_kong_event_hides_tile(engine_factory, hand):
+    """暗杠是广播事件，牌面必须保密：只报「谁暗杠」，不下发 tile（前端播报不念牌名）。"""
+    rule = RuleConfig(kong_score=KongScore(enabled=True, hidden=2))
+    engine = prepare(engine_factory(rule), hand, {0: "1m1m1m1m2p3p4p5p6p7p8p1s2s3s"})
+    events = engine.apply_action(0, {"action": "kong", "kong_kind": "hidden", "tiles": [0]})
+    kongged = [event["data"] for event in events if event["type"] == "event.kongged"]
+    assert kongged, "暗杠必须广播 event.kongged"
+    assert kongged[0]["kind"] == "hidden"
+    assert kongged[0]["seat"] == 0
+    assert "tile" not in kongged[0], "暗杠的牌面不能出现在广播事件里"
+
+
+def test_exposed_kong_event_keeps_tile(engine_factory, hand):
+    """明杠/补杠的牌本来就摆在桌上，事件照旧带 tile（前端播报要念牌名）。"""
+    rule = RuleConfig(kong_score=KongScore(enabled=True, exposed=1, hidden=2, added=1))
+    engine = prepare(
+        engine_factory(rule),
+        hand,
+        {0: "5m1p2p3p4p5p6p7p8p9p1s2s3s4s", 1: "5m5m5m1p2p3p", 2: "", 3: ""},
+    )
+    engine.apply_action(0, {"action": "discard", "tiles": [4]})
+    events = engine.apply_action(1, {"action": "kong", "kong_kind": "exposed", "tiles": [4]})
+    kongged = [event["data"] for event in events if event["type"] == "event.kongged"]
+    assert kongged and kongged[0]["kind"] == "exposed" and kongged[0]["tile"] == 4
+
+
 def test_wall_exhausted_without_kong_restarts_same_round(engine_factory, hand):
     """荒庄二分 · 无杠：本局作废不落库，局号/庄家/局风不变，广播 round_restarted（03 §3.6）。"""
     engine = prepare(engine_factory(), hand, {0: "5m1p2p3p4p5p6p7p8p9p1s2s3s4s", 1: "", 2: "", 3: ""})
