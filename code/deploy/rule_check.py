@@ -52,6 +52,8 @@ def evaluate(text: str, win_tile=None, melds=None):
         round_wind=0,
     )
     breakdown = best_win(collect_wins(ctx, RULE), RULE)
+    if breakdown is None:  # 不成胡（反例用例）
+        return {}, 0
     return {line.id: line.fan * line.count for line in breakdown.lines}, breakdown.fan_total
 
 
@@ -105,9 +107,36 @@ case(
 )
 
 # 07-13-09 十三不靠（宽松口径：可含风牌、允许缺门、将可为字牌）
-case("13-09 13不靠·标准", "147m258p369s5z6z7z9m9m", 26, ["shi_san_bu_kao", "du_ying", "jiang_pai"])
-case("13-09 13不靠·含风牌", "1z1z2z3z5z6z7z1m4m7m2s5s8s3p", 27, ["shi_san_bu_kao", "men_qian"])
-case("13-09 13不靠·缺门", "1z1z2z3z4z5z6z7z1m4m7m2s5s8s", 27, ["shi_san_bu_kao", "que_men"])
+# v1.10 起（R-6）不再计门清 / 独赢 → 期望里剔除，并用 forbidden 锁定
+case(
+    "13-09 13不靠·标准",
+    "147m258p369s5z6z7z9m9m",
+    26,
+    ["shi_san_bu_kao", "jiang_pai"],
+    forbidden=["men_qian", "du_ying"],
+)
+case(
+    "13-09 13不靠·含风牌",
+    "1z1z2z3z5z6z7z1m4m7m2s5s8s3p",
+    27,
+    ["shi_san_bu_kao", "jiang_pai"],
+    forbidden=["men_qian", "du_ying"],
+)
+case(
+    "13-09 13不靠·缺门",
+    "1z1z2z3z4z5z6z7z1m4m7m2s5s8s",
+    27,
+    ["shi_san_bu_kao", "que_men"],
+    forbidden=["men_qian", "du_ying"],
+)
+# v1.12：任何牌不得超过 2 张 → 中×3（中将 + 第 3 张中）不成立
+case(
+    "13-09 13不靠·三张同牌不成立",
+    "5z5z5z6z7z1m4m7m2p5p8p3s6s9s",
+    31,
+    [],
+    forbidden=["shi_san_bu_kao"],
+)
 
 results["all_pass"] = all(item["pass"] for item in results["cases"])
 print(json.dumps({"fan_table_size": results["fan_table_size"], "all_pass": results["all_pass"]}, ensure_ascii=False))

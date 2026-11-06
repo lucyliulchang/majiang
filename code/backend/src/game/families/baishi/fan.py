@@ -228,7 +228,8 @@ def unrelated_pair(ctx: HandContext) -> int | None:
     """13不靠的将牌（07 §6.3.4 宽松口径，I0 冻结的 7 步判定）。
 
     1. 14 张且无任何副露（门清；暗杠同样不允许）；
-    2. 恰好一对将牌：`counts == 2` 只出现一次，且没有 3 张以上的牌；
+    2. 恰好一对将牌：`counts == 2` 只出现一次，且**任何牌都不得超过 2 张**
+       （v1.12 起：3 张同牌不成立，成对的只能是那一对将牌——「中将 + 第 3 张中」不算）；
     3. 中发白必含：各 ≥1（其中一种恰为将牌时自然为 2 张）；
     4. 风牌每种 ≤1（扣将后；成对时只能是将牌）；
     5. 数牌每门 0–3 张、同门全部落在同一组（147/258/369）、不得重复同一张；
@@ -236,6 +237,10 @@ def unrelated_pair(ctx: HandContext) -> int | None:
     7. 返回该将牌。
     """
     if ctx.melds or sum(ctx.counts) != 14:
+        return None
+    # 「14 张只能有一对」的严格口径（v1.12）：出现 3 张同牌即不成立。
+    # 旧实现对将牌只看扣将后的 `rest`，会把「中将 + 第 3 张中」判成立。
+    if any(count > 2 for count in ctx.counts):
         return None
     for pair in range(TILE_KINDS):
         if ctx.counts[pair] < 2:

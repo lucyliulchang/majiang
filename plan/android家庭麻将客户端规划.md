@@ -192,7 +192,7 @@ WebView（以及原生 WS）在 Android 上会遇到网页端不存在的四种�
 | --- | --- | --- |
 | minSdk | **26（Android 8.0）** | 覆盖家中旧机；Android 8 起 WebView 可独立升级，行为可控 |
 | targetSdk | 34/35 | 适配新系统对通知、前台服务、安装包的收紧；虽然不上架，也应避免「目标版本过低」被系统限制 |
-| WebView 可运行下限 | **78**（现有构建已降级到此） | 与 `build.target` 一致；低于 78 阻断并引导用浏览器打开 `/mjmobile/` |
+| WebView 可运行下限 | **87**（与 `build.target` 一致，v1.1.6 起） | 低于 87 阻断并引导用系统浏览器打开 `/mjmobile/`；原 78 线已取消（v1.1.6 收敛） |
 | WebView 推荐下限 | 100 | 低于此值提示可能掉帧/动效异常，但不阻断 |
 | 系统 | Android 8.0–15（含 HarmonyOS 2/3/4 的 Android 兼容层） | 覆盖现有家庭设备 |
 | 明确不支持 | HarmonyOS NEXT（纯血，不兼容 APK）、iOS（本期不做，壳方案可延伸） | 避免预期落差 |
@@ -201,7 +201,7 @@ WebView（以及原生 WS）在 Android 上会遇到网页端不存在的四种�
 
 | 设备类型 | 风险 | 应对 |
 | --- | --- | --- |
-| 华为/荣耀（HMS 内核） | 系统 WebView 由 HMS Core 提供，版本与 Chrome 不同步；历史上 Chrome 78 曾导致整包白屏 | 启动检测 UA 内核版本；低于 78 阻断并给浏览器方案；灰度期把该机型列为必测 |
+| 华为/荣耀（HMS 内核） | 系统 WebView 由 HMS Core 提供，版本与 Chrome 不同步 | 用**能力检测**判定（`CSS.supports` / `navigator.userAgent` 仅作日志），低于 87 阻断并给浏览器方案；灰度期把该机型列为必测 |
 | 小米/OPPO/vivo | WebView 可由应用商店升级，但用户常不升级 | 同上检测 + 提示「更新系统 WebView」 |
 | 三星/原生 Android | 内核较新，风险低 | 常规回归 |
 | 折叠屏 | 展开后宽高比变化，手牌区与牌河布局需重排 | 牌桌锁定横屏；宽度按三档自适应（现有实现已有 sm/md/hand 三档）；展开/折叠时触发 `state.resync` 不做状态假设 |

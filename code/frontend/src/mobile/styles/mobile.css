@@ -22,33 +22,8 @@ html {
   background-color: #071a12;
 }
 
-/* ---------------- 老内核兜底（Chrome 78 / Android 12 预装 Chrome）---------------- */
-/* 1) inset 简写是 Chrome 87+ 才有的，78 上所有弹层/遮罩会「不覆盖全屏」 */
-@supports not (inset: 0) {
-  .inset-0 {
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: 0;
-  }
-}
-/* 2) flex 的 gap 是 Chrome 84+ 才支持的，78 上手牌会挤成一坨、按钮贴在一起 */
-@supports not (gap: 1px) {
-  .mj-hand-row > * + * {
-    margin-left: 3px;
-  }
-  .mj-hand-row .mj-hand-drawn {
-    margin-left: 7px;
-    padding-left: 6px;
-    border-left: 1px solid rgba(201, 160, 99, 0.3);
-  }
-  .mj-meld-row > * + * {
-    margin-left: 1px;
-  }
-  .mj-btn-row > * + * {
-    margin-left: 8px;
-  }
-}
+/* 兼容基线：Chrome 87（v1.1.6 起）。`inset` 简写（87+）与 flex `gap`（84+）均已原生支持，
+ * 原先为 Chrome 78 写的两组 @supports not 兜底已删除；低于 87 的内核不再兼容。 */
 
 /* Chrome Android 会对「长文本块」做字体自动放大（font boosting），
  * 结果是小字突然变大、撑破卡片、和 Safari/IE 里完全两样。锁死为 100%。 */
@@ -75,15 +50,21 @@ body {
   user-select: text;
 }
 
-/* dvh：地址栏收放时高度跟着变；Chrome < 108（Android 9 及更早的预装 Chrome）
- * 不认 dvh，必须留 100vh 回退，否则整页高度为 0 —— 表现为白屏/牌桌看不见牌。 */
+/* 视口高度三级链：100vh → 100dvh → var(--mj-vh)。
+ * 1) chrome87 不认 dvh（Chrome 108+ 才有），100vh 那行是硬回退，删了整页高度就为 0；
+ * 2) --mj-vh 由 useViewportHeight() 一次性写入（见 mobile/composables/useViewportHeight.ts），
+ *    只在横竖屏切换或高度变化超过阈值时重算 —— 地址栏、HTTP「不安全」提示条收放
+ *    引起的小幅变化会被忽略，整页不再跟着抖动。
+ * 3) 变量兜底必须写 100vh：写 100dvh 的话，chrome87 上这条声明整体失效，等于没写。 */
 .mj-app {
   min-height: 100vh;
   min-height: 100dvh;
+  min-height: var(--mj-vh, 100vh);
 }
 .mj-dvh {
   height: 100vh;
   height: 100dvh;
+  height: var(--mj-vh, 100vh);
 }
 .mj-dvh-fallback {
   min-height: 100%;

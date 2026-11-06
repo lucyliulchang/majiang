@@ -334,7 +334,9 @@ def test_case09_thirteen_unrelated_positive(hand):
 
 
 def test_case09_thirteen_unrelated_jang_five_dot(hand):
-    breakdown = _eval(ctx_of(hand, "147m258p369s5z6z7z5p5p", win_tile=13))
+    # v1.12 起不允许 3 张同牌：将 5 筒 时筒门不能再用 258（否则 5 筒成 3 张），
+    # 故筒门改走 369，5 筒只以将牌出现。
+    breakdown = _eval(ctx_of(hand, "147m258s369p5z6z7z5p5p", win_tile=13))
     ids = ids_of(breakdown)
     assert ids["shi_san_bu_kao"] == 10
     assert ids["jiang_pai"] == 1
@@ -381,6 +383,9 @@ def test_case09c_thirteen_unrelated_may_lack_a_suit(hand):
         # 单门数牌（数牌 ≥5 张且每门 ≤3 张）不可能成立 13不靠，
         # 故 13不靠 与清一色/混一色天然互斥（见 test_case09_thirteen_unrelated_never_flush）
         "5z6z7z1z2z3z4z1m4m7m1m1m1m",
+        # v1.12：3 张同牌不成立（成对的只能是那一对将牌）
+        "5z5z5z6z7z1m4m7m2p5p8p3s6s9s",  # 中×3（中将 + 第 3 张中）
+        "5z6z7z1z2z1m1m1m2s5s8s3p6p9p",  # 1 万×3
     ],
 )
 def test_case09_thirteen_unrelated_negative(hand, text):
@@ -396,6 +401,20 @@ def test_case09d_thirteen_unrelated_dragon_as_pair(hand):
     assert "men_qian" not in ids
     assert "que_men" not in ids
     assert ids.get("shi_san_bu_kao", 0) + ids.get("jiang_pai", 0) == 11
+
+
+def test_case09e_thirteen_unrelated_rejects_three_of_a_kind(hand):
+    """v1.12：「14 张只能有一对」的严格口径——任何牌出现 3 张即不成立。
+
+    典型场景：中×2 作将后还剩 1 张「中」（共 3 张中），旧实现判成立，现不成立；
+    与 `test_case09d`（中×2 仍成立）一起锁定这条边界。
+    """
+    for text in (
+        "5z5z5z6z7z1m4m7m2p5p8p3s6s9s",  # 中×3，其余完全合规
+        "5z6z7z1z2z1m1m1m2s5s8s3p6p9p",  # 1 万×3
+    ):
+        ids = fan_ids(ctx_of(hand, text, win_tile=31))
+        assert "shi_san_bu_kao" not in ids, f"3 张同牌不应成立: {text}"
 
 
 def test_case09_thirteen_unrelated_rejects_melds(hand):
