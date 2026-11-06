@@ -1,0 +1,816 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>家庭麻将 · 使用手册</title>
+<style>
+  :root {
+    --felt-950: #071a12;
+    --felt-900: #0a2419;
+    --felt-800: #0f3d2e;
+    --felt-700: #14513c;
+    --gold-300: #e2c894;
+    --gold-400: #c9a063;
+    --cream: #f7f3e8;
+    --ink-300: #b9c7bf;
+    --ink-400: #8ba296;
+    --line: rgba(247, 243, 232, 0.10);
+    --jade: #63c39a;
+    --vermilion: #d0644f;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1100px 600px at 12% -10%, rgba(201, 160, 99, 0.13), transparent 60%),
+      radial-gradient(900px 520px at 92% 4%, rgba(99, 195, 154, 0.10), transparent 62%),
+      var(--felt-950);
+    color: var(--cream);
+    font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", system-ui, sans-serif;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--gold-300); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+  .hero {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 64px 24px 28px;
+  }
+
+  .hero .kicker {
+    font-size: 12px;
+    letter-spacing: 0.42em;
+    color: var(--gold-400);
+    text-transform: uppercase;
+  }
+
+  .hero h1 {
+    margin: 12px 0 10px;
+    font-family: "Songti SC", "Noto Serif SC", "SimSun", serif;
+    font-size: clamp(30px, 5vw, 46px);
+    letter-spacing: 0.04em;
+    background: linear-gradient(100deg, #fdf7e6 10%, var(--gold-300) 58%, var(--gold-400) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .hero p {
+    margin: 0;
+    max-width: 720px;
+    color: var(--ink-300);
+    font-size: 15px;
+  }
+
+  .hero .meta {
+    margin-top: 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    font-size: 12.5px;
+    color: var(--ink-400);
+  }
+
+  .hero .meta b { color: var(--gold-300); font-weight: 600; }
+
+  .layout {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 12px 24px 96px;
+    display: grid;
+    grid-template-columns: 216px minmax(0, 1fr);
+    gap: 34px;
+    align-items: start;
+  }
+
+  nav.toc {
+    position: sticky;
+    top: 20px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: rgba(15, 61, 46, 0.34);
+    backdrop-filter: blur(6px);
+    font-size: 13px;
+  }
+
+  nav.toc p {
+    margin: 0 0 10px;
+    font-size: 11px;
+    letter-spacing: 0.24em;
+    color: var(--gold-400);
+  }
+
+  nav.toc a {
+    display: flex;
+    gap: 8px;
+    padding: 5px 6px;
+    border-radius: 8px;
+    color: var(--ink-300);
+    line-height: 1.5;
+  }
+
+  nav.toc a:hover { background: rgba(201, 160, 99, 0.10); color: var(--cream); text-decoration: none; }
+
+  nav.toc .num {
+    flex: none;
+    width: 18px;
+    color: var(--gold-400);
+    font-variant-numeric: tabular-nums;
+  }
+
+  main { min-width: 0; display: flex; flex-direction: column; gap: 26px; }
+
+  section {
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: linear-gradient(180deg, rgba(15, 61, 46, 0.34), rgba(7, 26, 18, 0.44));
+    padding: 26px 26px 24px;
+    box-shadow: 0 24px 60px -46px rgba(0, 0, 0, 0.9);
+  }
+
+  section > h2 {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 6px;
+    font-family: "Songti SC", "Noto Serif SC", "SimSun", serif;
+    font-size: 23px;
+    letter-spacing: 0.02em;
+    color: var(--cream);
+  }
+
+  section > h2 .badge {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
+    background: rgba(201, 160, 99, 0.16);
+    border: 1px solid rgba(201, 160, 99, 0.42);
+    color: var(--gold-300);
+    font-family: inherit;
+    font-size: 14px;
+  }
+
+  section > .lead {
+    margin: 0 0 18px;
+    color: var(--ink-300);
+    font-size: 14.5px;
+  }
+
+  h3 {
+    margin: 22px 0 8px;
+    font-size: 15.5px;
+    color: var(--gold-300);
+    letter-spacing: 0.02em;
+  }
+
+  p { margin: 0 0 12px; }
+
+  ul, ol { margin: 0 0 14px; padding-left: 22px; }
+  li { margin: 4px 0; color: var(--ink-300); }
+  li b, li strong { color: var(--cream); font-weight: 600; }
+
+  code {
+    padding: 1px 6px;
+    border-radius: 6px;
+    background: rgba(247, 243, 232, 0.08);
+    border: 1px solid var(--line);
+    color: var(--gold-300);
+    font-family: "Cascadia Mono", Consolas, ui-monospace, monospace;
+    font-size: 0.92em;
+  }
+
+  kbd {
+    display: inline-block;
+    min-width: 22px;
+    padding: 0 6px;
+    border-radius: 6px;
+    border: 1px solid rgba(247, 243, 232, 0.22);
+    border-bottom-width: 2px;
+    background: rgba(247, 243, 232, 0.08);
+    color: var(--cream);
+    font-family: inherit;
+    font-size: 0.86em;
+    text-align: center;
+  }
+
+  figure {
+    margin: 16px 0 6px;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: rgba(7, 26, 18, 0.55);
+  }
+
+  figure img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid rgba(247, 243, 232, 0.08);
+    background: var(--felt-900);
+  }
+
+  figure.phone { text-align: center; }
+  figure.phone img { width: auto; max-width: 100%; max-height: 560px; margin: 0 auto; }
+
+  figcaption {
+    margin-top: 9px;
+    padding: 0 4px;
+    font-size: 12.5px;
+    color: var(--ink-400);
+  }
+
+  figcaption b { color: var(--gold-300); font-weight: 600; }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px;
+    margin: 14px 0 6px;
+  }
+
+  .note, .warn, .tip {
+    margin: 14px 0;
+    padding: 12px 14px;
+    border-radius: 12px;
+    font-size: 13.5px;
+    line-height: 1.7;
+  }
+
+  .note {
+    border: 1px solid rgba(99, 195, 154, 0.28);
+    background: rgba(99, 195, 154, 0.08);
+    color: #cfeade;
+  }
+
+  .warn {
+    border: 1px solid rgba(208, 100, 79, 0.32);
+    background: rgba(208, 100, 79, 0.10);
+    color: #f0d3cb;
+  }
+
+  .tip {
+    border: 1px solid rgba(201, 160, 99, 0.30);
+    background: rgba(201, 160, 99, 0.08);
+    color: #f0e6d1;
+  }
+
+  .note b, .warn b, .tip b { color: var(--cream); }
+
+  .steps {
+    counter-reset: step;
+    list-style: none;
+    padding: 0;
+    margin: 14px 0 6px;
+    display: grid;
+    gap: 8px;
+  }
+
+  .steps li {
+    counter-increment: step;
+    position: relative;
+    padding: 9px 14px 9px 44px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(247, 243, 232, 0.03);
+    color: var(--ink-300);
+    font-size: 13.8px;
+  }
+
+  .steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(201, 160, 99, 0.18);
+    border: 1px solid rgba(201, 160, 99, 0.45);
+    color: var(--gold-300);
+    font-size: 12px;
+    line-height: 21px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .steps li b { color: var(--cream); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0 6px;
+    font-size: 13.5px;
+  }
+
+  th, td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th {
+    color: var(--gold-300);
+    font-weight: 600;
+    font-size: 12.5px;
+    letter-spacing: 0.06em;
+    background: rgba(247, 243, 232, 0.03);
+  }
+
+  td { color: var(--ink-300); }
+  td b { color: var(--cream); }
+
+  .flow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 14px 0 6px;
+  }
+
+  .flow span {
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(201, 160, 99, 0.32);
+    background: rgba(201, 160, 99, 0.10);
+    color: var(--gold-300);
+    font-size: 12.5px;
+  }
+
+  .flow i {
+    align-self: center;
+    color: var(--ink-400);
+    font-style: normal;
+    font-size: 12px;
+  }
+
+  footer {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 24px 64px;
+    color: var(--ink-400);
+    font-size: 12.5px;
+  }
+
+  footer .rule {
+    height: 1px;
+    margin-bottom: 18px;
+    background: linear-gradient(90deg, transparent, rgba(201, 160, 99, 0.45), transparent);
+  }
+
+  @media (max-width: 940px) {
+    .hero { padding: 40px 18px 20px; }
+    .layout { grid-template-columns: 1fr; gap: 18px; padding: 8px 16px 72px; }
+    nav.toc {
+      position: static;
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding: 10px;
+      white-space: nowrap;
+    }
+    nav.toc p { display: none; }
+    nav.toc a { flex: none; }
+    section { padding: 20px 18px; }
+    section > h2 { font-size: 20px; }
+    th, td { padding: 8px 9px; font-size: 12.8px; }
+    figure { padding: 7px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="kicker">FAMILY MAHJONG · 使用手册</div>
+  <h1>家庭麻将，从注册到胡牌</h1>
+  <p>一家人，一张桌。这份手册按「注册 → 登录 → 进大厅 → 开桌 → 开局 → 吃碰杠胡 → 结算」的顺序走一遍，配的都是产品真实界面截图，第一次上手照着做就行。</p>
+  <div class="meta">
+    <span>适用版本 <b>v1.1.5</b></span>
+    <span>桌面端 <b>/majiangapp/</b></span>
+    <span>手机端 <b>/mjmobile/</b></span>
+    <span>更新日期 <b>2026-11-06</b></span>
+  </div>
+  <div class="flow">
+    <span>注册</span><i>→</i>
+    <span>登录</span><i>→</i>
+    <span>大厅</span><i>→</i>
+    <span>开桌</span><i>→</i>
+    <span>入座</span><i>→</i>
+    <span>开局</span><i>→</i>
+    <span>吃 / 碰 / 杠 / 胡</span><i>→</i>
+    <span>结算</span>
+  </div>
+</header>
+
+<div class="layout">
+
+  <nav class="toc">
+    <p>目录</p>
+    <a href="#start"><span class="num">01</span>开始之前</a>
+    <a href="#register"><span class="num">02</span>注册账号</a>
+    <a href="#login"><span class="num">03</span>登录</a>
+    <a href="#lobby"><span class="num">04</span>大厅与进桌</a>
+    <a href="#create"><span class="num">05</span>开一桌</a>
+    <a href="#start-game"><span class="num">06</span>入座与开局</a>
+    <a href="#chow"><span class="num">07</span>吃</a>
+    <a href="#kong"><span class="num">08</span>碰与杠</a>
+    <a href="#win"><span class="num">09</span>胡牌与结算</a>
+    <a href="#mobile"><span class="num">10</span>手机上打牌</a>
+    <a href="#faq"><span class="num">11</span>常见问题</a>
+  </nav>
+
+  <main>
+
+    <section id="start">
+      <h2><span class="badge">01</span>开始之前</h2>
+      <p class="lead">先确认三件事：用哪个地址、用哪个账号、用哪个浏览器。</p>
+
+      <h3>访问地址</h3>
+      <table>
+        <tr><th>设备</th><th>地址</th><th>说明</th></tr>
+        <tr>
+          <td><b>电脑</b></td>
+          <td><code>https://www.test.com/majiangapp/</code></td>
+          <td>大屏、鼠标操作，功能最全（规则模板、皮肤管理只在电脑端）</td>
+        </tr>
+        <tr>
+          <td><b>手机</b></td>
+          <td><code>https://www.test.com/mjmobile/</code></td>
+          <td>牌桌为横屏布局，竖屏会提示把手机横过来</td>
+        </tr>
+      </table>
+
+      <div class="tip">
+        <b>示例网址：</b>上面表格里的 <code>www.test.com</code> 只是示例域名，不是真实访问地址。实际要用的域名与端口以本家庭的<b>部署情况</b>为准——请向管理员确认，或查看部署文档 <a href="部署.md">部署.md</a> / <a href="运维与备份.md">运维与备份.md</a>（路径部分 <code>/majiangapp/</code> 与 <code>/mjmobile/</code> 一般不变）。
+      </div>
+
+      <h3>账号从哪来</h3>
+      <ul>
+        <li>账号是<b>手机号</b>，可以自己注册（需要账号服务开启自助注册），也可以请<b>家庭管理员</b>开好再告诉你账号密码。</li>
+        <li>同一位家人只需要一个账号；电脑和手机用同一个账号登录，登录状态互不影响。</li>
+        <li>每个账号可以属于多个家庭，在大厅顶部切换当前家庭，牌桌与战绩跟着家庭走。</li>
+      </ul>
+
+      <div class="note">
+        <b>建议浏览器：</b>手机端请用系统自带浏览器、Chrome、Edge 或 Safari（微信内打开如果出现排版异常，请选「在浏览器中打开」）。电脑端 Chrome / Edge 均可。
+      </div>
+    </section>
+
+    <section id="register">
+      <h2><span class="badge">02</span>注册账号</h2>
+      <p class="lead">在登录页点「注册一个」，或用地址 <code>/majiangapp/register</code> 直达。</p>
+
+      <figure>
+        <img src="img/manual/01-register.png" alt="注册账号页面" loading="lazy">
+        <figcaption><b>注册页：</b>手机号即登录号，验证码由账号服务下发，10 分钟内有效。</figcaption>
+      </figure>
+
+      <ol class="steps">
+        <li>填<b>手机号</b>（11 位），点右侧「获取验证码」。</li>
+        <li>填收到的 <b>6 位数字验证码</b>；没收到就等倒计时结束再点一次。</li>
+        <li>设置<b>密码</b>（6-32 位，不含空格），再输一次确认。</li>
+        <li>填<b>昵称</b>（可选，牌桌上显示的就是它，比如「奶奶」）。</li>
+        <li>勾选同意服务条款，点<b>「注册账号」</b>；成功后会自动回到登录页并带好账号。</li>
+      </ol>
+
+      <div class="warn">
+        如果看到「注册未开放」，说明当前环境关闭了自助注册，请联系家庭管理员开通，或让管理员在家庭成员页按手机号把人加进来。
+      </div>
+    </section>
+
+    <section id="login">
+      <h2><span class="badge">03</span>登录</h2>
+      <p class="lead">手机号 + 密码，一步进大厅。忘记密码走「忘记密码」两步验证重设。</p>
+
+      <figure>
+        <img src="img/manual/02-login.png" alt="登录页面" loading="lazy">
+        <figcaption><b>登录页：</b>左上是产品介绍，右侧是登录表单；底部有服务状态与版本号。</figcaption>
+      </figure>
+
+      <ul>
+        <li>输入注册时的<b>手机号</b>与<b>密码</b>，点「进入牌桌」。</li>
+        <li>登录成功后进入<b>大厅</b>；密码记不住就点密码框右侧的「忘记密码」。</li>
+        <li>页面底部显示<b>服务正常</b>与版本号（如 <code>v1.1.5</code>），版本号对不上说明浏览器缓存了旧页面，刷新一下即可。</li>
+      </ul>
+
+      <div class="tip">
+        <b>电脑和手机通用：</b>同一域名下登录状态是共享的。电脑登录过，手机打开会直接进大厅，不用再输一次密码。
+      </div>
+    </section>
+
+    <section id="lobby">
+      <h2><span class="badge">04</span>大厅与进桌</h2>
+      <p class="lead">大厅是每次上线的落脚点：家里有哪几桌、邀请码在哪填，都在这一页。</p>
+
+      <figure>
+        <img src="img/manual/03-lobby.png" alt="大厅页面" loading="lazy">
+        <figcaption><b>大厅：</b>左侧列出本家庭进行中的牌桌，右侧是邀请码入座与常用入口。</figcaption>
+      </figure>
+
+      <h3>三块内容</h3>
+      <ul>
+        <li><b>顶部问候与战绩</b>：累计积分、打过几场、赢过几局；下面的家庭标签可以切换家庭。</li>
+        <li><b>家里的牌桌</b>：显示桌名、6 位房号、规则、人数、围观数。点卡片整块都能进桌；房主还会多一行「我是房主，关闭这桌」。</li>
+        <li><b>用邀请码入座</b>：问开桌的人要 6 位数字，逐格填或直接粘贴整串，填满 6 位会自动校验并进桌。</li>
+      </ul>
+
+      <h3>两种进桌方式</h3>
+      <table>
+        <tr><th>方式</th><th>怎么做</th><th>适合</th></tr>
+        <tr>
+          <td><b>从列表点进去</b></td>
+          <td>在大厅「家里的牌桌」里点要进的那一桌</td>
+          <td>本家庭成员，桌子就在眼前</td>
+        </tr>
+        <tr>
+          <td><b>凭邀请码</b></td>
+          <td>在右侧 6 格里填邀请码，点「进入牌桌」</td>
+          <td>别人把房号发给你、或不是同一个家庭</td>
+        </tr>
+      </table>
+
+      <div class="note">
+        座位坐满时仍可以进桌<b>围观</b>：牌桌只显示被围观那一家的手牌，随时可以等有人离桌再入座。别人家的牌桌，进桌需要<b>房主在牌桌上点头同意</b>。
+      </div>
+    </section>
+
+    <section id="create">
+      <h2><span class="badge">05</span>开一桌</h2>
+      <p class="lead">点右上角「创建牌桌」，选好规则和圈数就能开局；本局开打后规则不再变动。</p>
+
+      <figure>
+        <img src="img/manual/04-create-room.png" alt="开桌弹窗" loading="lazy">
+        <figcaption><b>开一桌：</b>牌桌名字、规则族、规则模板、打几圈，底部还有这套规则的摘要。</figcaption>
+      </figure>
+
+      <ol class="steps">
+        <li><b>牌桌名字</b>：默认「周末家庭局 · 日期」，可以改成「饭后一盘」之类，方便家人认。</li>
+        <li><b>规则族</b>：家庭常用的那一族会默认选中（如「柏氏」）。</li>
+        <li><b>规则模板</b>：点一张卡片选中，卡片上直接写着底分、封顶、可不可吃、是否限时、杠是否计分。</li>
+        <li><b>打几圈</b>：1 / 2 / 4 / 8 圈，每圈固定 4 个庄次（庄家连庄会多打），选 4 圈约 16 局。</li>
+        <li>看一遍底部「这套规则会怎么算」，确认无误后点<b>「开桌」</b>。</li>
+      </ol>
+
+      <div class="note">
+        开桌成功后你会直接进入牌桌，并把 6 位<b>房号</b>发给家人（牌桌顶部点房号可复制）。<b>开桌的人就是房主</b>：房主可以设限时、按开始、结束牌局，也可以不进屋直接在大厅关掉这桌。
+      </div>
+
+      <div class="warn">
+        规则族显示「未就绪」时不能开桌，需要先在电脑端「我的规则模板」里把这套细则配置好。
+      </div>
+    </section>
+
+    <section id="start-game">
+      <h2><span class="badge">06</span>入座与开局</h2>
+      <p class="lead">四个人到齐、都点过「我准备好了」，房主按下开始，牌局才真正开打。</p>
+
+      <h3>等人阶段</h3>
+      <figure>
+        <img src="img/manual/05-room-waiting.png" alt="等待开局界面" loading="lazy">
+        <figcaption><b>等人齐：</b>四角是四家座位，中间显示「4 / 4 位家人已入座」，房主才有「开始牌局」。</figcaption>
+      </figure>
+
+      <ul>
+        <li>进桌后自己先点<b>「我准备好了」</b>（再点一次可以取消）。</li>
+        <li><b>房主</b>多两个控件：出牌限时下拉（<b>0 秒 = 不限时</b>，家里人打牌推荐不限时）与「开始牌局」。</li>
+        <li>没坐满 4 人时「开始牌局」是灰的，需要等家人进桌。</li>
+        <li>座位已满还进桌的人自动成为<b>围观</b>，只跟着某一家的视角看牌。</li>
+      </ul>
+
+      <h3>开局后的牌桌</h3>
+      <figure>
+        <img src="img/manual/06-round-start.png" alt="开局后的牌桌" loading="lazy">
+        <figcaption><b>牌桌：</b>顶部是房号与局数，中间牌河显示各家弃牌与牌墙剩余，底部是自己手牌，右侧是聊天。</figcaption>
+      </figure>
+
+      <table>
+        <tr><th>位置</th><th>看什么</th></tr>
+        <tr><td><b>顶部左</b></td><td>6 位房号（点一下复制）、桌名、当前家庭的规则摘要</td></tr>
+        <tr><td><b>顶部中</b></td><td>东风局 · 第几圈 · 第几局、庄家是谁、牌墙还剩多少张</td></tr>
+        <tr><td><b>顶部右</b></td><td>连接状态（已连接）、皮肤、音效、结束牌局（房主/管理员）、离桌</td></tr>
+        <tr><td><b>四角座位</b></td><td>昵称、庄家徽标「庄」、本局与累计得分、手牌张数、副露</td></tr>
+        <tr><td><b>中央牌河</b></td><td>各家打出的牌，中间方块是牌墙剩余，最后一张牌会高亮</td></tr>
+        <tr><td><b>底部手牌</b></td><td>自己的 13 张 + 摸到的第 14 张（单独摆在右侧）</td></tr>
+      </table>
+
+      <h3>出牌</h3>
+      <ul>
+        <li>轮到你时，手牌上方出现金色提示「<b>轮到你出牌</b>」。</li>
+        <li>键盘：<kbd>←</kbd> <kbd>→</kbd> 移动选择，<kbd>空格</kbd> 或 <kbd>↑</kbd> 打出。</li>
+        <li>触屏/鼠标：点一张牌选中，再点一次打出（选错了再点别的牌改选）。</li>
+      </ul>
+    </section>
+
+    <section id="chow">
+      <h2><span class="badge">07</span>吃</h2>
+      <p class="lead">吃是「上家打的牌 + 自己手里两张」凑成一副顺子。只有<b>下家</b>能吃上家的牌。</p>
+
+      <figure>
+        <img src="img/manual/08-claim-chow.png" alt="可吃时的动作条" loading="lazy">
+        <figcaption><b>来牌：</b>爷爷打出「一万」，动作条同时给出「碰」与「吃 1 种」——想吃就点「吃」。</figcaption>
+      </figure>
+
+      <p>点「吃」不会立刻吃，而是展开选牌面板：可以点面板上的<b>候选组合</b>，也可以直接在手牌里点两张，选好后按<b>「确认吃」</b>。</p>
+
+      <figure>
+        <img src="img/manual/09-chow-pick.png" alt="吃牌选两张" loading="lazy">
+        <figcaption><b>选两张：</b>已选「二万 三万」时提示「可以吃」，右侧候选可一键套用，确认后三张牌亮在桌面上。</figcaption>
+      </figure>
+
+      <ul>
+        <li>按钮上的「N 种」表示这副牌有几种吃法，逐一点候选就能换。</li>
+        <li>不想吃就点<b>「过」</b>，或者干脆等它过期（开了限时的情况下）。</li>
+        <li>吃来的牌会亮在自己座位旁，算作副露，之后不能再暗杠、也影响「门清」这类番种。</li>
+      </ul>
+
+      <div class="note">
+        如果只有「碰」没有「吃」，动作条会直接写明原因（例如「<b>只有下家能吃</b>」），这是规则，不是卡住了。另外规则模板里必须允许吃，否则整桌都不会出现「吃」。
+      </div>
+    </section>
+
+    <section id="kong">
+      <h2><span class="badge">08</span>碰与杠</h2>
+      <p class="lead">碰、杠都写在同一条动作条里，按钮上会写清楚用的是哪张牌。</p>
+
+      <figure>
+        <img src="img/manual/10-claim-kong.png" alt="可杠时的动作条" loading="lazy">
+        <figcaption><b>可杠：</b>手里三张四万、爷爷打出第四张，动作条出现「杠（四万）」与「碰」，点哪个都行。</figcaption>
+      </figure>
+
+      <table>
+        <tr><th>动作</th><th>条件</th><th>说明</th></tr>
+        <tr>
+          <td><b>碰</b></td>
+          <td>任意一家打出的牌 + 自己手里两张相同的</td>
+          <td>亮出三张，接着轮到自己出牌</td>
+        </tr>
+        <tr>
+          <td><b>明杠</b></td>
+          <td>别人打出的牌 + 自己手里三张相同的</td>
+          <td>按钮显示「杠（四万）」，杠完从牌墙补一张</td>
+        </tr>
+        <tr>
+          <td><b>暗杠</b></td>
+          <td>自己摸到第四张，手里凑齐四张</td>
+          <td>牌桌上只播报「某某 暗杠」，<b>不亮牌名</b>，别家看不到杠的是哪张</td>
+        </tr>
+        <tr>
+          <td><b>补杠</b></td>
+          <td>已经碰过的牌，自己又摸到第四张</td>
+          <td>补在碰的那组上，同样补一张牌；有人胡这张可抢杠</td>
+        </tr>
+      </table>
+
+      <div class="note">
+        <b>杠分：</b>规则开启杠计分时（如「柏氏家庭局」：明杠 1 分、暗杠 2 分、补杠 1 分），杠分单独计算、<b>不乘番倍数</b>，结算页会单列一行。
+      </div>
+
+      <div class="tip">
+        <b>别急着杠：</b>杠完要补牌、牌型也会变，还可能点炮。不确定时先点「过」，按原计划出牌——「过」只是本次不杠，不影响下一轮。
+      </div>
+    </section>
+
+    <section id="win">
+      <h2><span class="badge">09</span>胡牌与结算</h2>
+      <p class="lead">能胡时动作条会跳出红色的「胡」，这一局结束后立刻出结算面板，把番和分算给你看。</p>
+
+      <figure>
+        <img src="img/manual/07-claim-hu.png" alt="可胡时的动作条" loading="lazy">
+        <figcaption><b>可以胡了：</b>「来牌」处是别人打出的牌，红色「胡」按钮会闪；不想胡这局就点「不胡」。</figcaption>
+      </figure>
+
+      <ul>
+        <li><b>自摸</b>：自己摸到的那张牌胡，三家都要付。</li>
+        <li><b>点炮</b>：别人打出的牌胡，放炮的那一家付。</li>
+        <li><b>抢杠胡</b>：别人补杠的那张牌正好是你要胡的，按钮会变成「抢杠胡」。</li>
+      </ul>
+
+      <h3>结算面板</h3>
+      <figure>
+        <img src="img/manual/11-round-result.png" alt="本局结算面板" loading="lazy">
+        <figcaption><b>结算：</b>谁胡的、几番、胡牌手牌、命中番种、分数怎么算，一屏看完。</figcaption>
+      </figure>
+
+      <table>
+        <tr><th>区块</th><th>内容</th></tr>
+        <tr><td><b>标题</b></td><td>第几局 · 结算；「某某 胡牌 自摸/点炮 · 胡张」，右侧大字是总番数</td></tr>
+        <tr><td><b>胡牌手牌</b></td><td>左边是暗牌、右边分组是吃碰杠；带金色「胡」角标的那张就是胡张</td></tr>
+        <tr><td><b>命中番种</b></td><td>门清 +1、断幺 +1、一般高 +1、缺门 +1 …… 逐条列出</td></tr>
+        <tr><td><b>分数怎么算</b></td><td>番分 = 番数 × 底分，自摸 ×2、庄家份 ×2；杠分单列、不乘倍数，最后相加</td></tr>
+        <tr><td><b>四家分数</b></td><td>本局加减分与累计分，赢家高亮；下方一句话是「本局你赢/输多少」</td></tr>
+      </table>
+
+      <h3>结算之后</h3>
+      <ul>
+        <li><b>下一局</b>：接着打，庄家按规则连庄或轮转。</li>
+        <li><b>看看牌桌</b>：关掉面板回到牌桌，顶部保留「第 N 局已结算」的小条，点它可以再看一次。</li>
+        <li><b>查看总账</b>：最后一局结束后变成「查看总账」，进战绩页看整场明细。</li>
+      </ul>
+
+      <div class="note">
+        中途有人要走时，<b>房主或家庭管理员</b>可点顶部的「结束牌局」收桌；这会把整场结束（不再继续），当前局不做结算，请注意提前打个招呼。
+      </div>
+    </section>
+
+    <section id="mobile">
+      <h2><span class="badge">10</span>手机上打牌</h2>
+      <p class="lead">手机版入口是 <code>/mjmobile/</code>，大厅竖着看、牌桌横过来打。</p>
+
+      <figure class="phone">
+        <img src="img/manual/12-mobile-lobby.png" alt="手机大厅" loading="lazy">
+        <figcaption><b>手机大厅：</b>从上到下是战绩摘要、家里的牌桌、邀请码入座、快捷入口，底部固定「创建牌桌」。</figcaption>
+      </figure>
+
+      <div class="grid-2">
+        <div>
+          <h3>竖屏与横屏</h3>
+          <ul>
+            <li>大厅、登录、战绩按竖屏浏览即可。</li>
+            <li>进牌桌后如果手机还竖着，会弹出「<b>把手机横过来打牌</b>」，点「一键进入横屏」转过去，或点「先这样看」先瞄一眼。</li>
+            <li>横屏后才能看到完整的四家座位、手牌与吃碰杠胡按钮。</li>
+          </ul>
+        </div>
+        <div>
+          <h3>牌桌操作</h3>
+          <ul>
+            <li>底部一排是手牌，点左右两侧滑动查看。</li>
+            <li>出牌：点一张选中，再点一次打出。</li>
+            <li>动作条同样在底部：来牌 →「碰 / 吃 N 种 / 杠 / 胡 / 过」。</li>
+            <li>右上「对话气泡」是聊天，旁边的「…」里有更多（结束牌局、离桌等）。</li>
+          </ul>
+        </div>
+      </div>
+
+      <figure>
+        <img src="img/manual/13-mobile-table.png" alt="手机牌桌横屏" loading="lazy">
+        <figcaption><b>手机牌桌（横屏）：</b>顶部房号与局数、左右是对家、中间牌河，底部手牌与动作条。</figcaption>
+      </figure>
+
+      <figure>
+        <img src="img/manual/14-mobile-result.png" alt="手机结算" loading="lazy">
+        <figcaption><b>手机结算：</b>内容与电脑端一致，面板可以上下滑动，「分数怎么算」往下滑就能看到。</figcaption>
+      </figure>
+    </section>
+
+    <section id="faq">
+      <h2><span class="badge">11</span>常见问题</h2>
+      <p class="lead">家里打牌最常遇到的几种情况，照着对一下。</p>
+
+      <h3>账号相关</h3>
+      <table>
+        <tr><th>现象</th><th>怎么办</th></tr>
+        <tr><td>注册页显示「注册未开放」</td><td>自助注册被关闭了，请家庭管理员开通账号，或在家庭成员页按手机号加入</td></tr>
+        <tr><td>密码忘了</td><td>登录页点「忘记密码」，验证手机号后两步重设</td></tr>
+        <tr><td>提示「这个账号已经注册过了」</td><td>直接用这个手机号登录；真忘了密码就走找回</td></tr>
+      </table>
+
+      <h3>进桌与开局</h3>
+      <table>
+        <tr><th>现象</th><th>怎么办</th></tr>
+        <tr><td>提示「牌桌满了，围观位也满了」</td><td>等有人离桌再进，或让房主先收桌重开</td></tr>
+        <tr><td>进桌后只看到一家的牌</td><td>你在<b>围观</b>，座位已满；等有人离桌再入座</td></tr>
+        <tr><td>「开始牌局」是灰的</td><td>还没坐满 4 人，或有人没点「我准备好了」</td></tr>
+        <tr><td>提示这是别人家的牌桌</td><td>要等房主在牌桌上同意才能进，先催一下房主</td></tr>
+        <tr><td>手牌点不动 / 打不出去</td><td>没轮到你。轮到你时手牌上方会出现金色「轮到你出牌」</td></tr>
+      </table>
+
+      <h3>打牌中</h3>
+      <table>
+        <tr><th>现象</th><th>怎么办</th></tr>
+        <tr><td>能碰不能吃</td><td>只有<b>下家</b>能吃上家的牌，且规则模板要允许吃；动作条会写原因</td></tr>
+        <tr><td>点了「吃」没吃成</td><td>吃要选牌：点候选组合或手牌里点两张，再按「确认吃」</td></tr>
+        <tr><td>别人暗杠看不到牌名</td><td>这是刻意的：暗杠只播报「某某 暗杠」，不亮牌</td></tr>
+        <tr><td>分数看着不对</td><td>结算面板「分数怎么算」把番分、倍数、杠分逐项写开了；总账在「战绩」里可对</td></tr>
+        <tr><td>顶部显示「已连接」变红 / 掉线</td><td>网络抖动，刷新页面会自动重连并恢复牌桌状态，牌局不会因此作废</td></tr>
+        <tr><td>想中途收桌</td><td>房主或家庭管理员在牌桌顶部点「结束牌局」，二次确认后收桌</td></tr>
+      </table>
+
+      <div class="tip">
+        <b>页面像旧版：</b>登录页底部的版本号如果不是 <code>v1.1.5</code>，按 <kbd>Ctrl</kbd> + <kbd>F5</kbd>（手机：下拉刷新或清缓存）强制刷新一次。
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  <div class="rule"></div>
+  <p>家庭麻将 · 使用手册（v1.1.5，2026-11-06）。截图由 <code>plan/tools/manual_shots.py</code> 用真实前端构建产物生成；规则细节见 <a href="规则设计.md">规则设计</a>，部署与运维见 <a href="部署.md">部署</a>、<a href="运维与备份.md">运维与备份</a>。</p>
+</footer>
+
+</body>
+</html>
