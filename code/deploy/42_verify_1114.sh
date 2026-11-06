@@ -3,6 +3,8 @@
 set -uo pipefail
 
 APP=/data/majiang/src
+# 对外域名按环境注入，仓库里只放示例值：export MJ_PUBLIC_BASE_URL=https://<你的域名>
+MJ_PUBLIC_BASE_URL="${MJ_PUBLIC_BASE_URL:-https://www.test.com}"
 
 echo "== 1) 关键改动是否已落盘"
 grep -n "advance=False" "$APP/game/families/sichuan/engine.py" | head -3
@@ -100,7 +102,7 @@ done
 echo
 echo "== 4) 版本与房态"
 curl -sS -m 3 http://127.0.0.1:8000/api/health; echo
-curl -sS -m 8 https://www.test.com/majiangapi/health; echo
+curl -sS -m 8 "${MJ_PUBLIC_BASE_URL}/majiangapi/health"; echo
 grep -o 'assets/index-[a-zA-Z0-9._-]*' /data/webserver/majiangapp/index.html | head -1
 grep -o 'assets/mobile-[a-zA-Z0-9._-]*' /data/webserver/mjmobile/mobile.html | head -1
 systemctl is-active mahjong

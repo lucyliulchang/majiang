@@ -13,6 +13,8 @@ PKG=${1:?用法: deploy-mobile.sh <发布包目录>}
 STAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_DIR=/data/backup
 WEB_DIR=/data/webserver/mjmobile
+# 对外域名按环境注入，仓库里只放示例值：export MJ_PUBLIC_BASE_URL=https://<你的域名>
+MJ_PUBLIC_BASE_URL="${MJ_PUBLIC_BASE_URL:-https://www.test.com}"
 
 log() { printf '\n== %s\n' "$*"; }
 
@@ -51,4 +53,4 @@ curl -fsS -o /dev/null -w 'history 回退 HTTP %{http_code}\n' http://127.0.0.1/
 echo
 echo "OK  回滚点： $STAMP"
 echo "    回滚： sudo rm -rf $WEB_DIR && sudo tar xzf $BACKUP_DIR/mjmobile_$STAMP.tgz -C /data/webserver"
-echo "    手机版地址： https://www.test.com/mjmobile/"
+echo "    手机版地址： ${MJ_PUBLIC_BASE_URL}/mjmobile/"

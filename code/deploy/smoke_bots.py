@@ -4,12 +4,14 @@
 证据（逐条断言 + 协议关键帧）写到 JSON。
 
 用法： sudo bash -c 'cd /data/majiang/src && /data/majiang/venv/bin/python \
-        /home/deployer/mj_deploy2/smoke_bots.py /home/deployer/mj_deploy2/smoke_evidence.json'
+        /home/<部署用户>/mj_deploy2/smoke_bots.py /home/<部署用户>/mj_deploy2/smoke_evidence.json'
+（部署用户用 MJ_DEPLOY_USER 覆盖，仓库里只放示例值 deployer）
 """
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -324,5 +326,7 @@ async def main(out_path: str) -> int:
 
 
 if __name__ == "__main__":
-    target = sys.argv[1] if len(sys.argv) > 1 else "/home/deployer/mj_deploy2/smoke_evidence.json"
+    deploy_user = os.environ.get("MJ_DEPLOY_USER", "deployer")
+    default_out = f"/home/{deploy_user}/mj_deploy2/smoke_evidence.json"
+    target = sys.argv[1] if len(sys.argv) > 1 else default_out
     sys.exit(asyncio.run(main(target)))

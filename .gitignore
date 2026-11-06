@@ -50,3 +50,11 @@ plan/majiang_sound/
 code/frontend/dist.tar.gz
 code/frontend/dist-mobile-check/
 .tmp_patch_testdb.py
+
+# 部署私有配置：真实域名 / 主机 / 账号 / 密钥 / 口令只写在本地文件，不入库。
+# 部署脚本支持用环境变量覆盖（MJ_PUBLIC_BASE_URL / MJ_DEPLOY_USER / MJ_DEPLOY_KEY）。
+code/deploy/*.local.env
+code/deploy/*.env.local
+
+# 改写 git 历史前的本地备份（不入库）
+plan/_history_backup_*.bundle

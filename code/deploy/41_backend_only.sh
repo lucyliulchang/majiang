@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # v1.1.3 发布（仅后端 · 连6 补齐 345678；前端不重建、不动 dist、不做冒烟）
-# 用法：sudo bash 41_backend_only.sh  （预先 scp backend.tar.gz 到 /home/deployer/mj_deploy2/）
+# 用法：sudo bash 41_backend_only.sh  （预先 scp backend.tar.gz 到 /home/<部署用户>/mj_deploy2/）
+# 部署用户与对外域名按环境注入，仓库里只放示例值：export MJ_DEPLOY_USER=... MJ_PUBLIC_BASE_URL=...
 set -uo pipefail
+MJ_DEPLOY_USER="${MJ_DEPLOY_USER:-deployer}"
+MJ_PUBLIC_BASE_URL="${MJ_PUBLIC_BASE_URL:-https://www.test.com}"
 set -a; . /data/majiang/src/.env; set +a
 DB="${MYSQL_WRITE_DB:-mahjong_data}"
 M=(mysql -h"${MYSQL_WRITE_HOST:-127.0.0.1}" -P"${MYSQL_WRITE_PORT:-3306}" -u"${MYSQL_WRITE_USER:-mjapp}" -p"${MYSQL_WRITE_PASSWD}" "$DB")
-PKG=/home/deployer/mj_deploy2
+PKG="/home/${MJ_DEPLOY_USER}/mj_deploy2"
 APP_DIR=/data/majiang/src
 BACKUP_DIR=/data/backup
 STAMP=$(date +%Y%m%d_%H%M%S)
@@ -60,7 +63,7 @@ echo
 echo "==================== 6) 只读核对（不做冒烟）"
 date
 echo -n "health(本机): "; curl -sS -m 3 http://127.0.0.1:8000/api/health; echo
-echo -n "health(对外): "; curl -sS -m 5 https://www.test.com/majiangapi/health; echo
+echo -n "health(对外): "; curl -sS -m 5 "${MJ_PUBLIC_BASE_URL}/majiangapi/health"; echo
 echo -n "服务状态: "; systemctl is-active mahjong
 "${M[@]}" -N -B -e "SELECT CONCAT('baishi_default fan_table 项数=', JSON_LENGTH(JSON_EXTRACT(configJson,'\$.fan_table'))) FROM mj_rule_template WHERE templateCode='baishi_default'" 2>/dev/null
 "${M[@]}" -N -B -e "SELECT CONCAT('OPEN 房数=', COUNT(*)) FROM mj_room WHERE roomStatus='OPEN'" 2>/dev/null

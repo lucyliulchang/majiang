@@ -9,28 +9,36 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-EVID = Path(r"d:/StevenLianData/0301. Private Project/gitData/majiang/plan/I7-evidence")
+EVID = Path(__file__).resolve().parents[2] / "plan" / "I7-evidence"
 EVID.mkdir(parents=True, exist_ok=True)
 
 TOKEN = sys.argv[1]
 ROOM_CODE = sys.argv[2]
-DESKTOP = "https://www.test.com/majiangapp"
-MOBILE = "https://www.test.com/mjmobile"
+
+# 部署坐标全部走环境变量，仓库里只保留示例值：
+#   export MJ_PUBLIC_BASE_URL=https://<你的域名>  MJ_DEPLOY_USER=<部署用户>  MJ_DEPLOY_KEY=~/.ssh/id_ed25519
+DEPLOY_BASE = os.environ.get("MJ_PUBLIC_BASE_URL", "https://www.test.com").rstrip("/")
+DEPLOY_HOST = DEPLOY_BASE.split("//")[-1]
+DEPLOY_USER = os.environ.get("MJ_DEPLOY_USER", "deployer")
+DEPLOY_KEY = os.environ.get("MJ_DEPLOY_KEY", str(Path.home() / ".ssh" / "id_ed25519"))
+DESKTOP = f"{DEPLOY_BASE}/majiangapp"
+MOBILE = f"{DEPLOY_BASE}/mjmobile"
 SSH = [
     "ssh",
     "-i",
-    r"~/.ssh/id_ed25519",
+    DEPLOY_KEY,
     "-o",
     "StrictHostKeyChecking=no",
     "-o",
     "ConnectTimeout=15",
-    "deployer@www.test.com",
+    f"{DEPLOY_USER}@{DEPLOY_HOST}",
 ]
 FAN_KEYS = ("断幺", "清一色", "七小对", "一般高", "将牌", "门清", "独赢", "258赢", "连6", "缺门", "箭刻")
 report: dict = {"room_code": ROOM_CODE, "steps": []}
@@ -98,8 +106,9 @@ with sync_playwright() as play:
     mpage.wait_for_timeout(1000)
 
     # ---------- 触发机器人开局 ----------
-    subprocess.run(SSH + ["rm -f /home/deployer/mj_deploy2/go_game"], check=False)
-    subprocess.run(SSH + ["touch /home/deployer/mj_deploy2/go_game"], check=False)
+    DEPLOY_DIR = f"/home/{DEPLOY_USER}/mj_deploy2"
+    subprocess.run(SSH + [f"rm -f {DEPLOY_DIR}/go_game"], check=False)
+    subprocess.run(SSH + [f"touch {DEPLOY_DIR}/go_game"], check=False)
     print("已触发开局")
 
     dbody = wait_settlement(dpage)
@@ -116,7 +125,7 @@ with sync_playwright() as play:
     note("手机牌桌/结算面板渲染", bool(m_fans) and overflow <= 1, {"番种": m_fans, "h_overflow": overflow})
 
     # ---------- 大厅（先收房，再检查列表为空） ----------
-    subprocess.run(SSH + ["touch /home/deployer/mj_deploy2/release_room"], check=False)
+    subprocess.run(SSH + [f"touch {DEPLOY_DIR}/release_room"], check=False)
     dpage.wait_for_timeout(8000)
     dpage.goto(f"{DESKTOP}/", wait_until="domcontentloaded")
     dpage.wait_for_timeout(3000)
