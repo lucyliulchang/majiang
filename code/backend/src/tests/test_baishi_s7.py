@@ -18,6 +18,7 @@ import pytest
 from game.engine import EngineError, SeatState
 from game.families import registry
 from game.families.baishi import selfcheck
+from game.families.baishi import fan as baishi_fan
 from game.families.baishi.config import BaishiKongScore, RuleConfig
 from game.families.baishi.fan import FAN_TABLE, FAN_VALUES
 from game.fan import ScoreBreakdown, FanLine, best_win
@@ -97,8 +98,8 @@ def fake_breakdown(fan_total: int, rule=None) -> ScoreBreakdown:
 
 
 def test_baishi_fan_table_matches_07_section_5():
-    assert len(RULE.fan_table) == 35
-    assert len(FAN_TABLE) == 35
+    assert len(RULE.fan_table) == 36
+    assert len(FAN_TABLE) == 36
     for fan_id, name, fan, group, _counting in FAN_TABLE:
         item = RULE.fan_of(fan_id)
         assert item is not None, fan_id
@@ -124,7 +125,7 @@ def test_baishi_fan_table_matches_07_section_5_markdown():
         for line in section.splitlines()
         if line.strip().startswith("| `")
     ]
-    assert len(rows) == 35, "07 §5 表格应为 35 行"
+    assert len(rows) == 36, "07 §5 表格应为 36 行"
     parsed = []
     for cells in rows:
         fan_id = cells[0].strip("`")
@@ -256,6 +257,62 @@ def test_case05b_bao_pai_needs_tile_in_allowed_set(hand):
     assert sum(delta) == 0
 
 
+def test_case05d_bao_pai_hun_yi_se_rejects_honor_discard(hand):
+    """v1.13：混一色只认**主花色数牌**，点炮牌是字牌 → 不包（生产反馈）。
+
+    同一手牌换主花色数牌（4 万）点炮 → 包，锁定「只收紧字牌」的边界。
+    """
+    eng = engine(dealer_seat=0)
+    melds = [pong(0), pong(1), pong(27)]  # 1 万 / 2 万 / 东 → 万 + 字
+    ctx = ctx_of(hand, "456m55m", win_tile=3, melds=melds)
+    breakdown = _eval(ctx)
+    assert "hun_yi_se" in ids_of(breakdown)
+
+    delta, allocation, _multipliers = eng._settle_fan_delta(
+        1, breakdown, "discard", 2, ctx, 27
+    )
+    assert allocation == [], "字牌点炮不得包混一色"
+    assert sum(delta) == 0
+
+    _delta, allocation, _multipliers = eng._settle_fan_delta(
+        1, breakdown, "discard", 2, ctx, 3
+    )
+    assert len(allocation) == 1, "主花色数牌点炮仍应包"
+    assert allocation[0]["reason"] == "bao_pai"
+
+
+def test_case05e_bao_pai_quan_zi_accepts_honor_discard(hand):
+    """全文字只认字牌：3 明牌全文字 + 字牌点炮 → 包。"""
+    eng = engine(dealer_seat=0)
+    melds = [pong(29), pong(31), pong(32)]  # 西 / 中 / 发
+    ctx = ctx_of(hand, "4z4z4z7z7z", win_tile=30, melds=melds)
+    breakdown = _eval(ctx)
+    assert "quan_zi" in ids_of(breakdown)
+    delta, allocation, _multipliers = eng._settle_fan_delta(
+        1, breakdown, "discard", 2, ctx, 30
+    )
+    assert len(allocation) == 1
+    assert allocation[0]["reason"] == "bao_pai"
+    assert "quan_zi" in allocation[0]["patterns"]
+    assert sum(delta) == 0
+
+
+def test_case05f_bao_pai_quan_yao_accepts_terminal_and_honor(hand):
+    """全幺的幺牌 = 1/9 数牌 **或** 字牌：两种点炮牌都包（v1.13 口径）。"""
+    eng = engine(dealer_seat=0)
+    melds = [pong(0), pong(9), pong(18)]  # 1 万 / 1 筒 / 1 条
+    ctx = ctx_of(hand, "99m111z", win_tile=8, melds=melds)
+    breakdown = _eval(ctx)
+    assert "quan_yao" in ids_of(breakdown)
+
+    for tile, label in ((27, "字牌（东）"), (8, "1/9 数牌（9 万）")):
+        _delta, allocation, _multipliers = eng._settle_fan_delta(
+            1, breakdown, "discard", 2, ctx, tile
+        )
+        assert len(allocation) == 1, f"{label}点炮应包全幺"
+        assert "quan_yao" in allocation[0]["patterns"]
+
+
 def test_case05c_bao_pai_needs_three_exposed_melds(hand):
     eng = engine(dealer_seat=0)
     melds = [pong(0), pong(2)]
@@ -309,11 +366,52 @@ def test_case07_hai_di_only_on_last_one_dot(hand):
     # 1 筒 = 9 号牌；海底只看"最后一张 + 自摸"，与胡的是哪张无关
     ids = ids_of(_eval(ctx))
     assert ids["hai_di_lao_yue"] == 100
+    assert "hai_di_lao" not in ids, "1 筒只计海底捞月，不再叠海底捞"
 
     ctx2 = ctx_of(
         hand, "123m456m789m123p55p", win_tile=10, is_self_draw=True, is_last_tile=True
     )
-    assert "hai_di_lao_yue" not in ids_of(_eval(ctx2))
+    ids2 = ids_of(_eval(ctx2))
+    assert "hai_di_lao_yue" not in ids2
+    assert ids2["hai_di_lao"] == 50, "末张非 1 筒 → 海底捞 50"
+
+
+def test_case37_hai_di_lao_requires_self_draw_and_last_tile(hand):
+    """海底捞 50 只在「摸到牌墙最后一张 + 自摸胡」成立（07 §6.5.2 / §13-37）。"""
+    text = "123m456m789m123p55p"
+
+    # 点炮（末张被打出后被别人胡）→ 两档都不计
+    ids = ids_of(_eval(ctx_of(hand, text, win_tile=10, is_last_tile=True)))
+    assert "hai_di_lao" not in ids and "hai_di_lao_yue" not in ids
+
+    # 抢杠胡（非自摸）→ 同样不计
+    ids = ids_of(
+        _eval(ctx_of(hand, text, win_tile=10, is_last_tile=True, is_robbing_kong=True))
+    )
+    assert "hai_di_lao" not in ids
+
+    # 自摸但牌墙未取尽（不是末张）→ 不计
+    ids = ids_of(_eval(ctx_of(hand, text, win_tile=10, is_self_draw=True)))
+    assert "hai_di_lao" not in ids
+
+    # win_tile 为 None（类型允许）→ 不得误判成海底捞 50
+    ctx = ctx_of(hand, text, win_tile=None, is_self_draw=True, is_last_tile=True)
+    assert baishi_fan.hai_di_hits(ctx) == []
+
+
+def test_case37_hai_di_lao_stacks_with_after_kong(hand):
+    """杠后从牌尾补到最后一张并自摸：海底捞 50 与杠上开花 10 叠加（07 §6.5.2）。"""
+    ctx = ctx_of(
+        hand,
+        "123m456m789m123p55p",
+        win_tile=10,
+        is_self_draw=True,
+        is_last_tile=True,
+        is_after_kong=True,
+    )
+    ids = ids_of(_eval(ctx))
+    assert ids["hai_di_lao"] == 50
+    assert ids["gang_shang_kai_hua"] == 10
 
 
 # ---------------------------------------------------------------- 13.9 13不靠
@@ -322,21 +420,22 @@ def test_case07_hai_di_only_on_last_one_dot(hand):
 
 
 def test_case09_thirteen_unrelated_positive(hand):
-    # 中发白齐 + 三门数牌各 3 张同组（147 万 / 258 筒 / 369 条）+ 将 9 万
-    breakdown = _eval(ctx_of(hand, "147m258p369s5z6z7z9m9m", win_tile=26))
+    # 中发白齐 + 同门同组：万 147 / 筒 258 / 条 2,5,8（2 条成对作将）+ 单风东
+    # v1.13：数牌将必须与同门散牌同组，故条门取 258、将取 2 条（旧例「147万258筒369条 + 将9万」不再成立）
+    breakdown = _eval(ctx_of(hand, "147m258p58s22s1z5z6z7z", win_tile=18))
     ids = ids_of(breakdown)
     assert ids["shi_san_bu_kao"] == 10
     assert ids["jiang_pai"] == 1, "13不靠 也判将牌"
     assert "du_ying" not in ids, "13不靠 不再判独赢（R-6）"
     assert "men_qian" not in ids, "13不靠 不再判门清（R-6）"
+    assert "er_wu_ba_ying" not in ids, "赢张 1 条不是 2/5/8"
     assert "que_men" not in ids, "三门数牌都在 → 不缺门"
     assert breakdown.fan_total == 11, "10 + 将牌 1（不含门清、独赢）"
 
 
 def test_case09_thirteen_unrelated_jang_five_dot(hand):
-    # v1.12 起不允许 3 张同牌：将 5 筒 时筒门不能再用 258（否则 5 筒成 3 张），
-    # 故筒门改走 369，5 筒只以将牌出现。
-    breakdown = _eval(ctx_of(hand, "147m258s369p5z6z7z5p5p", win_tile=13))
+    # v1.13：将 5 筒 必须与筒门同组 → 筒门取 2/8（258 组），5 筒只以将牌出现
+    breakdown = _eval(ctx_of(hand, "147m28p5p5p258s1z5z6z7z", win_tile=13))
     ids = ids_of(breakdown)
     assert ids["shi_san_bu_kao"] == 10
     assert ids["jiang_pai"] == 1
@@ -386,6 +485,8 @@ def test_case09c_thirteen_unrelated_may_lack_a_suit(hand):
         # v1.12：3 张同牌不成立（成对的只能是那一对将牌）
         "5z5z5z6z7z1m4m7m2p5p8p3s6s9s",  # 中×3（中将 + 第 3 张中）
         "5z6z7z1z2z1m1m1m2s5s8s3p6p9p",  # 1 万×3
+        # v1.13：数牌将必须与同门散牌同组（实测反馈用例：1万7万 + 1筒 + 1/7条 + 8条8条 将）
+        "17m1p17s88s1234567z",
     ],
 )
 def test_case09_thirteen_unrelated_negative(hand, text):
@@ -417,6 +518,25 @@ def test_case09e_thirteen_unrelated_rejects_three_of_a_kind(hand):
         assert "shi_san_bu_kao" not in ids, f"3 张同牌不应成立: {text}"
 
 
+def test_case09f_thirteen_unrelated_pair_must_share_group(hand):
+    """v1.13：数牌将必须与同门散牌落在同一组；该门无散牌时视为只取将牌所属组。
+
+    - `1/7 条 + 8 条 8 条`：8 属 258、1/7 属 147 → 不成立（用户 2026-11-06 实测反馈）；
+    - `1/7 条 + 4 条 4 条`：同属 147 → 成立；
+    - `5 万 5 万` 单独一门（万门无散牌）→ 成立。
+    """
+    assert "shi_san_bu_kao" not in fan_ids(
+        ctx_of(hand, "17m1p17s88s1234567z", win_tile=33)
+    ), "8 条作将与 1/7 条跨组，不成立"
+
+    ids = ids_of(_eval(ctx_of(hand, "17m1p17s44s1234567z", win_tile=33)))
+    assert ids["shi_san_bu_kao"] == 10, "4 条作将，条门 1/4/7 同组 → 成立"
+
+    ids = ids_of(_eval(ctx_of(hand, "55m147s258p1z2z3z5z6z7z", win_tile=4)))
+    assert ids["shi_san_bu_kao"] == 10, "万门只有将牌 5 万 5 万 → 成立"
+    assert ids["jiang_pai"] == 1, "5 万作将 → 258将 +1"
+
+
 def test_case09_thirteen_unrelated_rejects_melds(hand):
     melds = [chow(0)]  # 吃 123 万
     ctx = ctx_of(hand, "147m258p369s5z6z7z", win_tile=26, melds=melds)
@@ -430,7 +550,7 @@ def test_case09_thirteen_unrelated_never_flush(hand):
     决定了数牌必跨 **≥2 门** → 不可能凑成单门 → `flush` 永不命中。
     因此「命中 flush 时相应再减 2」在 13不靠 上不可达，此处锁定该不变量。
     """
-    ids = ids_of(_eval(ctx_of(hand, "147m258p369s5z6z7z9m9m", win_tile=26)))
+    ids = ids_of(_eval(ctx_of(hand, "147m258p58s22s1z5z6z7z", win_tile=18)))
     assert "hun_yi_se" not in ids
     assert "qing_yi_se" not in ids
     ids = ids_of(_eval(ctx_of(hand, "1z1z2z3z4z5z6z7z1m4m7m2s5s8s", win_tile=27)))
@@ -439,8 +559,8 @@ def test_case09_thirteen_unrelated_never_flush(hand):
 
 
 def test_case09_thirteen_unrelated_keeps_situational_fans(hand):
-    """13不靠 只剔除门清；天胡/地胡/杠上开花/海底捞月/抢杠胡 仍照常判定（R-6）。"""
-    base = "147m258p369s5z6z7z9m9m"
+    """13不靠 只剔除门清；天胡/地胡/杠上开花/海底捞月/海底捞/抢杠胡 仍照常判定（R-6）。"""
+    base = "147m258p58s22s1z5z6z7z"
 
     ids = ids_of(_eval(ctx_of(hand, base, win_tile=26, is_after_kong=True)))
     assert ids["gang_shang_kai_hua"] == 10, "杠上开花照常判定（10 番）"
@@ -450,6 +570,12 @@ def test_case09_thirteen_unrelated_keeps_situational_fans(hand):
         _eval(ctx_of(hand, base, win_tile=9, is_self_draw=True, is_last_tile=True))
     )
     assert ids["hai_di_lao_yue"] == 100, "海底捞月照常判定"
+    assert "men_qian" not in ids
+
+    ids = ids_of(
+        _eval(ctx_of(hand, base, win_tile=26, is_self_draw=True, is_last_tile=True))
+    )
+    assert ids["hai_di_lao"] == 50, "海底捞（末张非 1 筒）照常判定"
     assert "men_qian" not in ids
 
     ids = ids_of(_eval(ctx_of(hand, base, win_tile=26, is_robbing_kong=True)))
@@ -992,7 +1118,7 @@ def test_case34e_duan_yao_never_for_quan_or_unrelated(hand):
     orphans = ids_of(_eval(ctx_of(hand, "19m19p19s1234567z1z", win_tile=27)))
     assert "shi_san_yao" in orphans
     assert "duan_yao" not in orphans
-    unrelated = ids_of(_eval(ctx_of(hand, "147m258p369s5z6z7z9m9m", win_tile=26)))
+    unrelated = ids_of(_eval(ctx_of(hand, "147m258p58s22s1z5z6z7z", win_tile=18)))
     assert unrelated["shi_san_bu_kao"] == 10
     assert "duan_yao" not in unrelated
 
@@ -1071,7 +1197,7 @@ def test_case35d_yi_zhi_yao_never_for_pairs_or_quan(hand):
     assert quan_zi["quan_zi"] == 100
     assert "yi_zhi_yao" not in quan_zi
 
-    unrelated = ids_of(_eval(ctx_of(hand, "147m258p369s5z6z7z9m9m", win_tile=26)))
+    unrelated = ids_of(_eval(ctx_of(hand, "147m258p58s22s1z5z6z7z", win_tile=18)))
     assert unrelated["shi_san_bu_kao"] == 10
     assert "yi_zhi_yao" not in unrelated
 

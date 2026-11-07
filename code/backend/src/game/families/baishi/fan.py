@@ -16,7 +16,7 @@
 - 箭刻（中/发/白）每种一个刻子或杠各计 1 番，最多 3 番，不占任何组，可与任意番种累加；
 - 十三幺不判独赢；七小对不判将牌（全文字七对例外，可叠独赢）；
 - **13不靠 不判门清、独赢**（07 §6.3.4 v1.10 / R-6）：二者是牌型固有性质，不再重复计分；
-  但局面番（天胡/地胡/杠上开花/海底捞月/抢杠胡）照常判定；
+  但局面番（天胡/地胡/杠上开花/海底捞月/海底捞/抢杠胡）照常判定；
 - 258赢（看 `win_tile`）与 断幺 / 一只幺（看 `all_tiles()`）是**牌型无关的全局番**，
   由 `global_fans()` 统一产出、在牌型 `calc_fan()` 出口追加（不逐个牌型挂），
   因此七对/13不靠/十三幺也照常判定（十三幺天然不成立）。
@@ -35,7 +35,7 @@ from game.tiles import TILE_KINDS, is_honor, is_suit, rank_of, suit_of, tile_nam
 if TYPE_CHECKING:
     from game.families.baishi.config import RuleConfig
 
-#: 07 §5 的 35 项番表（id → 名称、番值、互斥组、是否计数）
+#: 07 §5 的 36 项番表（id → 名称、番值、互斥组、是否计数）
 FAN_TABLE: tuple[tuple[str, str, int, str | None, bool], ...] = (
     ("ping_hu", "平胡", 1, "structure", False),
     ("men_qian", "门清", 1, "first", False),
@@ -69,6 +69,7 @@ FAN_TABLE: tuple[tuple[str, str, int, str | None, bool], ...] = (
     ("di_hu", "地胡", 50, "first", False),
     ("gang_shang_kai_hua", "杠上开花", 10, None, False),
     ("hai_di_lao_yue", "海底捞月", 100, None, False),
+    ("hai_di_lao", "海底捞", 50, None, False),
     ("men_feng_ke", "门风刻", 1, None, False),
     ("quan_feng_ke", "圈风刻", 1, None, False),
     ("jian_ke", "箭刻", 1, None, True),
@@ -88,6 +89,9 @@ QUE_MEN_SUPPRESSORS = frozenset({"flush", "quan"})
 
 #: 包牌四选四的牌型（07 §7.1）
 BAO_PAI_PATTERNS = ("qing_yi_se", "hun_yi_se", "quan_zi", "quan_yao")
+
+#: 一筒的牌编码（`game/tiles.py`：tile = suit*9 + rank-1，筒 9-17 ⇒ 一筒 = 9）
+HAI_DI_ONE_DOT = 9
 
 #: 十三幺的 13 种幺九字牌
 ORPHANS = (0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33)
@@ -232,9 +236,11 @@ def unrelated_pair(ctx: HandContext) -> int | None:
        （v1.12 起：3 张同牌不成立，成对的只能是那一对将牌——「中将 + 第 3 张中」不算）；
     3. 中发白必含：各 ≥1（其中一种恰为将牌时自然为 2 张）；
     4. 风牌每种 ≤1（扣将后；成对时只能是将牌）；
-    5. 数牌每门 0–3 张、同门全部落在同一组（147/258/369）、不得重复同一张；
-    6. 全部牌都被上述规则覆盖（总数守恒，无多余牌）；
-    7. 返回该将牌。
+    5. 数牌每门 0–3 种、同门全部落在同一组（147/258/369）、不得重复同一张；
+    6. **数牌将牌也必须与同门其余牌同组**（v1.14）：`1/7 条 + 8 条 8 条` 不成立；
+       该门若无其他散牌，视为只取将牌所属组（`5 筒 5 筒` 单独一门成立）；
+    7. 全部牌都被上述规则覆盖（总数守恒，无多余牌）；
+    8. 返回该将牌。
     """
     if ctx.melds or sum(ctx.counts) != 14:
         return None
@@ -245,7 +251,7 @@ def unrelated_pair(ctx: HandContext) -> int | None:
     for pair in range(TILE_KINDS):
         if ctx.counts[pair] < 2:
             continue
-        # 将牌不受「同门同组 / 不重复」约束，先扣除 2 张，再看剩余 12 张
+        # 先扣除将牌 2 张，再看剩余 12 张
         rest = list(ctx.counts)
         rest[pair] -= 2
         if any(count > 1 for count in rest):
@@ -254,15 +260,20 @@ def unrelated_pair(ctx: HandContext) -> int | None:
             continue  # 中发白必含（将牌可为其中一种）
         if any(rest[tile] > 1 for tile in (27, 28, 29, 30)):
             continue  # 风牌每种最多 1 张，成对时只能是将牌
+        # 数牌将所属的门与点数（字牌将不参与分组，字牌无组概念）
+        pair_suit = pair // 9 if pair < 27 else -1
+        pair_rank = pair - pair_suit * 9 if pair_suit >= 0 else -1
         ok = True
         for suit in range(3):
             base = suit * 9
-            ranks = tuple(rank for rank in range(9) if rest[base + rank])
+            ranks = {rank for rank in range(9) if rest[base + rank]}
+            if suit == pair_suit:
+                ranks.add(pair_rank)  # v1.14：数牌将也参与同门同组判定
             if any(rest[base + rank] > 1 for rank in ranks):
                 ok = False  # 同门不得重复同一张牌
                 break
-            if ranks and not any(set(ranks) <= set(group) for group in UNRELATED_GROUPS):
-                ok = False  # 同门必须落在 147 / 258 / 369 同一组内（0–3 张，可为该组的子集）
+            if ranks and not any(ranks <= set(group) for group in UNRELATED_GROUPS):
+                ok = False  # 同门必须落在 147 / 258 / 369 同一组内（含将，可为该组的子集）
                 break
         if ok and sum(rest) == 12:  # 全覆盖：14 张 = 将 2 + 中发白 3 + 风 0–4 + 数牌 0–9
             return pair
@@ -374,8 +385,25 @@ def global_fans(ctx: HandContext) -> list[FanHit]:
     return [*er_wu_ba_ying_hit(ctx), *duan_yao_hit(ctx), *yi_zhi_yao_hit(ctx)]
 
 
+def hai_di_hits(ctx: HandContext) -> list[FanHit]:
+    """海底两档（07 §6.5.2）：只认「摸到牌墙最后一张 + 自摸胡」。
+
+    - 末张恰为 **1 筒** → 海底捞月 100 番；
+    - 末张为**其它任何牌** → 海底捞 50 番；
+    - 末张被打出后被点炮胡 / 抢杠胡（`is_self_draw=False`）→ 两档都不计；
+    - 未摸到末张（`is_last_tile=False`）→ 两档都不计。
+
+    本函数是海底判定的**唯一出口**：`situational_hits()` 与 `thirteen_orphans_fans()`
+    都调用它，避免标准/七对/13不靠/十三幺四条牌型路径出现口径分歧。
+    """
+    if not (ctx.is_last_tile and ctx.is_self_draw) or ctx.win_tile is None:
+        return []
+    fan_id = "hai_di_lao_yue" if ctx.win_tile == HAI_DI_ONE_DOT else "hai_di_lao"
+    return [FanHit(fan_id)]
+
+
 def situational_hits(ctx: HandContext) -> list[FanHit]:
-    """只看局面的番：门清、天胡/地胡、杠上开花、海底捞月、抢杠胡。"""
+    """只看局面的番：门清、天胡/地胡、杠上开花、海底捞月/海底捞、抢杠胡。"""
     hits: list[FanHit] = []
     if ctx.is_heavenly:
         hits.append(FanHit("tian_hu"))
@@ -385,9 +413,7 @@ def situational_hits(ctx: HandContext) -> list[FanHit]:
         hits.append(FanHit("men_qian"))
     if ctx.is_after_kong:
         hits.append(FanHit("gang_shang_kai_hua"))
-    # 海底捞月：牌墙最后一张恰为 1 筒且摸者自摸胡（07 §6.5.2）
-    if ctx.is_last_tile and ctx.is_self_draw and ctx.win_tile == 9:
-        hits.append(FanHit("hai_di_lao_yue"))
+    hits.extend(hai_di_hits(ctx))
     if ctx.is_robbing_kong:
         hits.append(FanHit("qiang_gang_hu"))
     return hits
@@ -629,8 +655,7 @@ def thirteen_orphans_fans(ctx: HandContext) -> list[FanHit]:
         hits.append(FanHit("men_qian"))
     if ctx.is_after_kong:
         hits.append(FanHit("gang_shang_kai_hua"))
-    if ctx.is_last_tile and ctx.is_self_draw and ctx.win_tile == 9:
-        hits.append(FanHit("hai_di_lao_yue"))
+    hits.extend(hai_di_hits(ctx))
     if ctx.is_robbing_kong:
         hits.append(FanHit("qiang_gang_hu"))
     if ctx.is_heavenly:
@@ -652,7 +677,7 @@ def thirteen_unrelated_fans(ctx: HandContext, pair: int) -> list[FanHit]:
     if flush:
         hits.append(FanHit(flush))
     # ⚠️ 不得整体删除 `situational_hits(ctx)`：它同时产出天胡 / 地胡 / 杠上开花 /
-    # 海底捞月 / 抢杠胡 5 个番种；这里只把 13不靠 不再计的 `men_qian` 过滤掉。
+    # 海底捞月 / 海底捞 / 抢杠胡 6 个番种；这里只把 13不靠 不再计的 `men_qian` 过滤掉。
     hits.extend(hit for hit in situational_hits(ctx) if hit.id != "men_qian")
     if not flush:
         suits, _honors = _suit_profile(ctx)
@@ -694,18 +719,19 @@ def best_shape_fans(ctx: HandContext, rule: "RuleConfig") -> list[FanHit]:
 
 
 def bao_pai_allowed_tile(tile: int, pattern_ids: set[str], main_suit: int | None) -> bool:
-    """点炮牌是否落在该牌型的允许集内（07 §7.1）。"""
-    if "quan_zi" in pattern_ids:
-        if is_honor(tile):
-            return True
-    if "quan_yao" in pattern_ids:
-        if is_honor(tile) or rank_of(tile) in (0, 8):
-            return True
-    if "qing_yi_se" in pattern_ids and main_suit is not None:
-        if is_suit(tile) and suit_of(tile) == main_suit:
-            return True
-    if "hun_yi_se" in pattern_ids and main_suit is not None:
-        if is_honor(tile) or (is_suit(tile) and suit_of(tile) == main_suit):
+    """点炮牌是否落在该牌型的允许集内（07 §7.1，v1.13 修正）。
+
+    只认**该牌型的特征牌**（字牌不能对 `flush` 组"一票通"）：
+    - 清一色 / 混一色 → 主花色的数牌（混一色**不含**字牌）；
+    - 全文字 → 字牌；
+    - 全幺 → 幺牌（1、9 数牌**或**字牌，字牌同属幺牌）。
+    """
+    if is_honor(tile):
+        return "quan_zi" in pattern_ids or "quan_yao" in pattern_ids
+    if "quan_yao" in pattern_ids and rank_of(tile) in (0, 8):
+        return True
+    if "qing_yi_se" in pattern_ids or "hun_yi_se" in pattern_ids:
+        if main_suit is not None and is_suit(tile) and suit_of(tile) == main_suit:
             return True
     return False
 
@@ -737,6 +763,7 @@ __all__ = [
     "er_wu_ba_ying_hit",
     "flush_fan",
     "global_fans",
+    "hai_di_hits",
     "is_all_honors",
     "is_all_simples",
     "is_all_terminals",
