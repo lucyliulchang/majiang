@@ -110,8 +110,8 @@ case(
 # v1.10 起（R-6）不再计门清 / 独赢 → 期望里剔除，并用 forbidden 锁定
 case(
     "13-09 13不靠·标准",
-    "147m258p369s5z6z7z9m9m",
-    26,
+    "147m258p58s22s1z5z6z7z",
+    18,
     ["shi_san_bu_kao", "jiang_pai"],
     forbidden=["men_qian", "du_ying"],
 )
@@ -136,6 +136,22 @@ case(
     31,
     [],
     forbidden=["shi_san_bu_kao"],
+)
+# v1.13：数牌将必须与同门散牌同组 → 1/7 条 + 8 条 8 条 不成立（实测反馈用例）
+case(
+    "13-09 13不靠·将牌跨组不成立",
+    "17m1p17s88s1234567z",
+    33,
+    [],
+    forbidden=["shi_san_bu_kao"],
+)
+# v1.13：将牌所在门无散牌 → 视为只取将牌所属组，成立
+case(
+    "13-09 13不靠·独立门将牌成立",
+    "55m147s258p1z2z3z5z6z7z",
+    4,
+    ["shi_san_bu_kao", "jiang_pai"],
+    forbidden=["men_qian", "du_ying"],
 )
 
 results["all_pass"] = all(item["pass"] for item in results["cases"])
