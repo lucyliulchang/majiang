@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence
 
 from game.hand import HandContext
 from game.patterns.base import FanHit
@@ -736,6 +736,22 @@ def bao_pai_allowed_tile(tile: int, pattern_ids: set[str], main_suit: int | None
     return False
 
 
+def bao_pai_exposed_ok(
+    exposed_tiles: Sequence[int], pattern_ids: set[str], main_suit: int | None
+) -> bool:
+    """明牌是否已亮出该牌型的特征牌（07 §7.1 第 5 条，v1.16）。
+
+    包牌是「别人明知你在做大牌还硬喂」的罚则，所以**牌型必须在明牌上已经看得见**：
+    用与点炮牌同一套特征牌口径（`bao_pai_allowed_tile`）逐张检查摊开的副露——
+    - 混一色 / 清一色 → 明牌里至少有一张**主花色数牌**（明牌全是字牌 ⇒ 主花色从未明示，不包）；
+    - 全文字 → 明牌里至少有一张字牌；
+    - 全幺 → 明牌里至少有一张幺牌。
+
+    全文字 / 全幺 的手牌本身全是字牌或幺牌，因此这两类恒成立（收紧只作用于 `flush` 组）。
+    """
+    return any(bao_pai_allowed_tile(tile, pattern_ids, main_suit) for tile in exposed_tiles)
+
+
 def main_suit_of(ctx: HandContext) -> int | None:
     suits, _honors = _suit_profile(ctx)
     if len(suits) == 1:
@@ -755,6 +771,7 @@ __all__ = [
     "STACKABLE_FANS",
     "SetInfo",
     "bao_pai_allowed_tile",
+    "bao_pai_exposed_ok",
     "best_shape_fans",
     "chow_fans",
     "count_yao_tiles",

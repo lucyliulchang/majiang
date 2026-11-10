@@ -70,7 +70,7 @@ class BaishiEngine(GameEngine):
         discard_seat: int | None,
         tile: int | None,
     ) -> tuple[bool, list[str]]:
-        """包牌四条（07 §7.1），返回 `(是否包牌, 命中的牌型)`。"""
+        """包牌五条（07 §7.1，v1.16），返回 `(是否包牌, 命中的牌型)`。"""
         options = getattr(self.rule, "bao_pai", None)
         if options is None or not getattr(options, "enabled", False):
             return False, []
@@ -84,9 +84,18 @@ class BaishiEngine(GameEngine):
         if not matched:
             return False, []
         main_suit = baishi_fan.main_suit_of(ctx)
-        if not baishi_fan.bao_pai_allowed_tile(tile, set(matched), main_suit):
+        exposed_tiles = [meld_tile for meld in ctx.exposed_melds for meld_tile in meld.tiles]
+        # 逐牌型判定（07 §7.1「任一命中即通过」）：同一个牌型必须同时满足
+        # 第 4 条（点炮牌属于它的允许集）与第 5 条（它的特征牌已在明牌里亮出，v1.16）
+        passing = [
+            pattern
+            for pattern in matched
+            if baishi_fan.bao_pai_allowed_tile(tile, {pattern}, main_suit)
+            and baishi_fan.bao_pai_exposed_ok(exposed_tiles, {pattern}, main_suit)
+        ]
+        if not passing:
             return False, []
-        return True, matched
+        return True, passing
 
     def _settle_fan_delta(
         self,

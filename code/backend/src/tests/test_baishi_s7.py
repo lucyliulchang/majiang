@@ -313,6 +313,54 @@ def test_case05f_bao_pai_quan_yao_accepts_terminal_and_honor(hand):
         assert "quan_yao" in allocation[0]["patterns"]
 
 
+def test_case05g_bao_pai_requires_exposed_pattern_tile(hand):
+    """v1.16：牌型必须在**明牌**上已经亮出来（生产反馈 709486）。
+
+    3 组明牌全是字牌（西/发/中）+ 混一色（万）+ 点炮 4 万 → 主花色从未明示 → **不包**；
+    同一手牌把一组明刻换成主花色数牌（1 万）→ 包，锁定「只收紧 flush 组明牌」的边界。
+    """
+    eng = engine(dealer_seat=0)
+    honor_melds = [pong(29), pong(32), pong(31)]  # 西 / 发 / 中
+    ctx = ctx_of(hand, "456m55m", win_tile=3, melds=honor_melds)
+    breakdown = _eval(ctx)
+    assert "hun_yi_se" in ids_of(breakdown)
+
+    delta, allocation, _multipliers = eng._settle_fan_delta(
+        1, breakdown, "discard", 2, ctx, 3
+    )
+    assert allocation == [], "明牌全是字牌不得包混一色（主花色未明示）"
+    assert sum(delta) == 0
+
+    number_melds = [pong(0), pong(32), pong(31)]  # 1 万 / 发 / 中
+    ctx2 = ctx_of(hand, "456m55m", win_tile=3, melds=number_melds)
+    breakdown2 = _eval(ctx2)
+    _delta, allocation2, _multipliers = eng._settle_fan_delta(
+        1, breakdown2, "discard", 2, ctx2, 3
+    )
+    assert len(allocation2) == 1, "明牌含主花色数牌时仍应包"
+    assert allocation2[0]["reason"] == "bao_pai"
+
+
+def test_case05h_bao_pai_quan_zi_and_quan_yao_unaffected_by_exposed_rule(hand):
+    """全文字 / 全幺 的手牌全是字牌或幺牌 ⇒ 明牌特征牌条件恒成立（收紧只作用于 flush 组）。"""
+    eng = engine(dealer_seat=0)
+    quan_zi = ctx_of(
+        hand, "4z4z4z7z7z", win_tile=30, melds=[pong(29), pong(31), pong(32)]
+    )
+    _delta, allocation, _multipliers = eng._settle_fan_delta(
+        1, _eval(quan_zi), "discard", 2, quan_zi, 30
+    )
+    assert len(allocation) == 1
+
+    quan_yao = ctx_of(
+        hand, "99m111z", win_tile=8, melds=[pong(0), pong(9), pong(18)]
+    )
+    _delta, allocation, _multipliers = eng._settle_fan_delta(
+        1, _eval(quan_yao), "discard", 2, quan_yao, 27
+    )
+    assert len(allocation) == 1
+
+
 def test_case05c_bao_pai_needs_three_exposed_melds(hand):
     eng = engine(dealer_seat=0)
     melds = [pong(0), pong(2)]
