@@ -1,16 +1,19 @@
-# Mahjong schedule crontab (schedule 目录, 非 root)
-# 版本管理文件: 生产环境按实际路径替换后 `crontab -e` 应用
+# Mahjong schedule crontab (生产以 majiang 用户安装: sudo -u majiang crontab majiang_crontab.txt)
+# 该账号 /usr/sbin/nologin, 仅用于运行 mahjong.service 与 cron
 # M H D m d cmd
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
 
-MAILTO=ops@example.com
+# 00:00 日志切片: {LOG_DIR}/schedule/*.log 按日归档到 backup/, 清理 30 天前切片
+#       LOG_DIR 默认 /data/majiang/log; 可用 MAHJONG_LOG_DIR / MAHJONG_LOG_KEEP_DAYS 覆盖
+#       注意: 不截断 log/mahjong.log(应用持句柄), 该文件由 RotatingFileHandler 10MB x 5 自管
+0 0 * * * /bin/bash /data/majiang/src/schedule/restore_logslice.sh >> /data/majiang/log/schedule/logslice.log 2>&1
 
-# 00:00 日志切片(切分前一天的 clean/backup 日志)
-0 0 * * * sh /data/majiang/src/schedule/restore_logslice.sh >> /data/majiang/log/schedule/logslice.log 2>&1
+# 03:00 全量备份(先备份) —— 2026-11-10 起生产暂未启用, 启用前需确认 MAHJONG_PYTHON 指向 /data/majiang/venv
+# 0 3 * * * MAHJONG_PYTHON=/data/majiang/venv/bin/python /bin/bash /data/majiang/src/schedule/restore_backup.sh >> /data/majiang/log/schedule/backup.log 2>&1
 
-# 03:00 全量备份(先备份)
-0 3 * * * sh /data/majiang/src/schedule/restore_backup.sh >> /data/majiang/log/schedule/backup.log 2>&1
-
-# 04:00 数据清理(后删除; 删除前当天快照已存在)
-0 4 * * * sh /data/majiang/src/schedule/restore_clean.sh >> /data/majiang/log/schedule/clean.log 2>&1
+# 04:00 数据清理(后删除; 删除前当天快照已存在) —— 未启用, 会物理删数据, 需单独评审
+# 0 4 * * * /bin/bash /data/majiang/src/schedule/restore_clean.sh >> /data/majiang/log/schedule/clean.log 2>&1
 
 # @reboot 不重复拉起: 清理/备份均为短任务, 重启后等下一个 cron 时点即可

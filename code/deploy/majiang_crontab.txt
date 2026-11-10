@@ -1,0 +1,8 @@
+# Mahjong 定时任务 —— 以 majiang 用户运行(该账号 /usr/sbin/nologin, 仅用于 service 与 cron)
+# 应用方式: sudo -u majiang crontab /path/to/this_file
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+
+# 00:00 日志切片: /data/majiang/log/schedule/*.log 按日归档到 backup/, 清理 30 天前切片
+0 0 * * * /bin/bash /data/majiang/src/schedule/restore_logslice.sh >> /data/majiang/log/schedule/logslice.log 2>&1
