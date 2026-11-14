@@ -63,7 +63,12 @@ const isRobKong = computed(() => props.reason === 'rob_kong')
 
 // 两段式询问（05 §「询问·胡优先」）：能胡时先只给「胡」「不胡」，
 // 此时这个按钮是"过胡"（只对本张牌生效）；补出吃碰杠之后才是彻底放弃，文案回到「过」。
-const passLabel = computed(() => (props.claimTile !== null && hu.value ? '不胡' : '过'))
+// 自摸（claimTile 为 null）能胡时文案写全「不胡（放弃）」：这就是放弃本局胡牌，
+// 不能和「过」（放弃杠）混为一谈——误点过一次就会永远看不到胡按钮（v1.1.20）。
+const passLabel = computed(() => {
+  if (!hu.value) return '过'
+  return props.claimTile !== null ? '不胡' : '不胡（放弃）'
+})
 
 /** 已选两张的归一化键：用来判断某个候选组合是否就是当前选中的那组 */
 const pickedKey = computed(() =>

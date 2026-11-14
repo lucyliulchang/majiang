@@ -299,6 +299,8 @@ class GameEngine:
         self.move_count = 0  # 本局出牌次数（0 = 牌墙未动）
         self.draws_by_seat: dict[int, int] = {seat: 0 for seat in range(MAX_ROUNDS)}
         self.claim_happened = False  # 本局是否发生过吃/碰/明杠
+        # 自摸判定诊断日志的去重键（v1.1.20）：同一回合的快照只留一条
+        self._hu_probe_key: tuple | None = None
 
     # ------------------------------------------------------------------ 基础
     @property
@@ -442,6 +444,7 @@ class GameEngine:
         self.move_count = 0
         self.draws_by_seat = {seat: 0 for seat in range(MAX_ROUNDS)}
         self.claim_happened = False
+        self._hu_probe_key = None
 
         for state in self.seats.values():
             state.counts = empty_counts()
@@ -545,11 +548,45 @@ class GameEngine:
             return payload
         if self.phase == "discard" and seat == self.turn:
             actions: list[dict] = [{"action": "discard"}]
-            if self.evaluate_win(self._ctx(seat, win_tile=self.last_draw)) is not None:
+            breakdown = self.evaluate_win(self._ctx(seat, win_tile=self.last_draw))
+            if breakdown is not None:
                 actions.append({"action": "hu"})
+            self._log_hu_probe(seat, breakdown)
             actions.extend(self._self_kong_options(seat))
             return {"actions": actions}
         return {"actions": []}
+
+    def _log_hu_probe(self, seat: int, breakdown: ScoreBreakdown | None) -> None:
+        """自摸判定的现场证据（v1.1.20）：每回合留一条，复盘「该弹胡没弹」。
+
+        快照按连接逐个调用 `legal_actions`，同一回合会被算多次，
+        因此用 `(局号, 座位, 出牌计数, 摸牌)` 去重，避免日志刷屏。
+        `hu=no` 时 `fan` 是最高拆解的番合计（牌型不成胡则为 0）。
+        """
+        key = (self.round_no, seat, self.move_count, self.last_draw)
+        if self._hu_probe_key == key:
+            return
+        self._hu_probe_key = key
+        try:
+            state = self.seat_state(seat)
+            hand = " ".join(tile_name(tile) for tile in tiles_from_counts(state.counts))
+            melds = " ".join(
+                f"{meld.kind}({' '.join(tile_name(tile) for tile in meld.tiles)})"
+                for meld in state.melds
+            )
+            logger.info(
+                "自摸判定 round=%s seat=%s draw=%s hand=[%s] melds=[%s] pattern=%s fan=%s hu=%s",
+                self.round_no,
+                seat,
+                tile_name(self.last_draw) if self.last_draw is not None else "-",
+                hand,
+                melds or "-",
+                breakdown.pattern_id if breakdown is not None else "-",
+                breakdown.fan_total if breakdown is not None else 0,
+                "yes" if breakdown is not None else "no",
+            )
+        except Exception:  # 诊断日志绝不能反过来影响牌局
+            logger.exception("自摸判定日志写入失败 round=%s seat=%s", self.round_no, seat)
 
     def _chow_hint(self, seat: int) -> str:
         """本座位「为什么不能吃」（v1.1.4 B-2）：可吃或不属于本窗口时返回空串。

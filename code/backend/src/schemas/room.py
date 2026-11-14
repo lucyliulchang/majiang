@@ -28,6 +28,10 @@ class RoomOut(BaseModel):
     status: str
     player_count: int = 0
     spectator_count: int = 0
+    # 内存实时房态：waiting / playing / finished / closed。
+    # 库里 `mj_room.roomStatus` 开局后仍是 OPEN（只有关房才写 CLOSED），
+    # 大厅卡片必须看这个字段才能区分「等待开局」与「进行中」。
+    table_status: str = ""
     created_at: str
 
 

@@ -173,6 +173,11 @@ export interface RoomInfo {
   rule_name: string
   rule_family_code: string
   status: 'OPEN' | 'CLOSED' | string
+  /**
+   * 内存实时房态：waiting / playing / finished / closed。
+   * 库里的 `status` 开局后仍是 OPEN，卡片要按这个字段区分「等待开局 / 进行中」。
+   */
+  table_status?: string
   player_count: number
   spectator_count: number
   created_at: string

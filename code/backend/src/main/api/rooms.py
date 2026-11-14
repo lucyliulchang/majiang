@@ -29,6 +29,18 @@ def _liveCounts(roomCode: str) -> tuple[int, int]:
     return actor.player_count(), actor.spectator_count()
 
 
+def _liveStatus(roomCode: str) -> str:
+    """内存实时房态：waiting / playing / finished / closed。无 actor 视为 waiting。
+
+    库里的 `mj_room.roomStatus` 在开局后**仍然是 OPEN**（只有关房才写 CLOSED），
+    所以大厅卡片不能只看库状态，否则正在打的桌会一直显示「等待开局」。
+    """
+    actor = room_manager.get(roomCode)
+    if actor is None:
+        return "waiting"
+    return str(getattr(actor, "status", "") or "waiting")
+
+
 def _familyOf(
     user: CurrentUser, familyCode: str, fallback: FamilyContext
 ) -> FamilyContext:
@@ -70,7 +82,16 @@ def my_rooms(
     result: list[RoomOut] = []
     for row in rows:
         players, spectators = _liveCounts(row["room_code"])
-        result.append(RoomOut(**{**row, "player_count": players, "spectator_count": spectators}))
+        result.append(
+            RoomOut(
+                **{
+                    **row,
+                    "player_count": players,
+                    "spectator_count": spectators,
+                    "table_status": _liveStatus(row["room_code"]),
+                }
+            )
+        )
     return result
 
 
@@ -97,7 +118,14 @@ def get_room(
     """房间详情（04 §6 #27）：以房间自身 familyID 校验成员关系（凭码入房走 #28 与 WS）。"""
     row = roomService.getRoom(user.login_id, room_id)
     players, spectators = _liveCounts(row["room_code"])
-    return RoomOut(**{**row, "player_count": players, "spectator_count": spectators})
+    return RoomOut(
+        **{
+            **row,
+            "player_count": players,
+            "spectator_count": spectators,
+            "table_status": _liveStatus(row["room_code"]),
+        }
+    )
 
 
 @router.post("/{room_id}/close", response_model=RoomOut)

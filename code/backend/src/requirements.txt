@@ -2,6 +2,9 @@ fastapi==0.115.6
 uvicorn[standard]==0.32.1
 pymysql==1.1.1
 DBUtils==3.1.0
+# MySQL 8 的 caching_sha2_password / sha256_password 认证由 PyMySQL 交给 cryptography 实现，
+# 缺包时握手直接报 "PackageNotInstalledError: 'cryptography' package is required..."
+cryptography==50.0.2
 pydantic==2.10.3
 pydantic-settings==2.7.0
 PyJWT==2.10.1

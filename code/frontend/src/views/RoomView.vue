@@ -222,13 +222,29 @@ function onAct(action: LegalAction): void {
   game.act(action)
 }
 
+/** 自摸能胡时点「不胡（放弃）」要二次确认：动作条一收起，本回合就再也看不到胡按钮了 */
+const passConfirmOpen = ref(false)
+
 function onPass(): void {
   // 自己的回合：过 = 不杠、不自摸，收起动作条去出牌（服务端出牌阶段不认 pass）
   if (game.isMyTurn && game.hasAction('discard')) {
+    if (game.hasAction('hu')) {
+      passConfirmOpen.value = true
+      return
+    }
     passDismissed.value = true
     return
   }
   game.pass()
+}
+
+function confirmPass(): void {
+  passConfirmOpen.value = false
+  passDismissed.value = true
+}
+
+function cancelPass(): void {
+  passConfirmOpen.value = false
 }
 
 function copyCode(): void {
@@ -810,6 +826,31 @@ const dealerName = computed(() => {
       @close="dismissResult"
       @next="nextRound"
     />
+
+    <!-- 自摸放弃确认（v1.1.20）：动作条一收起，本回合就再也看不到胡按钮 -->
+    <div
+      v-if="passConfirmOpen"
+      class="fixed inset-0 z-[71] flex items-center justify-center bg-felt-950/85 px-4 backdrop-blur-sm"
+      @click.self="cancelPass"
+    >
+      <div class="w-full max-w-sm animate-riseIn rounded-2xl border border-vermilion-500/35 bg-felt-900/95 p-5 text-center shadow-table">
+        <p class="text-[11px] tracking-[0.3em] text-vermilion-400/80">PASS WIN</p>
+        <h2 class="mt-1.5 text-lg font-semibold text-cream-100">确定这手不胡？</h2>
+        <p class="mt-2 text-left text-xs leading-relaxed text-ink-300/80">
+          你现在可以自摸胡牌。点「不胡」会收起操作条，本回合只能继续出牌，等于放弃这次胡牌。
+        </p>
+        <div class="mt-5 flex justify-center gap-2">
+          <button type="button" class="btn-ghost rounded-lg px-4 py-2 text-sm" @click="cancelPass">还是胡</button>
+          <button
+            type="button"
+            class="rounded-lg bg-vermilion-500 px-4 py-2 text-sm font-semibold text-cream-50 transition hover:bg-vermilion-400"
+            @click="confirmPass"
+          >
+            不胡，继续打
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- 结束牌局确认：房主或房间所属家庭的管理员都能触发（v1.1.4 U-6） -->
     <div

@@ -197,6 +197,17 @@ function enterRoom(room: RoomInfo): void {
   router.push({ name: 'room', params: { code: room.room_code } })
 }
 
+/**
+ * 卡片状态文案：库里的 `status` 开局后仍是 OPEN（只有关房才写 CLOSED），
+ * 所以还要看内存实时房态 `table_status`，否则正在打的桌会一直显示「等待开局」。
+ */
+function tableStatusText(room: RoomInfo): string {
+  if (room.status !== 'OPEN') return '已关闭'
+  if (room.table_status === 'playing') return '进行中'
+  if (room.table_status === 'finished') return '结算中'
+  return '等待开局'
+}
+
 // ---- 收桌：房主可以不进屋，直接在大厅关掉自己开的桌（列表只列 OPEN）----
 const closingId = ref<number | null>(null)
 const closing = ref(false)
@@ -338,7 +349,9 @@ const quickLinks = computed(() => {
               <div class="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-ink-300/60">
                 <span>{{ room.player_count }} / 4 人</span>
                 <span v-if="room.spectator_count">· {{ room.spectator_count }} 人围观</span>
-                <span>{{ room.status === 'OPEN' ? '等待开局' : '已关闭' }}</span>
+                <span :class="room.table_status === 'playing' ? 'text-gold-300' : ''">
+                  {{ tableStatusText(room) }}
+                </span>
               </div>
 
               <div
