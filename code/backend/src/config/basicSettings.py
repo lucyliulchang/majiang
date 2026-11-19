@@ -18,7 +18,7 @@ from pathlib import Path
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-VERSION = "1.1.20"
+VERSION = "1.2.0"
 
 # basicSettings.py -> config -> src -> backend，即 code/backend
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -71,6 +71,8 @@ DEFAULT_CHAT_RATE_LIMIT = 3
 DEFAULT_SPECTATE_LIMIT_PER_SEAT = 10
 DEFAULT_SPECTATE_ROOM_MAX = 40
 DEFAULT_SPECTATE_RESERVE_SECONDS = 60
+# v1.2.0：牌桌上点名最多显示几位围观者（0 表示只发人数、不发名字）
+DEFAULT_SPECTATE_NAME_LIMIT = 2
 
 
 def intInRange(value, low: int, high: int, defaultValue: int) -> int:
@@ -142,6 +144,9 @@ class BasicSettings(BaseSettings):
     spectate_limit_per_seat: int = DEFAULT_SPECTATE_LIMIT_PER_SEAT
     spectate_room_max: int = DEFAULT_SPECTATE_ROOM_MAX
     spectate_reserve_seconds: int = DEFAULT_SPECTATE_RESERVE_SECONDS
+    # v1.2.0 围观点名：默认开启；置 false 即退回「只显示人数」，前端无需发版。
+    # 每座最多下发的名字个数固定为 DEFAULT_SPECTATE_NAME_LIMIT（只点前两位，其余不上行）。
+    spectate_reveal_names: bool = True
 
     @field_validator(
         "spectate_limit_per_seat", "spectate_room_max", "spectate_reserve_seconds", mode="before"

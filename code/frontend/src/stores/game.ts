@@ -29,7 +29,8 @@ export interface Banner {
 
 /** 整场结束（打满局数或房主提前结束）的广播载荷 */
 export interface GameFinished {
-  scores: { seat: number; name: string; total: number }[]
+  /** `wins` = 本场胡牌次数（荒庄不计；旧服务端不带该字段时按 0 显示） */
+  scores: { seat: number; name: string; total: number; wins?: number }[]
   /** true = 房主提前收场，未结算的这一局作废 */
   aborted?: boolean
   /** true = 自然打满（本场到此为止，房间随即置 CLOSED） */
@@ -285,6 +286,14 @@ export const useGameStore = defineStore('game', () => {
           for (let seat = 0; seat < 4; seat += 1) {
             const view = seats[seat]
             if (view) view.spectator_count = counts[seat] ?? 0
+          }
+        }
+        // v1.2.0：点名同步覆盖（每座最多两位，缺字段时保持原样，避免老后端把名字抹掉）
+        const names: string[][] | undefined = data.seat_spectator_names
+        if (Array.isArray(names) && seats) {
+          for (let seat = 0; seat < 4; seat += 1) {
+            const view = seats[seat]
+            if (view && Array.isArray(names[seat])) view.spectator_names = names[seat]
           }
         }
         // 自己跟随的目标人数变化时同步横幅上的 N/10

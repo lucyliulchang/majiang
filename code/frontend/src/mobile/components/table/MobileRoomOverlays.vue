@@ -147,7 +147,14 @@ const emit = defineEmits<{
           :key="entry.seat"
           class="flex items-center justify-between rounded-lg border border-cream-100/10 bg-cream-100/[0.03] px-3 py-2 text-[13px]"
         >
-          <span class="text-cream-100">{{ entry.name }}</span>
+          <span class="flex min-w-0 items-center gap-2">
+            <span class="truncate text-cream-100">{{ entry.name }}</span>
+            <span class="shrink-0 text-[11px] text-ink-300/55">
+              胡牌
+              <span class="font-num" :class="(entry.wins ?? 0) > 0 ? 'text-gold-300' : 'text-ink-300/55'">{{ entry.wins ?? 0 }}</span>
+              次
+            </span>
+          </span>
           <span class="font-num font-bold" :class="entry.total >= 0 ? 'text-jade-400' : 'text-vermilion-400'">
             {{ entry.total > 0 ? '+' : '' }}{{ entry.total }}
           </span>

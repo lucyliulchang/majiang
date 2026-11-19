@@ -4,6 +4,7 @@ import { Crown, Eye, WifiOff } from 'lucide-vue-next'
 
 import Tile from './Tile.vue'
 import type { MeldView, SeatView } from '../../types'
+import { spectatorLine, spectatorTitle } from '../../utils/spectator'
 
 const props = withDefaults(
   defineProps<{
@@ -28,6 +29,15 @@ const isOut = computed(() => props.seat.is_out === true)
 const roundScore = computed(() => props.seat.round_score)
 const hiddenCount = computed(() => props.seat.hand_count)
 const backs = computed(() => Math.min(hiddenCount.value, 14))
+
+/** v1.2.0：点名最多两位、每位最多 4 字；老后端没有名字时退回「围观 N」 */
+const viewerText = computed(() => {
+  const line = spectatorLine(props.seat.spectator_names)
+  return line || `围观 ${props.seat.spectator_count ?? 0}`
+})
+const viewerTitle = computed(() =>
+  spectatorTitle(props.seat.spectator_names, props.seat.spectator_count ?? 0)
+)
 
 /** 吃的这副里哪一张是别人打出来的（后端 claim_tile）；其余副露整组同牌，不标 */
 function claimIndex(meld: MeldView): number {
@@ -78,14 +88,14 @@ function claimIndex(meld: MeldView): number {
           已胡
         </span>
       </p>
-      <!-- 被围观人数（全房可见，不暴露观战者身份） -->
+      <!-- 被围观：点名前两位（v1.2.0），名字超 4 字截断，其余只进 title -->
       <span
         v-if="(seat.spectator_count ?? 0) > 0"
-        class="mt-0.5 inline-flex items-center gap-0.5 text-[10px] text-gold-400/80"
-        :title="`${seat.spectator_count} 人正在围观`"
+        class="mt-0.5 flex min-w-0 items-center gap-0.5 text-[10px] text-gold-400/80"
+        :title="viewerTitle"
       >
-        <Eye class="h-3 w-3" />
-        围观 {{ seat.spectator_count }}
+        <Eye class="h-3 w-3 shrink-0" />
+        <span class="truncate">{{ viewerText }}</span>
       </span>
       <div class="mt-0.5 flex items-center gap-2 text-[11px]">
         <span :class="total >= 0 ? 'text-jade-400' : 'text-vermilion-400'">

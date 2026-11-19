@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 from starlette.concurrency import run_in_threadpool
 
+from config.basicSettings import DEFAULT_SPECTATE_NAME_LIMIT
 from config.localSettings import settings
 from common.loggingCommon import get_logger
 from game.engine import EngineError, GameEngine, SeatState, draw_seats
@@ -33,6 +34,14 @@ logger = get_logger("mahjong.room")
 
 # 一圈固定 4 个庄次（北位下庄即本圈结束）；一场默认 4 圈，开桌时可按桌覆盖（v1.1.0）
 ROUNDS_PER_CIRCLE = 4
+
+
+def _maskLogin(loginID: str) -> str:
+    """昵称为空时的兜底展示：手机号打码成 135****4661，不把整号发给全房。"""
+    text = (loginID or "").strip()
+    if len(text) <= 7:
+        return text
+    return f"{text[:3]}****{text[-4:]}"
 
 
 def nextRoundState(
@@ -98,11 +107,15 @@ class SpectateBinding:
 
     以 `target_login_id` 为准：抽座换座后按目标当前座位重算 `target_seat`，不会跟错人。
     `reserve_until` 在连接全断后生效，到期由 `_spectate_reserve` 释放名额。
+
+    v1.2.0：多记一份观战者昵称（握手时写入），牌桌只点名前 `DEFAULT_SPECTATE_NAME_LIMIT`
+    位（默认 2 位），其余不下行；昵称为空时由前端/服务端回退手机号掩码。
     """
 
     target_login_id: str
     target_seat: int | None = None
     reserve_until: float = 0.0
+    display_name: str = ""
 
 
 @dataclass
@@ -173,6 +186,8 @@ class RoomActor:
         self.seat_draw: dict | None = None
         # 本场第几圈（v1.1.0）：一圈 4 个庄次，一场圈数由 `rule.circles_per_game` 决定
         self.circle_no = 1
+        # 本场每个座位的胡牌次数（结算广播用；荒庄不计，一场开桌时清零）
+        self.win_counts: dict[int, int] = {}
         # 本局是否连庄（庄家胡牌后庄位与局风不变）：只用于展示「连庄」角标
         self.dealer_continue = False
 
@@ -238,6 +253,27 @@ class RoomActor:
             if seat is not None:
                 counts[seat] += 1
         return counts
+
+    def spectator_names(self, limit: int | None = None) -> list[list[str]]:
+        """按座位取围观者昵称（每座最多 `limit` 个，按绑定先后排序）。
+
+        v1.2.0：牌桌只点名前两位，其余不下行（家庭场景的隐私取舍）；
+        `settings.spectate_reveal_names=false` 时整体返回空，退回「只显示人数」。
+        同一 loginID 只出现一次（多标签页算一人），与 `spectator_counts` 同口径。
+        """
+        names: list[list[str]] = [[], [], [], []]
+        if not bool(getattr(settings, "spectate_reveal_names", True)):
+            return names
+        cap = DEFAULT_SPECTATE_NAME_LIMIT if limit is None else max(0, int(limit))
+        if cap <= 0:
+            return names
+        for login_id, binding in self.spectators.items():
+            seat = self.seat_of_login(binding.target_login_id)
+            binding.target_seat = seat
+            if seat is None or len(names[seat]) >= cap:
+                continue
+            names[seat].append(binding.display_name or _maskLogin(login_id))
+        return names
 
     def viewer_count_of(self, target_login_id: str) -> int:
         return sum(
@@ -549,13 +585,18 @@ class RoomActor:
 
     # ---------------------------------------------------------------- 观战（S5b）
     async def _broadcast_spectate(self, target_login_id: str) -> None:
-        """广播围观名额变化：全房可见计数，但不暴露观战者身份。"""
+        """广播围观名额变化（v1.2.0：每座点名前两位围观者）。
+
+        - `seat_viewer_counts` 仍是人数（观战选择器的满员判定靠它）；
+        - `seat_spectator_names` 每座最多 2 个昵称，其余不下行；开关关闭时全为空数组。
+        """
         seat = self.seat_of_login(target_login_id)
         payload = {
             "target_login_id": target_login_id,
             "target_seat": seat,
             "viewer_count": self.viewer_count_of(target_login_id) if seat is not None else 0,
             "seat_viewer_counts": self.spectator_counts(),
+            "seat_spectator_names": self.spectator_names(),
         }
         await self.broadcast(make_message("event.spectate_changed", payload))
 
@@ -619,7 +660,9 @@ class RoomActor:
 
         old_target = existing.target_login_id if existing is not None else ""
         self.spectators[login_id] = SpectateBinding(
-            target_login_id=target.login_id, target_seat=target_seat
+            target_login_id=target.login_id,
+            target_seat=target_seat,
+            display_name=self.role_name_of(login_id),
         )
         self._cancel_spectate_timer(login_id)
         if old_target:
@@ -658,6 +701,7 @@ class RoomActor:
                     "target_seat": None,
                     "viewer_count": 0,
                     "seat_viewer_counts": self.spectator_counts(),
+                    "seat_spectator_names": self.spectator_names(),
                 },
             )
         )
@@ -686,6 +730,7 @@ class RoomActor:
                     "target_seat": None,
                     "viewer_count": 0,
                     "seat_viewer_counts": [0, 0, 0, 0],
+                    "seat_spectator_names": [[], [], [], []],
                 },
             )
         )
@@ -931,6 +976,8 @@ class RoomActor:
         ]
         self.circle_no = 1
         self.dealer_continue = False
+        # 新的一场：胡牌次数从零开始统计（结算面板与战绩明细同口径）
+        self.win_counts = {}
         self.engine = registry.create_engine(
             self.rule_family_code or "generic",
             self.rule,
@@ -1103,6 +1150,9 @@ class RoomActor:
         if self.engine is not None:
             for entry in scores:
                 entry["total"] = self.engine.seats[entry["seat"]].total_score
+        # 整场结算面板直接显示每人胡了几局（与战绩明细同口径：荒庄不计）
+        for entry in scores:
+            entry["wins"] = self.win_counts.get(entry["seat"], 0)
         await self.broadcast(
             make_message("event.game_finished", {"scores": scores, "final": True})
         )
@@ -1273,7 +1323,15 @@ class RoomActor:
             total = 0
             if engine is not None and item.seat in engine.seats:
                 total = engine.seats[item.seat].total_score
-            scores.append({"seat": item.seat, "name": item.display_name, "total": total})
+            scores.append(
+                {
+                    "seat": item.seat,
+                    "name": item.display_name,
+                    "total": total,
+                    # 收场面板同样要看胡牌次数（已结算的局照算，作废的一局不计）
+                    "wins": self.win_counts.get(item.seat, 0),
+                }
+            )
         # 本局已结算（比如打满局的最后一局刚结算完）时没有「作废的局」，
         # 场次记 FINISHED；只有中途收场才是 ABORTED（与进程重启的中断口径一致）。
         settled = engine is not None and engine.phase == "settled"
@@ -1289,6 +1347,7 @@ class RoomActor:
         self.game_id = None
         self.last_result = None
         self.seat_draw = None
+        self.win_counts = {}
         self.paused = False
         self.paused_by_seat = None
         self.paused_by_login_id = None
@@ -1440,6 +1499,13 @@ class RoomActor:
             # 终局四家手牌与副露：结算页直接回放赢家 14 张，不必等战绩落库后回查
             "final_hands": list(settled.final_hands),
         }
+        # 本场胡牌次数（整场结算广播用）：血战一局可多人胡，逐个各加一次
+        for item in settled.winners:
+            raw_seat = item.get("seat")
+            if raw_seat is None:
+                continue
+            win_seat = int(raw_seat)
+            self.win_counts[win_seat] = self.win_counts.get(win_seat, 0) + 1
         if self.game_id is not None:
             saved = await self._persist(
                 persist.save_round, self.game_id, self.family_id, settled

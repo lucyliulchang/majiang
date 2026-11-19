@@ -19,6 +19,7 @@ import { useAuthStore } from '../stores/auth'
 import { CHOW_PICK_LIMIT, useGameStore } from '../stores/game'
 import { useSkinsStore } from '../stores/skins'
 import type { LegalAction } from '../types'
+import { spectatorLine, spectatorTitle } from '../utils/spectator'
 
 const route = useRoute()
 const router = useRouter()
@@ -294,6 +295,14 @@ async function backToLobby(): Promise<void> {
  * 手牌、副露（吃碰杠）与分数必须同一视角，否则观战时会「看得到手牌却看不到吃碰」。
  */
 const bottomView = computed(() => (isSpectator.value ? spectateTarget.value : mySeatView.value))
+/** v1.2.0：自己被围观时的点名（最多两位、每位最多 4 字，其余只进 title） */
+const myViewerText = computed(() => {
+  const line = spectatorLine(bottomView.value?.spectator_names)
+  return line || `围观 ${bottomView.value?.spectator_count ?? 0}`
+})
+const myViewerTitle = computed(() =>
+  spectatorTitle(bottomView.value?.spectator_names, bottomView.value?.spectator_count ?? 0)
+)
 const myMelds = computed(() => bottomView.value?.melds || [])
 const hintEnabled = computed(() => Boolean(game.ruleBrief?.ting_hint))
 /** 吃牌时标出「被吃的那一张」；碰/杠整组同牌，不标 */
@@ -545,14 +554,14 @@ const dealerName = computed(() => {
                     >
                       已胡
                     </span>
-                    <!-- 自己被围观：计数全房可见，但不暴露观战者身份 -->
+                    <!-- 自己被围观：点名前两位（v1.2.0），名字 4 字截断，其余只进 title -->
                     <span
                       v-if="!isSpectator && (bottomView?.spectator_count ?? 0) > 0"
-                      class="inline-flex items-center gap-0.5 rounded bg-gold-400/10 px-1 py-[1px] text-[10px] font-normal text-gold-300"
-                      :title="`${bottomView?.spectator_count} 人正在围观你`"
+                      class="inline-flex max-w-[112px] items-center gap-0.5 rounded bg-gold-400/10 px-1 py-[1px] text-[10px] font-normal text-gold-300"
+                      :title="myViewerTitle"
                     >
-                      <Eye class="h-3 w-3" />
-                      围观 {{ bottomView?.spectator_count }}
+                      <Eye class="h-3 w-3 shrink-0" />
+                      <span class="truncate">{{ myViewerText }}</span>
                     </span>
                   </p>
                   <p class="text-[10px]" :class="(bottomView?.total_score || 0) >= 0 ? 'text-jade-400' : 'text-vermilion-400'">
@@ -909,7 +918,14 @@ const dealerName = computed(() => {
             :key="entry.seat"
             class="flex items-center justify-between rounded-lg border border-cream-100/10 bg-cream-100/[0.03] px-3 py-2 text-sm"
           >
-            <span class="text-cream-100">{{ entry.name }}</span>
+            <span class="flex min-w-0 items-center gap-2">
+              <span class="truncate text-cream-100">{{ entry.name }}</span>
+              <span class="shrink-0 text-[11px] text-ink-300/55">
+                胡牌
+                <span class="font-num" :class="(entry.wins ?? 0) > 0 ? 'text-gold-300' : 'text-ink-300/55'">{{ entry.wins ?? 0 }}</span>
+                次
+              </span>
+            </span>
             <span class="font-num font-bold" :class="entry.total >= 0 ? 'text-jade-400' : 'text-vermilion-400'">
               {{ entry.total > 0 ? '+' : '' }}{{ entry.total }}
             </span>

@@ -101,6 +101,45 @@ const trend = computed(() => {
   })
 })
 
+/** 本场每个座位的胡牌次数（荒庄不计；抢杠、点炮都算一次胡）。 */
+interface WinStat {
+  total: number
+  selfDraw: number
+  discard: number
+  robKong: number
+}
+
+const EMPTY_WIN_STAT: WinStat = { total: 0, selfDraw: 0, discard: 0, robKong: 0 }
+
+const winStats = computed<Record<number, WinStat>>(() => {
+  const result: Record<number, WinStat> = {}
+  for (const round of detail.value?.rounds || []) {
+    if (round.winner_seat === null || round.winner_seat === undefined) continue
+    const seat = round.winner_seat
+    if (!result[seat]) result[seat] = { total: 0, selfDraw: 0, discard: 0, robKong: 0 }
+    const entry = result[seat]
+    entry.total += 1
+    if (round.win_type === 'self_draw') entry.selfDraw += 1
+    else if (round.win_type === 'rob_kong') entry.robKong += 1
+    else entry.discard += 1
+  }
+  return result
+})
+
+/** 胡牌次数文案：总次数为主，自摸/抢杠这些细节只在有值时补充。 */
+function winStatOf(seat: number): WinStat {
+  return winStats.value[seat] || EMPTY_WIN_STAT
+}
+
+function winDetailText(seat: number): string {
+  const stat = winStatOf(seat)
+  const parts: string[] = []
+  if (stat.selfDraw) parts.push(`自摸 ${stat.selfDraw}`)
+  if (stat.discard) parts.push(`点炮 ${stat.discard}`)
+  if (stat.robKong) parts.push(`抢杠 ${stat.robKong}`)
+  return parts.join(' · ')
+}
+
 const fmt = (iso: string): string => {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return '—'
@@ -286,6 +325,16 @@ async function openDetail(id: number): Promise<void> {
               <p class="text-xs" :style="{ color: player.color }">{{ player.display_name }}</p>
               <p class="mt-0.5 font-num text-lg font-bold" :class="player.total_score >= 0 ? 'text-jade-400' : 'text-vermilion-400'">
                 {{ player.total_score > 0 ? '+' : '' }}{{ player.total_score }}
+              </p>
+              <p class="mt-1 flex flex-wrap items-center gap-x-1.5 text-[10px] text-ink-300/60">
+                <span>
+                  胡牌
+                  <span class="font-num text-[12px] font-semibold" :class="winStatOf(player.seat).total ? 'text-gold-300' : 'text-ink-300/50'">
+                    {{ winStatOf(player.seat).total }}
+                  </span>
+                  次
+                </span>
+                <span v-if="winDetailText(player.seat)" class="text-ink-300/45">{{ winDetailText(player.seat) }}</span>
               </p>
             </div>
           </div>

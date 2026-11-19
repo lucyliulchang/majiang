@@ -246,8 +246,13 @@ export interface SeatView {
   is_dealer?: boolean
   /** 四川血战：本局已胡并退出（其它族恒为 false/缺省，界面不显示「已胡」） */
   is_out?: boolean
-  /** 当前围观人数（0–10），全房可见、不含观战者身份 */
+  /** 当前围观人数（0–10），全房可见 */
   spectator_count?: number
+  /**
+   * 围观者点名（v1.2.0）：每座最多 2 个昵称，按绑定先后；其余不下发。
+   * 老后端 / 开关关闭时缺省或空数组，界面回退成「围观 N」。
+   */
+  spectator_names?: string[]
 }
 
 /**

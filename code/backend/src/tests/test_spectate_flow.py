@@ -401,3 +401,53 @@ def test_join_check_reports_live_viewer_counts(s5_env):
     almost = roomService.joinCheckOut(row, playerCount=4, viewerCounts=[10, 10, 10, 9])
     assert almost["spectate"]["available"] is True
     assert almost["spectate"]["limit_per_seat"] == settings.spectate_limit_per_seat
+
+
+async def test_seat_viewer_names_only_first_two(s5_env):
+    """v1.2.0 围观点名：每座只下发前两位（按绑定先后），人数仍按真实名额。"""
+    actor, sockets = build_actor(s5_env)
+    guests = SPECTATORS[:3]
+    try:
+        await start_game(actor, sockets)
+        for index, loginID in enumerate(guests):
+            add_spectator(actor, loginID)
+            actor._roles[loginID] = ("MEMBER", f"围观{index + 1}")
+            await actor.handle(loginID, {"type": "spectate.target", "data": {"seat": 0}})
+
+        names = actor.spectator_names()
+        assert names[0] == ["围观1", "围观2"], "第三位不下行"
+        assert names[1:] == [[], [], []]
+
+        # 全量快照路径（重连恢复）
+        host_ws = sockets[actor.host_login_id]
+        host_ws.messages.clear()
+        await actor.push_all()
+        seats = host_ws.snapshot()["seats"]
+        assert seats[0]["spectator_names"] == ["围观1", "围观2"]
+        assert seats[0]["spectator_count"] == 3, "点名只给两位，人数照旧"
+
+        # 事件路径（等待开局时也能立刻看到点名）
+        event = host_ws.last("event.spectate_changed")
+        assert event is not None
+        assert event["data"]["seat_spectator_names"][0] == ["围观1", "围观2"]
+        assert event["data"]["seat_viewer_counts"][0] == 3
+    finally:
+        actor._clear_timers()
+
+
+async def test_seat_viewer_names_fallback_and_switch_off(s5_env, monkeypatch):
+    """昵称缺失回退手机号掩码；开关关闭时整体不下发（前端退回只显示人数）。"""
+    actor, sockets = build_actor(s5_env)
+    guest = SPECTATORS[0]
+    try:
+        await start_game(actor, sockets)
+        add_spectator(actor, guest)
+        await actor.handle(guest, {"type": "spectate.target", "data": {"seat": 1}})
+        assert actor.spectator_names()[1] == ["139****0001"], "不把整号发给全房"
+
+        monkeypatch.setattr(settings, "spectate_reveal_names", False)
+        assert actor.spectator_names() == [[], [], [], []]
+        # 人数不受开关影响
+        assert actor.spectator_counts() == [0, 1, 0, 0]
+    finally:
+        actor._clear_timers()

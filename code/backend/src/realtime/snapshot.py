@@ -39,7 +39,13 @@ def welcome_payload(actor, login_id: str, slot, chat: list[dict]) -> dict:
     }
 
 
-def _seat_view(actor, seat: int, look_seat: int | None, spectator_counts: list[int]) -> dict | None:
+def _seat_view(
+    actor,
+    seat: int,
+    look_seat: int | None,
+    spectator_counts: list[int],
+    spectator_names: list[list[str]] | None = None,
+) -> dict | None:
     slot = actor.slots[seat]
     if slot is None:
         return None
@@ -73,8 +79,10 @@ def _seat_view(actor, seat: int, look_seat: int | None, spectator_counts: list[i
         "melds": melds,
         "round_score": round_score,
         "total_score": total_score,
-        # 该座位当前围观人数（0–10），全房可见、不含观战者身份
+        # 该座位当前围观人数（0–10），全房可见
         "spectator_count": spectator_counts[seat],
+        # v1.2.0：围观者点名，最多前两位（其余不下行；开关关闭时为空数组）
+        "spectator_names": (spectator_names[seat] if spectator_names else []),
         # S6 追加：门风与庄家标记（04 §9.5；抽座结果只广播一次，重连靠这里恢复）
         "wind": wind,
         "is_dealer": bool(engine is not None and seat == engine.dealer_seat),
@@ -88,6 +96,7 @@ def build_snapshot(actor, viewer_seat: int | None, viewer_login_id: str = "") ->
     engine = actor.engine
     rule = actor.rule
     spectator_counts = actor.spectator_counts()
+    spectator_names = actor.spectator_names()
     spectate = None if viewer_seat is not None else actor.spectate_of(viewer_login_id)
     spectate_seat = spectate["target_seat"] if spectate else None
     look_seat = viewer_seat if viewer_seat is not None else spectate_seat
@@ -108,7 +117,10 @@ def build_snapshot(actor, viewer_seat: int | None, viewer_login_id: str = "") ->
         "join_requests": (
             actor.pending_requests() if viewer_login_id == actor.host_login_id else []
         ),
-        "seats": [_seat_view(actor, seat, look_seat, spectator_counts) for seat in range(4)],
+        "seats": [
+            _seat_view(actor, seat, look_seat, spectator_counts, spectator_names)
+            for seat in range(4)
+        ],
         "status": actor.status,
         "round_no": engine.round_no if engine else 0,
         "dealer_seat": engine.dealer_seat if engine else None,
