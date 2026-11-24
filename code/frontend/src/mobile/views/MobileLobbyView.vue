@@ -168,6 +168,20 @@ function onCreated(room: RoomInfo): void {
   void router.push({ name: 'room', params: { code: room.room_code } })
 }
 
+/**
+ * 大厅收桌权限（与后端 `roomService.closeRoom` 同口径）：房主随时可收；
+ * 家庭管理员（非房主）只能收「还没开局 / 已结算」的桌——正在打的桌一关就会把这局作废。
+ */
+function canCloseRoom(room: RoomInfo): boolean {
+  if (room.host_login_id === auth.loginId) return true
+  return auth.isFamilyAdmin && room.table_status !== 'playing'
+}
+
+/** 收桌入口文案：房主/admin 两种身份分开说，免得家人以为是谁都能关 */
+function closeLabel(room: RoomInfo): string {
+  return room.host_login_id === auth.loginId ? '我是房主，关闭这桌' : '未开局，管理员可收桌'
+}
+
 function openPc(feature: string): void {
   pcFeature.value = feature
   pcOpen.value = true
@@ -285,8 +299,8 @@ async function doClose(room: RoomInfo): Promise<void> {
               <ChevronRight class="mt-1 h-4 w-4 shrink-0 text-ink-300/50" />
             </button>
 
-            <!-- 房主可以直接在大厅收桌，不必先进屋 -->
-            <div v-if="room.host_login_id === auth.loginId" class="border-t border-cream-100/10 px-3.5 py-2">
+            <!-- 房主随时可在大厅收桌；家庭管理员可收还没开局的桌 -->
+            <div v-if="canCloseRoom(room)" class="border-t border-cream-100/10 px-3.5 py-2">
               <div v-if="closingId === room.id" class="flex items-center gap-2 text-[11px]">
                 <span class="text-cream-100">关闭这桌？大厅不再显示</span>
                 <button
@@ -308,7 +322,7 @@ async function doClose(room: RoomInfo): Promise<void> {
                 @click="closingId = room.id"
               >
                 <X class="h-3 w-3" />
-                我是房主，关闭这桌
+                {{ closeLabel(room) }}
               </button>
             </div>
           </article>

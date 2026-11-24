@@ -12,7 +12,7 @@
 - `三姊妹` 命中 ⇒ 其 3 副顺子不再计 一般高/姊妹花；
 - `青龙`/`混龙` 命中 ⇒ 其组成顺子不再参与 连6/老少谱/一般高/姊妹花/三姊妹；
 - `三暗刻`/`四暗刻` 自成 `anke` 组，只与彼此互斥，可与对对胡累加；
-- 风刻（门风刻/圈风刻）不占任何组，可与任意番种累加，可叠加至 +2；
+- 风刻（门风刻=门风、圈风刻=圈风）不占任何组，可与任意番种累加，可叠加至 +2；
 - 箭刻（中/发/白）每种一个刻子或杠各计 1 番，最多 3 番，不占任何组，可与任意番种累加；
 - 十三幺不判独赢；七小对不判将牌（全文字七对例外，可叠独赢）；
 - **13不靠 不判门清、独赢**（07 §6.3.4 v1.10 / R-6）：二者是牌型固有性质，不再重复计分；
@@ -419,13 +419,17 @@ def situational_hits(ctx: HandContext) -> list[FanHit]:
     return hits
 
 
-def wind_ke_hits(sets: list[SetInfo], seat_wind: int, round_wind: int) -> list[FanHit]:
-    """门风刻 / 圈风刻（07 §6.9）：各计一次、可叠加；将牌不算刻子。"""
+def wind_ke_hits(sets: list[SetInfo], seat_wind: int, circle_wind: int) -> list[FanHit]:
+    """门风刻 / 圈风刻（07 §6.9）：各计一次、可叠加；将牌不算刻子。
+
+    v1.17 起「圈风刻」按**圈风**判定（第 1 圈东 → 第 4 圈北，整圈不变），
+    与顶栏「南风圈 · 第 2/4 圈」的显示一致；局风只用于进度展示，不再参与计番。
+    """
     pongs = {item.tile for item in sets if item.kind == "pong"}
     hits: list[FanHit] = []
     if 27 + seat_wind in pongs:
         hits.append(FanHit("men_feng_ke"))
-    if 27 + round_wind in pongs:
+    if 27 + circle_wind in pongs:
         hits.append(FanHit("quan_feng_ke"))
     return hits
 
@@ -616,7 +620,7 @@ def shape_fans(ctx: HandContext, shape: HandShape) -> list[FanHit]:
     hits.extend(chow_fans(chows))
     hits.extend(jiang_pai_hit(shape.pair))
     hits.extend(du_ying_hit(forms))
-    hits.extend(wind_ke_hits(shape.sets, ctx.seat_wind, ctx.round_wind))
+    hits.extend(wind_ke_hits(shape.sets, ctx.seat_wind, ctx.circle_wind))
     hits.extend(jian_ke_hits(shape.sets))
     hits.extend(situational_hits(ctx))
     if not (flush or quan):

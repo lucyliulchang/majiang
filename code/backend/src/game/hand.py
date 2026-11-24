@@ -54,8 +54,11 @@ class HandContext:
     melds: list[Meld] = field(default_factory=list)
     win_tile: int | None = None
     is_self_draw: bool = False
-    seat_wind: int = 0  # 0-3 对应东南西北
+    seat_wind: int = 0  # 门风 0-3 对应东南西北（庄家恒东）
+    #: 局风（本圈第几局：第 1 局东…第 4 局北），随庄次推进；只用于展示与「连庄」判定
     round_wind: int = 0
+    #: 圈风（第 1 圈东…第 4 圈北），整圈不变；`圈风刻` 按它判定（07 §6.9 v1.17）
+    circle_wind: int = 0
     is_last_tile: bool = False  # 海底
     is_robbing_kong: bool = False
     is_after_kong: bool = False  # 杠上开花

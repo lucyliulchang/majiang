@@ -341,7 +341,6 @@ const dealerName = computed(() => {
           :dealer-continue="Boolean(game.snapshot.dealer_continue)"
           :family-name="game.snapshot.room.family_name"
           :family-code="game.snapshot.room.family_code"
-          :round-wind="game.snapshot.round_wind ?? (game.snapshot.round_no ? (game.snapshot.round_no - 1) % 4 : null)"
           :dealer-name="dealerName"
           :connected="game.connected"
           :can-end-game="canEndGame"

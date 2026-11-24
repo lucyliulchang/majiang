@@ -144,6 +144,9 @@ def _ctx_of(row: dict, winner: int, dealer_seat: int) -> HandContext | None:
             )
         )
     win_tile = row.get("winningTile")
+    # v1.17：圈风刻改按圈风判定，而圈序不落库（历史行只有局风 roundWind）。
+    # 这里按东风圈（circle_wind=0）复算；若该局确实含圈风刻且不在东风圈，
+    # 复算 fan_total 会与落库 fanTotal 不符 → 上层按「数据不可信」跳过，不会误改。
     return HandContext(
         counts=counts_from_tiles(concealed),
         melds=melds,
@@ -151,6 +154,7 @@ def _ctx_of(row: dict, winner: int, dealer_seat: int) -> HandContext | None:
         is_self_draw=(row.get("winType") == "self_draw"),
         seat_wind=(winner - dealer_seat) % 4,
         round_wind=int(row.get("roundWind") or 0),
+        circle_wind=0,
     )
 
 

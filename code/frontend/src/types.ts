@@ -367,9 +367,12 @@ export interface Snapshot {
   seats: (SeatView | null)[]
   status: string
   round_no: number
-  /** 本局局风 0 东 / 1 南 / 2 西 / 3 北；按庄次推进，庄家胡牌连庄时不变（04 §9.5） */
+  /**
+   * 本局局风 0 东 / 1 南 / 2 西 / 3 北；按庄次推进，庄家胡牌连庄时不变（04 §9.5）。
+   * v1.17 起只用于进度展示（末段「第 x/4 局」），不再参与计番；顶栏风位由 `circle_no` 推圈风。
+   */
   round_wind?: number
-  /** 本场第几圈（v1.1.0）：1 起算；老快照缺省按 1 */
+  /** 本场第几圈（v1.1.0）：1 起算；老快照缺省按 1。顶栏「南风圈」= (circle_no - 1) % 4 */
   circle_no?: number
   /** 本场共几圈（v1.1.0）：由规则 `circles_per_game` 决定 */
   total_circles?: number

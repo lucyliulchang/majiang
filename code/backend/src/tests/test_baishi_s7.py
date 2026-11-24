@@ -54,7 +54,7 @@ def kong(tile, kind="kong_hidden"):
     return Meld(kind=kind, tiles=[tile] * 4)
 
 
-def ctx_of(hand, text, win_tile=None, melds=None, seat_wind=0, round_wind=0, **flags):
+def ctx_of(hand, text, win_tile=None, melds=None, seat_wind=0, round_wind=0, circle_wind=0, **flags):
     return HandContext(
         counts=counts_from_tiles(hand(text)),
         melds=list(melds or []),
@@ -62,6 +62,7 @@ def ctx_of(hand, text, win_tile=None, melds=None, seat_wind=0, round_wind=0, **f
         is_self_draw=flags.pop("is_self_draw", False),
         seat_wind=seat_wind,
         round_wind=round_wind,
+        circle_wind=circle_wind,
         **flags,
     )
 
@@ -935,9 +936,9 @@ def test_case23_thirteen_orphans_is_102(hand):
 
 
 def test_case25_wind_ke_stacking(hand):
-    # 庄家（门风东）+ 第 1 局（局风东）持东刻子 → 门风刻 1 + 圈风刻 1
+    # 庄家（门风东）+ 第 1 圈（圈风东）持东刻子 → 门风刻 1 + 圈风刻 1
     breakdown = _eval(
-        ctx_of(hand, "1z1z1z123m456p789s5p5p", win_tile=4, seat_wind=0, round_wind=0)
+        ctx_of(hand, "1z1z1z123m456p789s5p5p", win_tile=4, seat_wind=0, circle_wind=0)
     )
     ids = ids_of(breakdown)
     assert ids["men_feng_ke"] == 1
@@ -945,22 +946,55 @@ def test_case25_wind_ke_stacking(hand):
 
     # 同一手改持南刻子 → 0
     south = ids_of(
-        _eval(ctx_of(hand, "2z2z2z123m456p789s5p5p", win_tile=4, seat_wind=0, round_wind=0))
+        _eval(ctx_of(hand, "2z2z2z123m456p789s5p5p", win_tile=4, seat_wind=0, circle_wind=0))
     )
     assert "men_feng_ke" not in south and "quan_feng_ke" not in south
 
-    # 第 2 局（局风南）庄家持东刻子 → 仅门风刻
+    # 第 2 圈（圈风南）庄家持东刻子 → 仅门风刻；局风（本圈第几局）不参与计番
     second = ids_of(
-        _eval(ctx_of(hand, "1z1z1z123m456p789s5p5p", win_tile=4, seat_wind=0, round_wind=1))
+        _eval(
+            ctx_of(
+                hand,
+                "1z1z1z123m456p789s5p5p",
+                win_tile=4,
+                seat_wind=0,
+                round_wind=0,
+                circle_wind=1,
+            )
+        )
     )
     assert second["men_feng_ke"] == 1
     assert "quan_feng_ke" not in second
 
 
+def test_case25b_wind_ke_follows_circle_wind(hand):
+    """v1.17：圈风刻只看圈风（第 2 圈 = 南风圈，与顶栏显示一致）。"""
+    # 门风南 + 第 2 圈持南刻子 → 门风刻 1 + 圈风刻 1
+    both = ids_of(
+        _eval(ctx_of(hand, "2z2z2z123m456p789s5p5p", win_tile=4, seat_wind=1, circle_wind=1))
+    )
+    assert both["men_feng_ke"] == 1
+    assert both["quan_feng_ke"] == 1
+
+    # 同一手局风南北都不影响：改局风后仍为 2 番
+    assert ids_of(
+        _eval(
+            ctx_of(
+                hand,
+                "2z2z2z123m456p789s5p5p",
+                win_tile=4,
+                seat_wind=1,
+                round_wind=3,
+                circle_wind=1,
+            )
+        )
+    ) == both
+
+
 def test_case26_wind_ke_cross_wind(hand):
-    # 门风为南（seat_wind=1）在东风局（round_wind=0）持南南南 + 东东东
+    # 门风为南（seat_wind=1）在东风圈（circle_wind=0）持南南南 + 东东东
     breakdown = _eval(
-        ctx_of(hand, "2z2z2z1z1z1z123m456p5p5p", win_tile=4, seat_wind=1, round_wind=0)
+        ctx_of(hand, "2z2z2z1z1z1z123m456p5p5p", win_tile=4, seat_wind=1, circle_wind=0)
     )
     ids = ids_of(breakdown)
     assert ids["men_feng_ke"] == 1
@@ -969,7 +1003,7 @@ def test_case26_wind_ke_cross_wind(hand):
 
 def test_case27_wind_pair_is_not_ke(hand):
     breakdown = _eval(
-        ctx_of(hand, "1z1z123m456m789m123p", win_tile=4, seat_wind=0, round_wind=0)
+        ctx_of(hand, "1z1z123m456m789m123p", win_tile=4, seat_wind=0, circle_wind=0)
     )
     ids = ids_of(breakdown)
     assert "men_feng_ke" not in ids

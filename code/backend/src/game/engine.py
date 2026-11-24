@@ -321,6 +321,11 @@ class GameEngine:
         """门风 = (座位 - 庄家座位) % 4：庄家恒为东风，逐局整体转动。"""
         return (seat - self.dealer_seat) % 4
 
+    @property
+    def circle_wind(self) -> int:
+        """圈风 = (圈序 - 1) % 4：第 1 圈东风圈 → 第 4 圈北风圈，整圈不变（07 §6.9）。"""
+        return (max(1, int(self.circle_no)) - 1) % MAX_ROUNDS
+
     def _ctx(
         self,
         seat: int,
@@ -352,6 +357,7 @@ class GameEngine:
             is_self_draw=is_self_draw,
             seat_wind=self.seat_wind(seat),
             round_wind=self.round_wind,
+            circle_wind=self.circle_wind,
             is_last_tile=self.remaining == 0,
             is_robbing_kong=is_robbing_kong,
             is_after_kong=self.after_kong,

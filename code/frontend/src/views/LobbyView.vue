@@ -208,6 +208,16 @@ function tableStatusText(room: RoomInfo): string {
   return '等待开局'
 }
 
+/**
+ * 大厅收桌权限（与后端 `roomService.closeRoom` 同口径）：房主随时可收；
+ * 家庭管理员（非房主）只能收「还没开局 / 已结算」的桌——正在打的桌一关就会把这局作废，
+ * 留给房主在屋里「结束牌局」处理。
+ */
+function canCloseRoom(room: RoomInfo): boolean {
+  if (room.host_login_id === auth.loginId) return true
+  return auth.isFamilyAdmin && room.table_status !== 'playing'
+}
+
 // ---- 收桌：房主可以不进屋，直接在大厅关掉自己开的桌（列表只列 OPEN）----
 const closingId = ref<number | null>(null)
 const closing = ref(false)
@@ -329,13 +339,13 @@ const quickLinks = computed(() => {
                   <span class="rounded bg-felt-950/60 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.16em] text-gold-300">
                     {{ room.room_code }}
                   </span>
-                  <!-- 房主可以在大厅直接收桌，不必先进屋 -->
+                  <!-- 房主随时可在大厅直接收桌；家庭管理员可收还没开局的桌 -->
                   <button
-                    v-if="room.host_login_id === auth.loginId"
+                    v-if="canCloseRoom(room)"
                     type="button"
                     class="flex h-5 w-5 items-center justify-center rounded text-ink-300/45 transition hover:bg-vermilion-500/20 hover:text-vermilion-400"
                     :aria-label="`关闭牌桌 ${room.room_name}`"
-                    title="关闭这桌（大厅不再显示）"
+                    :title="room.host_login_id === auth.loginId ? '关闭这桌（大厅不再显示）' : '家庭管理员收桌（仅限未开局）'"
                     @click.stop="askClose(room)"
                   >
                     <X class="h-3.5 w-3.5" />

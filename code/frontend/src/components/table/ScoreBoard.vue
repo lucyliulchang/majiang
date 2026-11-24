@@ -27,8 +27,6 @@ const props = defineProps<{
   /** 家庭徽标（05 §4.5）；观战/断线时也只读展示 */
   familyName?: string
   familyCode?: string
-  /** 本局局风 0 东 / 1 南 / 2 西 / 3 北（04 §9.5 的 round_wind） */
-  roundWind?: number | null
   dealerName?: string | null
   /**
    * 能否收桌（v1.1.4 U-6）：房主或房间所属家庭的 OWNER/ADMIN，且牌局不在 waiting。
@@ -79,10 +77,12 @@ function pickSkin(skinCode: string): void {
 }
 
 const WIND_TEXT = ['东', '南', '西', '北']
-const roundWindText = computed(() => {
-  const wind = props.roundWind
-  if (wind === null || wind === undefined) return ''
-  return `${WIND_TEXT[wind] || ''}风局`
+// 圈风：第 1 圈东风圈 → 第 2 圈南风圈 → 第 3 圈西风圈 → 第 4 圈北风圈。
+// 顶栏只显示圈风（不再显示按庄次推进的局风），与「第 x/y 圈」的圈序一致。
+const circleWindText = computed(() => {
+  const circle = Math.max(1, props.circleNo ?? 1)
+  const wind = (circle - 1) % 4
+  return `${WIND_TEXT[wind]}风圈`
 })
 
 // 圈 / 局进度（v1.1.0）：多圈时显示「第 2/4 圈 · 第 3/4 局」，单圈只显示局数
@@ -196,7 +196,7 @@ const modeText = computed(() =>
 
     <div class="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-300/80 sm:gap-x-4">
       <span class="whitespace-nowrap" :title="dealerContinue ? `一圈 ${totalRounds} 个庄次，庄家胡牌连庄局数顺延` : ''">
-        <template v-if="roundWindText">{{ roundWindText }} · </template>
+        <template v-if="circleWindText">{{ circleWindText }} · </template>
         <template v-if="roundProgress.circleText">{{ roundProgress.circleText }} · </template>
         第 <b class="font-num text-cream-100">{{ roundProgress.num }}</b> / {{ roundProgress.total }} 局<template
           v-if="dealerContinue"

@@ -117,6 +117,8 @@ async def test_ws_claim_hu_stage_then_reveal_pong(hand):
         assert actions(sockets, target) == ["hu", "pass"]
         claim = sockets[target].last("state.snapshot")["data"]["legal"]
         assert claim["claim_tile"] == 4 and claim["reason"] == "discard"
+        # 过胡按钮点名后面还能补什么，避免误以为点了就彻底放弃
+        assert claim["actions"][1]["label"] == "不胡，看碰"
 
         await actor.handle(target, {"type": "game.action", "data": {"action": "pass"}})
 
@@ -125,6 +127,8 @@ async def test_ws_claim_hu_stage_then_reveal_pong(hand):
         assert [item["action"] for item in snapshot["legal"]["actions"]] == ["pong", "pass"]
         assert snapshot["phase"] == "claim"
         assert snapshot["legal"]["claim_tile"] == 4
+        # 过胡之后这个按钮才是彻底放弃，文案回到「过」
+        assert snapshot["legal"]["actions"][1]["label"] == "过"
 
         await actor.handle(target, {"type": "game.action", "data": {"action": "pong"}})
         claimed = sockets[target].last("event.claimed")

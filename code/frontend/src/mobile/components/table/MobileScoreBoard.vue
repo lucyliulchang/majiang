@@ -24,7 +24,6 @@ const props = defineProps<{
   totalCircles?: number | null
   /** 本局是否连庄 */
   dealerContinue?: boolean
-  roundWind?: number | null
   dealerName?: string | null
   connected: boolean
   familyName?: string
@@ -35,14 +34,14 @@ const emit = defineEmits<{ copy: []; more: []; chat: [] }>()
 const WIND_TEXT = ['东', '南', '西', '北']
 
 const roundText = computed(() => {
-  const wind = props.roundWind
-  const prefix = wind === null || wind === undefined ? '' : `${WIND_TEXT[wind] || ''}风 · `
   const inCircle = props.roundInCircle ?? props.roundNo
   const circles = props.totalCircles ?? 1
-  const circle = props.circleNo ?? 1
+  const circle = Math.max(1, props.circleNo ?? 1)
+  // 圈风与圈序同源（第 1 圈东风圈 → 第 4 圈北风圈），不再显示按庄次推进的局风
+  const circleWind = `${WIND_TEXT[(circle - 1) % 4]}风圈`
   const circlePart = circles > 1 ? `${circle}/${circles} 圈 · ` : ''
   const tail = props.dealerContinue ? '（连庄）' : ''
-  return `${prefix}${circlePart}第 ${inCircle} / ${props.totalRounds} 局${tail}`
+  return `${circleWind} · ${circlePart}第 ${inCircle} / ${props.totalRounds} 局${tail}`
 })
 </script>
 

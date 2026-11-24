@@ -118,6 +118,7 @@ def winning_tiles(ctx: HandContext, rule: "RuleConfig") -> list[int]:
             is_self_draw=True,
             seat_wind=ctx.seat_wind,
             round_wind=ctx.round_wind,
+            circle_wind=ctx.circle_wind,
         )
         if is_winning(probe, rule):
             result.append(tile)

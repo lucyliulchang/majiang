@@ -52,9 +52,10 @@ class ClaimWindow:
     def available(self, seat: int) -> list[dict]:
         """该座位这一刻真正可选的动作（快照 `legal.actions` 的唯一来源）。
 
-        - 胡阶段：`[hu, pass]`，吃碰杠先藏起来；
-        - 过胡后：其余动作 + `pass`（不再含 hu）；
-        - 本来就胡不了（或只有胡）：原样动作 + `pass`；
+        - 胡阶段：`[hu, pass]`，吃碰杠先藏起来；`pass` 的文案点名后面还有什么
+          （「不胡，看碰/吃」），免得玩家以为点了就是彻底放弃；
+        - 过胡后：其余动作 + `pass`（不再含 hu），文案回到「过」；
+        - 本来就胡不了（或只有胡）：原样动作 + `pass`（只有胡时文案仍是「不胡」）；
         - 已提交终态：空列表（等窗口收口，不再让它改主意）。
         """
         if seat not in self.options or seat in self.responses:
@@ -62,14 +63,22 @@ class ClaimWindow:
         actions = self.options[seat]
         if self.hu_stage(seat):
             hu = next(option for option in actions if option.get("action") == "hu")
-            return [dict(hu), {"action": "pass", "label": "不胡"}]
+            return [dict(hu), {"action": "pass", "label": f"不胡，看{self.behind_text(seat)}"}]
         rest = [
             dict(option)
             for option in actions
             # 过胡之后这张牌的 hu 就作废了；没胡或没吃碰杠可补的座位仍照原样给
             if not (option.get("action") == "hu" and seat in self.passed_hu)
         ]
-        return [*rest, {"action": "pass", "label": "过"}]
+        # 只剩胡可点的座位（如抢杠胡、非下家且无对子）：一次「过」就等于不胡，文案仍写「不胡」
+        has_hu = any(option.get("action") == "hu" for option in rest)
+        return [*rest, {"action": "pass", "label": "不胡" if has_hu else "过"}]
+
+    def behind_text(self, seat: int) -> str:
+        """过胡后还能补哪些动作，供 `pass` 文案点名（「不胡，看碰/吃」）。"""
+        kinds = {option.get("action") for option in self.options.get(seat) or ()}
+        names = [name for action, name in (("pong", "碰"), ("kong", "杠"), ("chow", "吃")) if action in kinds]
+        return "/".join(names) or "后续"
 
     def record(self, seat: int, action: dict, final: bool = False) -> bool:
         """记录一次提交。

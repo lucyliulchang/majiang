@@ -335,7 +335,6 @@ const dealerName = computed(() => {
         :circle-no="game.snapshot.circle_no ?? 1"
         :total-circles="game.snapshot.total_circles ?? 1"
         :dealer-continue="Boolean(game.snapshot.dealer_continue)"
-        :round-wind="game.snapshot.round_wind ?? (game.snapshot.round_no ? (game.snapshot.round_no - 1) % 4 : null)"
         :dealer-name="dealerName"
         :connected="game.connected"
         :family-name="game.snapshot.room.family_name"
