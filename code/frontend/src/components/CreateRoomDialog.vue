@@ -124,7 +124,8 @@ onMounted(async () => {
     activeFamily.value = preferred
     const first = templateList.find((item) => item.rule_family_code === preferred) || templateList[0]
     if (first) selectedId.value = first.id
-    name.value = `周末家庭局 · ${new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}`
+    // 默认桌名用「开桌人昵称 · 日期」，方便家人一眼认人
+    name.value = `${auth.displayName} · ${new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}`
   } catch (error) {
     toast.error((error as Error).message)
   } finally {
@@ -191,7 +192,7 @@ async function submit(): Promise<void> {
       <div class="max-h-[70vh] space-y-4 overflow-y-auto p-4 sm:p-6">
         <label class="block">
           <span class="mb-1.5 block text-xs text-ink-300/85">牌桌名字</span>
-          <input v-model="name" class="field" placeholder="比如 周末家庭局" maxlength="64" />
+          <input v-model="name" class="field" placeholder="比如 爸爸的牌局" maxlength="64" />
         </label>
 
         <div>
